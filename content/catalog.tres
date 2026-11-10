@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="Catalog" format=3]
+
+[ext_resource type="Script" path="res://core/content/catalog.gd" id="1_catalog"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Script" path="res://core/content/recipe_data.gd" id="3_recipescript"]
+[ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
+[ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
+[ext_resource type="Resource" path="res://content/items/gravel.tres" id="6_gravel"]
+[ext_resource type="Resource" path="res://content/recipes/crush_stone.tres" id="7_crush"]
+
+[resource]
+script = ExtResource("1_catalog")
+items = Array[ExtResource("2_itemscript")]([ExtResource("4_wood"), ExtResource("5_stone"), ExtResource("6_gravel")])
+recipes = Array[ExtResource("3_recipescript")]([ExtResource("7_crush")])

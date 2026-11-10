@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="ItemData" format=3]
+
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="1_item"]
+
+[resource]
+script = ExtResource("1_item")
+id = &"gravel"
+name_key = "ITEM_GRAVEL"
+max_stack = 50
+color = Color(0.78, 0.74, 0.62, 1)
