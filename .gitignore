@@ -1,0 +1,17 @@
+# Godot 4+
+.godot/
+/android/
+
+# Builds exportadas del juego
+/builds/
+
+# Copias de seguridad automáticas de Blender
+*.blend1
+*.blend2
+
+# Archivos del sistema Windows
+Thumbs.db
+desktop.ini
+
+# Configuración local de VS Code
+.vscode/
