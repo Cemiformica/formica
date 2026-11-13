@@ -17,6 +17,8 @@ config/icon="res://icon.svg"
 [autoload]
 
 Content="*res://autoload/content.gd"
+WorldState="*res://autoload/world_state.gd"
+SaveSystem="*res://autoload/save_system.gd"
 
 [display]
 

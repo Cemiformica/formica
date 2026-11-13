@@ -4,3 +4,10 @@ ITEM_STONE,Piedra,Pedra,Stone
 ITEM_GRAVEL,Grava,Grava,Gravel
 PROP_TREE,Árbol,Arbre,Tree
 PROP_ROCK,Roca,Roca,Rock
+SAVE_DONE,Partida guardada,Partida desada,Game saved
+SAVE_ERROR,No se pudo guardar la partida,No s'ha pogut desar la partida,Could not save the game
+SAVE_NONE,No hay ninguna partida guardada,No hi ha cap partida desada,No saved game found
+LOAD_DONE,Partida cargada,Partida carregada,Game loaded
+LOAD_BACKUP,Partida dañada: se ha cargado la copia de seguridad,Partida malmesa: s'ha carregat la còpia de seguretat,Saved game corrupted: the backup was loaded
+LOAD_ERROR,La partida guardada está dañada,La partida desada està malmesa,The saved game is corrupted
+LOAD_TOO_NEW,La partida es de una versión más nueva del juego,La partida és d'una versió més nova del joc,The saved game is from a newer version
