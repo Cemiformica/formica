@@ -159,6 +159,38 @@ func get_total(item: ItemData) -> int:
 	return total
 
 
+## Inventario → datos simples para el guardado (JSON): una entrada por casilla,
+## null si está vacía o {"id": "wood", "amount": 4} si está ocupada.
+## Solo se guarda el contenido; las reglas (`accepted_items`, `allow_insert`) son de quien lo crea.
+func to_data() -> Array:
+	var data: Array = []
+	for stack: ItemStack in slots:
+		data.append(null if stack == null else {"id": String(stack.item.id), "amount": stack.amount})
+	return data
+
+
+## Datos del guardado → contenido de este inventario (sustituye lo que hubiera).
+## Es tolerante: ignora con aviso ids desconocidos y entradas raras, recorta cantidades a
+## `max_stack` y descarta las casillas que sobren. Un guardado dañado nunca rompe la partida.
+func load_data(data: Array) -> void:
+	for i: int in slots.size():
+		slots[i] = null
+		if i >= data.size() or data[i] == null:
+			continue
+		if not data[i] is Dictionary:
+			push_warning("Inventario: casilla %d con datos no válidos en el guardado" % i)
+			continue
+		var entry: Dictionary = data[i]
+		var item: ItemData = Content.find_item(StringName(str(entry.get("id", ""))))
+		if item == null:
+			push_warning("Inventario: ítem desconocido en el guardado: '%s'" % entry.get("id", ""))
+			continue
+		var amount: int = clampi(int(entry.get("amount", 0)), 0, item.max_stack)
+		if amount > 0:
+			slots[i] = ItemStack.new(item, amount)
+	changed.emit()
+
+
 ## Texto de depuración con el contenido (solo consola, no se traduce).
 func debug_string() -> String:
 	var parts: PackedStringArray = []
