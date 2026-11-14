@@ -59,6 +59,10 @@ func _ready() -> void:
 	_check("salida A saca piedra", out_a.item_filter == Content.find_item(&"stone"))
 	_check("entradas sin filtro", in_a.item_filter == null and in_b.item_filter == null)
 
+	# 7) Reflejar solo cuando cambia algo: el horno sí (salidas con filtros distintos), la trituradora no.
+	_check("horno: se puede reflejar", furnace.can_flip())
+	_check("trituradora: reflejar no cambia nada", not Content.find_building(&"crusher").can_flip())
+
 	if _failures == 0:
 		print("--- PortData: TODO OK ---")
 	else:

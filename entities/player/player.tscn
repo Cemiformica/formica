@@ -1,6 +1,8 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://entities/player/player.gd" id="1_player"]
+[ext_resource type="Script" path="res://entities/player/build_controller.gd" id="2_build"]
+[ext_resource type="Resource" path="res://content/buildings/crusher.tres" id="3_crusher"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.4
@@ -29,3 +31,7 @@ current = true
 
 [node name="InteractRay" type="RayCast3D" parent="Head"]
 target_position = Vector3(0, 0, -3)
+
+[node name="BuildController" type="Node3D" parent="."]
+script = ExtResource("2_build")
+building = ExtResource("3_crusher")

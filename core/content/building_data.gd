@@ -16,3 +16,24 @@ extends Resource
 @export var recipe: RecipeData
 ## Puertos de entrada y salida (cintas). Se definen sin girar; giran y se reflejan con la construcción.
 @export var ports: Array[PortData] = []
+
+
+## ¿Cambia algo al reflejarla (tecla F)? Solo si algún puerto queda distinto: otra casilla, otro lado
+## u otro filtro (p. ej., las dos salidas del horno). Si reflejar no cambia nada, F no hace nada.
+func can_flip() -> bool:
+	var normal: Array[String] = []
+	var mirrored: Array[String] = []
+	for port: PortData in ports:
+		normal.append(_port_key(port, false))
+		mirrored.append(_port_key(port, true))
+	normal.sort()
+	mirrored.sort()
+	return normal != mirrored
+
+
+## Descripción de un puerto colocado en el origen sin girar, para comparar.
+func _port_key(port: PortData, flipped: bool) -> String:
+	var filter_id: String = ""
+	if port.item_filter != null:
+		filter_id = String(port.item_filter.id)
+	return "%s|%d|%d|%s" % [port.get_grid_cell(Vector2i.ZERO, size, 0, flipped), port.get_grid_side(0, flipped), port.kind, filter_id]

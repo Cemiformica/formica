@@ -2,7 +2,7 @@ class_name Player
 extends CharacterBody3D
 ## Jugador de la fase B (D-064): solo primera persona. Andar, saltar, mirar con el ratón e interactuar.
 ## No guarda el inventario: el del jugador es `WorldState.player_inventory` (D-046).
-## Construir llegará en B2.4b como un nodo hijo aparte, igual que en el prototipo.
+## Construir lo hace su hijo `BuildController` (B2.4b).
 
 ## Se emite cuando cambia el objeto interactuable al que miramos (null si ya no miramos ninguno).
 signal focus_changed(interactable: Interactable)
@@ -22,6 +22,7 @@ signal focus_changed(interactable: Interactable)
 @onready var head: Node3D = $Head
 @onready var camera: Camera3D = $Head/Camera3D
 @onready var interact_ray: RayCast3D = $Head/InteractRay
+@onready var build_controller: BuildController = $BuildController
 
 ## Posición y orientación iniciales, para reaparecer si caemos.
 var spawn_transform: Transform3D
