@@ -1,0 +1,34 @@
+[gd_resource type="Resource" script_class="BuildingData" format=3]
+
+[ext_resource type="Script" path="res://core/content/building_data.gd" id="1_building"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Script" path="res://core/content/port_data.gd" id="3_portscript"]
+[ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
+[ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
+[ext_resource type="Resource" path="res://content/items/gravel.tres" id="6_gravel"]
+[ext_resource type="Resource" path="res://content/recipes/crush_stone.tres" id="7_crush"]
+
+[sub_resource type="Resource" id="Resource_in"]
+script = ExtResource("3_portscript")
+kind = 0
+cell = Vector2i(0, 0)
+side = 3
+
+[sub_resource type="Resource" id="Resource_out"]
+script = ExtResource("3_portscript")
+kind = 1
+cell = Vector2i(0, 0)
+side = 1
+item_filter = ExtResource("6_gravel")
+
+[resource]
+script = ExtResource("1_building")
+id = &"crusher"
+name_key = "BUILDING_CRUSHER"
+size = Vector2i(1, 1)
+cost = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("4_wood"): 6,
+ExtResource("5_stone"): 4
+})
+recipe = ExtResource("7_crush")
+ports = Array[ExtResource("3_portscript")]([SubResource("Resource_in"), SubResource("Resource_out")])

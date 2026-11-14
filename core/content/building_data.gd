@@ -12,5 +12,7 @@ extends Resource
 @export var size: Vector2i = Vector2i.ONE
 ## Coste: qué ítems y cuántos de cada uno.
 @export var cost: Dictionary[ItemData, int] = {}
+## Receta fija si es una máquina (vacío = no es máquina: caja, cinta, generador…).
+@export var recipe: RecipeData
 ## Puertos de entrada y salida (cintas). Se definen sin girar; giran y se reflejan con la construcción.
 @export var ports: Array[PortData] = []
