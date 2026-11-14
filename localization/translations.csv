@@ -11,3 +11,7 @@ LOAD_DONE,Partida cargada,Partida carregada,Game loaded
 LOAD_BACKUP,Partida dañada: se ha cargado la copia de seguridad,Partida malmesa: s'ha carregat la còpia de seguretat,Saved game corrupted: the backup was loaded
 LOAD_ERROR,La partida guardada está dañada,La partida desada està malmesa,The saved game is corrupted
 LOAD_TOO_NEW,La partida es de una versión más nueva del juego,La partida és d'una versió més nova del joc,The saved game is from a newer version
+BUILDING_CRUSHER,Trituradora,Trituradora,Crusher
+BUILDING_CONVEYOR,Cinta,Cinta,Conveyor belt
+BUILD_NO_ROOM,No cabe aquí,No hi cap,No room here
+BUILD_NO_MATERIALS,Faltan materiales,Falten materials,Missing materials
