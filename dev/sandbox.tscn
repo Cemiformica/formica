@@ -3,6 +3,7 @@
 [ext_resource type="Script" path="res://dev/sandbox.gd" id="1_sandbox"]
 [ext_resource type="PackedScene" path="res://entities/player/player.tscn" id="2_player"]
 [ext_resource type="Script" path="res://entities/interactable.gd" id="3_interactable"]
+[ext_resource type="Script" path="res://world/island_view.gd" id="4_islandview"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.26, 0.5, 0.85, 1)
@@ -64,6 +65,10 @@ surface_material_override/0 = SubResource("StandardMaterial3D_box")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="TestBox"]
 shape = SubResource("BoxShape3D_box")
+
+[node name="IslandView" type="Node3D" parent="."]
+script = ExtResource("4_islandview")
+island_id = &"dev_sandbox"
 
 [node name="Player" parent="." instance=ExtResource("2_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 4)

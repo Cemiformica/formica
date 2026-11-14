@@ -4,6 +4,11 @@ extends RefCounted
 ## Existe aunque la isla no esté cargada en pantalla, así que `Simulation` puede hacerla producir.
 ## Para colocar o quitar se usa SIEMPRE esta clase (no la cuadrícula a mano): mantiene las dos cosas a la par.
 
+## Se emite al colocar una construcción (la vista crea su pieza visible).
+signal building_placed(building: PlacedBuilding)
+## Se emite al quitar una construcción (la vista borra su pieza visible).
+signal building_removed(building: PlacedBuilding)
+
 ## Qué casilla ocupa cada construcción. Se reconstruye al cargar a partir de las construcciones.
 var grid: OccupancyGrid = OccupancyGrid.new()
 ## Id → construcción colocada.
@@ -24,6 +29,7 @@ func place(data: BuildingData, origin: Vector2i, rotation: int = 0, flipped: boo
 	var placed := PlacedBuilding.new(_next_id, data, origin, rotation, flipped)
 	buildings[_next_id] = placed
 	_next_id += 1
+	building_placed.emit(placed)
 	return placed
 
 
@@ -34,6 +40,7 @@ func remove(id: int) -> PlacedBuilding:
 	var placed: PlacedBuilding = buildings[id]
 	grid.remove(id)
 	buildings.erase(id)
+	building_removed.emit(placed)
 	return placed
 
 

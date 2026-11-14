@@ -57,6 +57,16 @@ func _ready() -> void:
 	_check("dañados: solo queda la válida", damaged.buildings.size() == 1 and damaged.get_at(Vector2i(0, 0)) != null)
 	_check("dañados: el siguiente id salta los usados", damaged.place(crusher, Vector2i(1, 0)).id == 2)
 
+	# 6) Intercambio rápido (provisional): recoge la salida y mete en la entrada lo que acepta.
+	var pocket := Inventory.new(4)
+	pocket.add_item(stone, 10)
+	pocket.add_item(Content.find_item(&"wood"), 5)
+	var m4: PlacedBuilding = island.place(crusher, Vector2i(5, 5))
+	m4.output.add_item(gravel, 3)
+	m4.quick_exchange(pocket)
+	_check("intercambio: la piedra entra y la grava sale", m4.input.get_total(stone) == 10 and pocket.get_total(stone) == 0 and pocket.get_total(gravel) == 3 and m4.output.get_total(gravel) == 0)
+	_check("intercambio: la madera no entra", pocket.get_total(Content.find_item(&"wood")) == 5)
+
 	if _failures == 0:
 		print("--- IslandState: TODO OK ---")
 	else:

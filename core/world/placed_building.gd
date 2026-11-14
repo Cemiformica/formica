@@ -41,6 +41,24 @@ func is_machine() -> bool:
 	return data.recipe != null
 
 
+## Intercambio rápido con E (PROVISIONAL, B2.4c, hasta la ventana de máquina de la fase C):
+## recoge la salida en `other` y mete en la entrada todo lo que la máquina acepta de `other`.
+## Lo que no quepa se queda donde estaba.
+func quick_exchange(other: Inventory) -> void:
+	if not is_machine():
+		return
+	for item: ItemData in data.recipe.outputs:
+		var amount: int = output.get_total(item)
+		var moved: int = amount - other.add_item(item, amount)
+		if moved > 0:
+			output.remove_item(item, moved)
+	for item: ItemData in data.recipe.inputs:
+		var amount: int = other.get_total(item)
+		var moved: int = amount - input.add_item(item, amount)
+		if moved > 0:
+			other.remove_item(item, moved)
+
+
 ## Estado → datos simples para el guardado (JSON). El tipo se guarda por id ("crusher").
 func to_data() -> Dictionary:
 	var result: Dictionary = {
