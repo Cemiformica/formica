@@ -1,5 +1,5 @@
 extends Node
-## Autoload `Simulation`: hace avanzar el mundo a pasos fijos (D-046). Recorre TODAS las islas de
+## Autoload `Simulation`: hace avanzar el mundo a pasos fijos (D-046): máquinas, cintas y conexiones. Recorre TODAS las islas de
 ## `WorldState`, estén o no cargadas en pantalla, así que una fábrica lejana sigue produciendo.
 ## Los nodos no hacen trabajar a las máquinas: solo muestran lo que hay en los datos.
 ## Se pausa con el árbol (`get_tree().paused`), como el resto del juego.
@@ -41,9 +41,15 @@ func advance(seconds: float) -> void:
 ## Un paso de simulación para todo el mundo.
 func _step() -> void:
 	for island: IslandState in WorldState.islands.values():
+		# 1) Máquinas trabajan y cintas mueven sus ítems.
 		for placed: PlacedBuilding in island.buildings.values():
 			if placed.is_machine():
 				_step_machine(placed)
+			elif placed.is_belt():
+				placed.advance_belt(TICK)
+		# 2) Por cada conexión, pasa como mucho un ítem por paso.
+		for link: Dictionary in island.get_links():
+			_transfer(link)
 	tick_count += 1
 
 
@@ -60,3 +66,13 @@ func _step_machine(placed: PlacedBuilding) -> void:
 		for item: ItemData in recipe.outputs:
 			placed.output.add_item(item, recipe.outputs[item])
 		placed.progress = 0.0
+
+
+## Pasa un ítem de una salida a la entrada conectada, si hay algo listo y el destino lo acepta.
+func _transfer(link: Dictionary) -> void:
+	var from: PlacedBuilding = link["from"]
+	var to: PlacedBuilding = link["to"]
+	var item: ItemData = from.peek_output(link["out"])
+	if item != null and to.can_accept(item, link["in"]):
+		from.take_output(item)
+		to.accept(item)

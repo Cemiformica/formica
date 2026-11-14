@@ -14,6 +14,10 @@ extends Resource
 @export var cost: Dictionary[ItemData, int] = {}
 ## Receta fija si es una máquina (vacío = no es máquina: caja, cinta, generador…).
 @export var recipe: RecipeData
+## Solo cintas: velocidad en casillas por segundo. 0 = no es una cinta.
+@export var belt_speed: float = 0.0
+## Solo cintas: ítems que caben a la vez en una casilla.
+@export_range(1, 8) var belt_capacity: int = 2
 ## Puertos de entrada y salida (cintas). Se definen sin girar; giran y se reflejan con la construcción.
 @export var ports: Array[PortData] = []
 

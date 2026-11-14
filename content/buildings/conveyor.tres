@@ -1,0 +1,32 @@
+[gd_resource type="Resource" script_class="BuildingData" format=3]
+
+[ext_resource type="Script" path="res://core/content/building_data.gd" id="1_building"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Script" path="res://core/content/port_data.gd" id="3_portscript"]
+[ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
+[ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
+
+[sub_resource type="Resource" id="Resource_in"]
+script = ExtResource("3_portscript")
+kind = 0
+cell = Vector2i(0, 0)
+side = 2
+
+[sub_resource type="Resource" id="Resource_out"]
+script = ExtResource("3_portscript")
+kind = 1
+cell = Vector2i(0, 0)
+side = 0
+
+[resource]
+script = ExtResource("1_building")
+id = &"conveyor"
+name_key = "BUILDING_CONVEYOR"
+size = Vector2i(1, 1)
+cost = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("4_wood"): 1,
+ExtResource("5_stone"): 1
+})
+belt_speed = 1.5
+belt_capacity = 2
+ports = Array[ExtResource("3_portscript")]([SubResource("Resource_in"), SubResource("Resource_out")])

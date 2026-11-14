@@ -9,9 +9,10 @@
 [ext_resource type="Resource" path="res://content/recipes/crush_stone.tres" id="7_crush"]
 [ext_resource type="Script" path="res://core/content/building_data.gd" id="8_buildingscript"]
 [ext_resource type="Resource" path="res://content/buildings/crusher.tres" id="9_crusher"]
+[ext_resource type="Resource" path="res://content/buildings/conveyor.tres" id="10_conveyor"]
 
 [resource]
 script = ExtResource("1_catalog")
 items = Array[ExtResource("2_itemscript")]([ExtResource("4_wood"), ExtResource("5_stone"), ExtResource("6_gravel")])
 recipes = Array[ExtResource("3_recipescript")]([ExtResource("7_crush")])
-buildings = Array[ExtResource("8_buildingscript")]([ExtResource("9_crusher")])
+buildings = Array[ExtResource("8_buildingscript")]([ExtResource("9_crusher"), ExtResource("10_conveyor")])
