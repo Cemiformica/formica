@@ -25,3 +25,5 @@ CABLE_ALREADY,Ya están conectados,Ja estan connectats,Already connected
 CABLE_FULL,No le quedan conexiones libres,No li queden connexions lliures,No free connections left
 CABLE_TOO_FAR,Demasiado lejos,Massa lluny,Too far
 POWER_NO_POWER,Sin energía,Sense energia,No power
+ITEM_SEED,Semilla,Llavor,Seed
+BUILDING_TREE_CUTTER,Talador,Talador,Tree cutter

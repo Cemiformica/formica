@@ -18,6 +18,11 @@ extends Resource
 @export var belt_speed: float = 0.0
 ## Solo cintas: ítems que caben a la vez en una casilla.
 @export_range(1, 8) var belt_capacity: int = 2
+## Solo taladores: tamaño del área que tala, justo DELANTE de la construcción (ancho × fondo,
+## sin girar). (0, 0) = no tala. El talador del vertical slice usa 3×3 (D-057, D-069).
+@export var harvest_area: Vector2i = Vector2i.ZERO
+## Solo taladores: segundos que tarda en talar un árbol maduro.
+@export var harvest_time: float = 2.0
 ## Energía en puntos: positivo = genera, negativo = consume, 0 = no eléctrica (D-068).
 ## Lo que consume cuenta entero mientras esté conectado, trabaje o no.
 @export var power: float = 0.0

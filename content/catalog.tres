@@ -12,9 +12,11 @@
 [ext_resource type="Resource" path="res://content/buildings/conveyor.tres" id="10_conveyor"]
 [ext_resource type="Resource" path="res://content/buildings/power_pole.tres" id="11_pole"]
 [ext_resource type="Resource" path="res://content/buildings/solar_panel.tres" id="12_solar"]
+[ext_resource type="Resource" path="res://content/items/seed.tres" id="13_seed"]
+[ext_resource type="Resource" path="res://content/buildings/tree_cutter.tres" id="14_cutter"]
 
 [resource]
 script = ExtResource("1_catalog")
-items = Array[ExtResource("2_itemscript")]([ExtResource("4_wood"), ExtResource("5_stone"), ExtResource("6_gravel")])
+items = Array[ExtResource("2_itemscript")]([ExtResource("4_wood"), ExtResource("5_stone"), ExtResource("6_gravel"), ExtResource("13_seed")])
 recipes = Array[ExtResource("3_recipescript")]([ExtResource("7_crush")])
-buildings = Array[ExtResource("8_buildingscript")]([ExtResource("9_crusher"), ExtResource("10_conveyor"), ExtResource("11_pole"), ExtResource("12_solar")])
+buildings = Array[ExtResource("8_buildingscript")]([ExtResource("9_crusher"), ExtResource("10_conveyor"), ExtResource("11_pole"), ExtResource("12_solar"), ExtResource("14_cutter")])

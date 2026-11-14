@@ -24,3 +24,12 @@ static func footprint_center(origin: Vector2i, size: Vector2i, rotation: int, y:
 ## que gira en sentido antihorario visto desde arriba. Por eso el signo menos.
 static func rotation_to_yaw(rotation: int) -> float:
 	return -posmod(rotation, 4) * PI * 0.5
+
+
+## Gira un desplazamiento de casillas `rotation` cuartos de vuelta en sentido horario visto desde arriba
+## (norte → este → sur → oeste). Ejemplo: (0, −1), «una casilla al norte», girado 1 vez = (1, 0), «al este».
+static func rotate_offset(offset: Vector2i, rotation: int) -> Vector2i:
+	var result: Vector2i = offset
+	for _i: int in posmod(rotation, 4):
+		result = Vector2i(-result.y, result.x)
+	return result

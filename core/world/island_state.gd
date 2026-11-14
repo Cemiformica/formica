@@ -10,6 +10,8 @@ signal building_placed(building: PlacedBuilding)
 signal building_removed(building: PlacedBuilding)
 ## Se emite al tender o quitar cables (la vista los vuelve a dibujar).
 signal cables_changed
+## Se emite cuando cambia lo natural de una casilla: aparece, cambia de fase o desaparece (B2.7).
+signal nature_changed(cell: Vector2i)
 
 ## Qué casilla ocupa cada construcción. Se reconstruye al cargar a partir de las construcciones.
 var grid: OccupancyGrid = OccupancyGrid.new()
@@ -20,6 +22,13 @@ var buildings: Dictionary[int, PlacedBuilding] = {}
 ## Se recalculan solo cuando algo cambia (colocar, quitar, cargar), no en cada paso.
 var _links: Array[Dictionary] = []
 var _links_dirty: bool = true
+## Madera y semillas que dan los árboles (B2.7, D-057). Más adelante podrían ir en un Resource por especie.
+const TREE_WOOD: int = 4
+const STUMP_WOOD: int = 1
+
+## Capa natural (B2.7): casilla → árbol o tocón. Bloquea construir. Se guarda con la isla.
+var nature: Dictionary[Vector2i, NatureState] = {}
+
 ## Longitud máxima de un cable (m), entre los centros de las dos construcciones.
 const MAX_CABLE_LENGTH: float = 12.0
 
@@ -34,14 +43,19 @@ var _networks_dirty: bool = true
 var _next_id: int = 1
 
 
-## ¿Cabe una construcción de este tipo aquí?
+## ¿Cabe una construcción de este tipo aquí? (casillas libres de construcciones y de naturaleza)
 func can_place(data: BuildingData, origin: Vector2i, rotation: int = 0) -> bool:
-	return data != null and grid.can_place(origin, data.size, rotation)
+	if data == null or not grid.can_place(origin, data.size, rotation):
+		return false
+	for cell: Vector2i in OccupancyGrid.footprint_cells(origin, data.size, rotation):
+		if nature.has(cell):
+			return false
+	return true
 
 
 ## Coloca una construcción. Devuelve la nueva `PlacedBuilding`, o null si no cabe.
 func place(data: BuildingData, origin: Vector2i, rotation: int = 0, flipped: bool = false) -> PlacedBuilding:
-	if data == null or not grid.place(_next_id, origin, data.size, rotation):
+	if not can_place(data, origin, rotation) or not grid.place(_next_id, origin, data.size, rotation):
 		return null
 	var placed := PlacedBuilding.new(_next_id, data, origin, rotation, flipped)
 	buildings[_next_id] = placed
@@ -86,7 +100,10 @@ func to_data() -> Dictionary:
 	var cable_list: Array = []
 	for cable: Vector2i in cables:
 		cable_list.append([cable.x, cable.y])
-	return {"next_id": _next_id, "buildings": list, "cables": cable_list}
+	var nature_list: Array = []
+	for cell: Vector2i in nature:
+		nature_list.append(nature[cell].to_data(cell))
+	return {"next_id": _next_id, "buildings": list, "cables": cable_list, "nature": nature_list}
 
 
 ## Datos del guardado → estado. Ignora con aviso lo dañado, lo desconocido y lo que se solape.
@@ -95,6 +112,7 @@ func load_data(data: Dictionary) -> void:
 	buildings.clear()
 	_links_dirty = true
 	cables.clear()
+	nature.clear()
 	_networks_dirty = true
 	var max_id: int = 0
 	var list: Variant = data.get("buildings", [])
@@ -112,6 +130,18 @@ func load_data(data: Dictionary) -> void:
 			buildings[placed.id] = placed
 			max_id = maxi(max_id, placed.id)
 	_next_id = maxi(int(data.get("next_id", 1)), max_id + 1)
+	var nature_list: Variant = data.get("nature", [])
+	if nature_list is Array:
+		for entry: Variant in nature_list:
+			if not entry is Dictionary or not (entry.get("x") is float or entry.get("x") is int):
+				push_warning("IslandState: naturaleza dañada ignorada: %s" % str(entry))
+				continue
+			var cell := Vector2i(int(entry.get("x", 0)), int(entry.get("y", 0)))
+			var stage: int = clampi(int(entry.get("s", NatureState.Stage.MATURE)), 0, NatureState.Stage.MATURE)
+			if add_tree(cell, stage as NatureState.Stage):
+				nature[cell].timer = clampf(float(entry.get("t", 0.0)), 0.0, NatureState.STAGE_TIME)
+			else:
+				push_warning("IslandState: árbol en casilla ocupada ignorado: %s" % str(entry))
 	var cable_list: Variant = data.get("cables", [])
 	if cable_list is Array:
 		for entry: Variant in cable_list:
@@ -268,3 +298,47 @@ func _rebuild_networks() -> void:
 					pending.append(other)
 		_networks.append(network)
 	_networks_dirty = false
+
+
+# --- Naturaleza (B2.7, D-057, D-069) ---
+
+## Planta un árbol en la fase indicada. Devuelve false si la casilla tiene una construcción o ya hay algo.
+func add_tree(cell: Vector2i, stage: NatureState.Stage = NatureState.Stage.MATURE) -> bool:
+	if nature.has(cell) or grid.get_occupant(cell) != 0:
+		return false
+	nature[cell] = NatureState.new(NatureState.Kind.TREE, stage)
+	nature_changed.emit(cell)
+	return true
+
+
+## Tala un árbol maduro: queda un tocón (que rebrotará solo). Devuelve lo que da: 4 de madera y,
+## a mano, 1 semilla; el talador no da semilla. Diccionario vacío si ahí no hay un árbol maduro.
+func chop_tree(cell: Vector2i, with_seed: bool) -> Dictionary[ItemData, int]:
+	var result: Dictionary[ItemData, int] = {}
+	if not nature.has(cell) or not nature[cell].is_mature_tree():
+		return result
+	nature[cell].stage = NatureState.Stage.STUMP
+	nature[cell].timer = 0.0
+	result[Content.find_item(&"wood")] = TREE_WOOD
+	if with_seed:
+		result[Content.find_item(&"seed")] = 1
+	nature_changed.emit(cell)
+	return result
+
+
+## Arranca un tocón: da 1 de madera y libera la casilla. Diccionario vacío si ahí no hay un tocón.
+func uproot_stump(cell: Vector2i) -> Dictionary[ItemData, int]:
+	var result: Dictionary[ItemData, int] = {}
+	if not nature.has(cell) or not nature[cell].is_stump():
+		return result
+	nature.erase(cell)
+	result[Content.find_item(&"wood")] = STUMP_WOOD
+	nature_changed.emit(cell)
+	return result
+
+
+## Hace crecer los árboles y rebrotar los tocones `dt` segundos (lo llama `Simulation`).
+func step_nature(dt: float) -> void:
+	for cell: Vector2i in nature:
+		if nature[cell].grow(dt):
+			nature_changed.emit(cell)

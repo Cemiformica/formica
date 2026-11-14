@@ -40,6 +40,10 @@ func _init(p_id: int, p_data: BuildingData, p_origin: Vector2i, p_rotation: int 
 		var any_item: Array[ItemData] = []
 		input = Inventory.new(maxi(accepted.size(), 1), accepted)
 		output = Inventory.new(maxi(data.recipe.outputs.size(), 1), any_item, false)
+	elif is_harvester():
+		# El talador solo tiene salida: ahí deja la madera hasta que la cinta se la lleva.
+		var any_item: Array[ItemData] = []
+		output = Inventory.new(1, any_item, false)
 
 
 ## ¿Es una máquina (tiene receta)?
@@ -50,6 +54,25 @@ func is_machine() -> bool:
 ## ¿Es una cinta?
 func is_belt() -> bool:
 	return data.belt_speed > 0.0
+
+
+## ¿Es un talador?
+func is_harvester() -> bool:
+	return data.harvest_area.x > 0 and data.harvest_area.y > 0
+
+
+## Solo taladores: casillas del área que tala, delante de la construcción según su giro.
+## Pensado para taladores de 1×1: el área queda centrada a lo ancho y pegada por delante.
+func get_harvest_cells() -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	var w: int = data.harvest_area.x
+	var h: int = data.harvest_area.y
+	var left: int = -int((w - 1) / 2.0)
+	for dx: int in w:
+		for dy: int in h:
+			var local: Vector2i = Vector2i(left + dx, -1 - dy) # sin girar, "delante" es el norte (y negativa)
+			cells.append(origin + GridMath.rotate_offset(local, rotation))
+	return cells
 
 
 # --- Logística (B2.5): lo usa `Simulation` con las conexiones de `IslandState` ---
@@ -87,7 +110,7 @@ func peek_output(port: PortData) -> ItemData:
 		if not belt_items.is_empty() and belt_progress[0] >= 1.0:
 			return belt_items[0]
 		return null
-	if is_machine():
+	if output != null:
 		for stack: ItemStack in output.slots:
 			if stack != null and (port.item_filter == null or stack.item == port.item_filter):
 				return stack.item
@@ -99,7 +122,7 @@ func take_output(item: ItemData) -> void:
 	if is_belt():
 		belt_items.remove_at(0)
 		belt_progress.remove_at(0)
-	elif is_machine():
+	elif output != null:
 		output.remove_item(item, 1)
 
 
@@ -150,6 +173,7 @@ func to_data() -> Dictionary:
 	}
 	if is_machine():
 		result["in"] = input.to_data()
+	if output != null:
 		result["out"] = output.to_data()
 		result["progress"] = progress
 	if data.power > 0.0:
@@ -178,6 +202,9 @@ static func from_data(entry: Dictionary) -> PlacedBuilding:
 		placed.input.load_data(_as_array(entry.get("in")))
 		placed.output.load_data(_as_array(entry.get("out")))
 		placed.progress = clampf(float(entry.get("progress", 0.0)), 0.0, building_data.recipe.duration)
+	elif placed.is_harvester():
+		placed.output.load_data(_as_array(entry.get("out")))
+		placed.progress = clampf(float(entry.get("progress", 0.0)), 0.0, building_data.harvest_time)
 	placed.fuse_tripped = entry.get("fuse", false) == true
 	if placed.is_belt():
 		for belt_entry: Variant in _as_array(entry.get("belt")):
