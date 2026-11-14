@@ -4,7 +4,10 @@
 [ext_resource type="Script" path="res://entities/player/build_controller.gd" id="2_build"]
 [ext_resource type="Resource" path="res://content/buildings/crusher.tres" id="3_crusher"]
 [ext_resource type="Resource" path="res://content/buildings/conveyor.tres" id="4_conveyor"]
-[ext_resource type="Script" path="res://core/content/building_data.gd" id="5_buildingscript"]
+[ext_resource type="Resource" path="res://content/buildings/power_pole.tres" id="5_pole"]
+[ext_resource type="Resource" path="res://content/buildings/solar_panel.tres" id="6_solar"]
+[ext_resource type="Resource" path="res://dev/content/electric_crusher.tres" id="7_ecrusher"]
+[ext_resource type="Resource" path="res://content/tools/cable_tool.tres" id="8_cable"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.4
@@ -36,4 +39,4 @@ target_position = Vector3(0, 0, -3)
 
 [node name="BuildController" type="Node3D" parent="."]
 script = ExtResource("2_build")
-build_bar = Array[ExtResource("5_buildingscript")]([ExtResource("3_crusher"), ExtResource("4_conveyor")])
+build_bar = Array[Resource]([ExtResource("3_crusher"), ExtResource("4_conveyor"), ExtResource("5_pole"), ExtResource("6_solar"), ExtResource("7_ecrusher"), ExtResource("8_cable")])

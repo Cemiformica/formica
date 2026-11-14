@@ -15,3 +15,13 @@ BUILDING_CRUSHER,Trituradora,Trituradora,Crusher
 BUILDING_CONVEYOR,Cinta,Cinta,Conveyor belt
 BUILD_NO_ROOM,No cabe aquí,No hi cap,No room here
 BUILD_NO_MATERIALS,Faltan materiales,Falten materials,Missing materials
+BUILDING_POWER_POLE,Poste eléctrico,Pal elèctric,Power pole
+BUILDING_SOLAR_PANEL,Placa solar,Placa solar,Solar panel
+BUILDING_ELECTRIC_CRUSHER,Trituradora eléctrica (prueba),Trituradora elèctrica (prova),Electric crusher (test)
+BUILD_CABLE,Cable,Cable,Cable
+CABLE_INVALID,No se puede conectar aquí,No es pot connectar aquí,Cannot connect here
+CABLE_NO_CONNECTOR,No admite cables,No admet cables,Does not take cables
+CABLE_ALREADY,Ya están conectados,Ja estan connectats,Already connected
+CABLE_FULL,No le quedan conexiones libres,No li queden connexions lliures,No free connections left
+CABLE_TOO_FAR,Demasiado lejos,Massa lluny,Too far
+POWER_NO_POWER,Sin energía,Sense energia,No power

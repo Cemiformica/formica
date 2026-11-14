@@ -8,6 +8,8 @@ extends RefCounted
 signal building_placed(building: PlacedBuilding)
 ## Se emite al quitar una construcción (la vista borra su pieza visible).
 signal building_removed(building: PlacedBuilding)
+## Se emite al tender o quitar cables (la vista los vuelve a dibujar).
+signal cables_changed
 
 ## Qué casilla ocupa cada construcción. Se reconstruye al cargar a partir de las construcciones.
 var grid: OccupancyGrid = OccupancyGrid.new()
@@ -61,9 +63,12 @@ func remove(id: int) -> PlacedBuilding:
 	for cable: Vector2i in cables:
 		if cable.x != id and cable.y != id:
 			kept.append(cable)
+	var had_cables: bool = kept.size() != cables.size()
 	cables = kept
 	_links_dirty = true
 	_networks_dirty = true
+	if had_cables:
+		cables_changed.emit()
 	building_removed.emit(placed)
 	return placed
 
@@ -175,12 +180,28 @@ func can_add_cable(a: int, b: int) -> bool:
 	return cable_length(a, b) <= MAX_CABLE_LENGTH + 0.001
 
 
+## Clave de traducción del motivo por el que no se puede tender el cable ("" si sí se puede).
+func cable_problem(a: int, b: int) -> String:
+	if a == b or not buildings.has(a) or not buildings.has(b):
+		return "CABLE_INVALID"
+	if buildings[a].data.power_connections <= 0 or buildings[b].data.power_connections <= 0:
+		return "CABLE_NO_CONNECTOR"
+	if cables.has(_cable_key(a, b)):
+		return "CABLE_ALREADY"
+	if cable_count(a) >= buildings[a].data.power_connections or cable_count(b) >= buildings[b].data.power_connections:
+		return "CABLE_FULL"
+	if cable_length(a, b) > MAX_CABLE_LENGTH + 0.001:
+		return "CABLE_TOO_FAR"
+	return ""
+
+
 ## Tiende un cable. Devuelve false (y no toca nada) si no se puede.
 func add_cable(a: int, b: int) -> bool:
 	if not can_add_cable(a, b):
 		return false
 	cables.append(_cable_key(a, b))
 	_networks_dirty = true
+	cables_changed.emit()
 	return true
 
 
@@ -191,6 +212,7 @@ func remove_cable(a: int, b: int) -> bool:
 		return false
 	cables.erase(key)
 	_networks_dirty = true
+	cables_changed.emit()
 	return true
 
 

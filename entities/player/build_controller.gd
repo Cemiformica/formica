@@ -7,6 +7,8 @@ extends Node3D
 ## Botón central (cuentagotas): coge la construcción que miras y entra en el modo si no estabas.
 ## El fantasma es verde (cabe y hay materiales) o rojo, con un cubito por puerto (azul = entrada,
 ## naranja = salida). La construcción visible la crea la vista de la isla (`IslandView`).
+## Con el **cable** (`CableTool`) en la mano (B2.6b, D-068): clic en una construcción eléctrica y clic en
+## otra tiende un cable; si ya estaban unidas, lo quita. Un cable provisional verde o rojo sigue a la mira.
 
 ## Se emite al entrar o salir del modo construcción.
 signal mode_changed(active: bool)
@@ -16,12 +18,15 @@ signal selection_changed
 signal placed(building: PlacedBuilding)
 ## Se emite si no se pudo colocar. `reason_key` es una clave de traducción ("BUILD_NO_ROOM"...).
 signal place_failed(reason_key: String)
+## Se emite al tender (true) o quitar (false) un cable.
+signal cable_changed(added: bool)
 
 ## Número de casillas de la barra de construcción.
 const BAR_SIZE: int = 9
 
-## Barra de construcción (hasta 9). Por ahora fija en el Inspector; el catálogo con Q llegará en la fase C.
-@export var build_bar: Array[BuildingData] = []
+## Barra de construcción (hasta 9): `BuildingData` o `CableTool`. Por ahora fija en el Inspector;
+## el catálogo con Q llegará en la fase C.
+@export var build_bar: Array[Resource] = []
 ## Isla de `WorldState` donde se construye.
 @export var island_id: StringName = &"dev_sandbox"
 ## Alcance del rayo para apuntar (m).
@@ -33,6 +38,7 @@ const COLOR_INPUT: Color = Color(0.2, 0.5, 1.0)
 const COLOR_OUTPUT: Color = Color(1.0, 0.55, 0.1)
 ## Altura del fantasma (provisional: aún no hay modelos).
 const GHOST_HEIGHT: float = 1.0
+const CABLE_PREVIEW_THICKNESS: float = 0.05
 
 ## ¿Estamos en el modo construcción?
 var active: bool = false
@@ -53,6 +59,11 @@ var _output_material: StandardMaterial3D
 var _port_markers: Array[MeshInstance3D] = []
 var _has_target: bool = false
 var _target_origin: Vector2i = Vector2i.ZERO
+## Cable: id de la construcción donde empieza el cable que estamos tendiendo (0 = ninguno).
+var _cable_from: int = 0
+var _cable_preview: MeshInstance3D
+var _cable_ok_material: StandardMaterial3D
+var _cable_bad_material: StandardMaterial3D
 
 
 func _ready() -> void:
@@ -65,6 +76,11 @@ func _ready() -> void:
 	_ghost.mesh = _ghost_box
 	_ghost.material_override = _ghost_material
 	add_child(_ghost)
+	_cable_ok_material = _make_material(COLOR_OK, false)
+	_cable_bad_material = _make_material(COLOR_BAD, false)
+	_cable_preview = MeshInstance3D.new()
+	_cable_preview.visible = false
+	add_child(_cable_preview)
 	visible = false
 
 
@@ -75,8 +91,13 @@ func get_held() -> BuildingData:
 	if _picked != null:
 		return _picked
 	if selected_slot < build_bar.size():
-		return build_bar[selected_slot]
+		return build_bar[selected_slot] as BuildingData # null si es el cable
 	return null
+
+
+## ¿Llevamos el cable en la mano?
+func holding_cable() -> bool:
+	return active and _picked == null and selected_slot < build_bar.size() and build_bar[selected_slot] is CableTool
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -98,6 +119,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		_select_slot((selected_slot + 1) % BAR_SIZE)
 	elif event.is_action_pressed("hotbar_prev"):
 		_select_slot(posmod(selected_slot - 1, BAR_SIZE))
+	elif holding_cable():
+		if event.is_action_pressed("build_place") and Aim.pointer_ready():
+			_cable_click()
+		elif event.is_action_pressed("ui_cancel"):
+			_cable_from = 0
 	elif event.is_action_pressed("build_rotate"):
 		rotation_steps = (rotation_steps + 1) % 4
 	elif event.is_action_pressed("build_flip") and get_held() != null and get_held().can_flip():
@@ -107,6 +133,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(_delta: float) -> void:
+	if holding_cable():
+		_update_cable_preview()
+		return
+	_cable_preview.visible = false
+	_ghost.visible = true
 	var building: BuildingData = get_held()
 	if building == null:
 		visible = false
@@ -139,6 +170,7 @@ func _process(_delta: float) -> void:
 
 func _set_active(value: bool) -> void:
 	active = value
+	_cable_from = 0
 	if not active:
 		visible = false
 	mode_changed.emit(active)
@@ -147,6 +179,7 @@ func _set_active(value: bool) -> void:
 func _select_slot(index: int) -> void:
 	selected_slot = index
 	_picked = null
+	_cable_from = 0
 	selection_changed.emit()
 
 
@@ -165,6 +198,7 @@ func _pick_building() -> void:
 		_select_slot(index)
 	else:
 		_picked = data
+		_cable_from = 0
 		selection_changed.emit()
 	rotation_steps = view.placed.rotation # copia también el giro, como el cuentagotas de Satisfactory
 	if not active:
@@ -226,6 +260,80 @@ func _try_place() -> void:
 	for item: ItemData in building.cost:
 		inventory.remove_item(item, building.cost[item])
 	placed.emit(result)
+
+
+# --- Cable (B2.6b) ---
+
+## Construcción que miramos, o null.
+func _aimed_building() -> PlacedBuilding:
+	var hit: Dictionary = _aim_hit()
+	if hit.is_empty():
+		return null
+	var view := hit["collider"] as BuildingView
+	if view == null:
+		return null
+	return view.placed
+
+
+## Primer clic: elige dónde empieza el cable. Segundo clic: lo tiende (o lo quita si ya estaban unidas).
+func _cable_click() -> void:
+	var island: IslandState = WorldState.get_island(island_id)
+	var target: PlacedBuilding = _aimed_building()
+	if target == null:
+		return
+	if _cable_from == 0 or not island.buildings.has(_cable_from):
+		if target.data.power_connections <= 0:
+			place_failed.emit("CABLE_NO_CONNECTOR")
+			return
+		_cable_from = target.id
+		return
+	if target.id == _cable_from:
+		_cable_from = 0 # clic en la misma: cancelar
+		return
+	if island.remove_cable(_cable_from, target.id):
+		cable_changed.emit(false)
+		_cable_from = 0
+		return
+	var problem: String = island.cable_problem(_cable_from, target.id)
+	if problem != "":
+		place_failed.emit(problem)
+		return
+	island.add_cable(_cable_from, target.id)
+	cable_changed.emit(true)
+	_cable_from = 0
+
+
+## Cable provisional desde el inicio hasta lo que miramos: verde si se puede tender (o quitar), rojo si no.
+func _update_cable_preview() -> void:
+	_ghost.visible = false
+	for marker: MeshInstance3D in _port_markers:
+		marker.visible = false
+	var island: IslandState = WorldState.get_island(island_id)
+	if _cable_from == 0 or not island.buildings.has(_cable_from):
+		_cable_preview.visible = false
+		visible = true
+		return
+	var from: Vector3 = BuildingView.cable_anchor(island.buildings[_cable_from])
+	var to: Vector3
+	var ok: bool = false
+	var target: PlacedBuilding = _aimed_building()
+	if target != null and target.id != _cable_from:
+		to = BuildingView.cable_anchor(target)
+		ok = island.cable_problem(_cable_from, target.id) == "" or island.cables.has(Vector2i(mini(_cable_from, target.id), maxi(_cable_from, target.id)))
+	else:
+		var hit: Dictionary = _aim_hit()
+		if hit.is_empty():
+			to = from + (-get_viewport().get_camera_3d().global_basis.z) * 3.0
+		else:
+			to = hit["position"]
+		ok = from.distance_to(to) <= IslandState.MAX_CABLE_LENGTH
+	visible = true
+	_cable_preview.visible = true
+	IslandView.place_line(_cable_preview, from, to, CABLE_PREVIEW_THICKNESS)
+	if ok:
+		_cable_preview.material_override = _cable_ok_material
+	else:
+		_cable_preview.material_override = _cable_bad_material
 
 
 func _make_material(color: Color, transparent: bool) -> StandardMaterial3D:

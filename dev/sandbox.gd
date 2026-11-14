@@ -1,6 +1,7 @@
 extends Node3D
 ## Escena de pruebas de B2 (solo desarrollo). Da materiales de prueba, muestra la barra de construcción
-## en una línea de texto e imprime en Salida lo que pasa (qué mira, interacciones y construcción).
+## en una línea de texto, la red eléctrica de lo que miras en otra, e imprime en Salida lo que pasa.
+## (Los textos de esta escena son de desarrollo y no se traducen, salvo los nombres.)
 
 ## Materiales iniciales (trituradora: 6 madera + 4 piedra; cinta: 1 + 1).
 const START_WOOD: int = 100
@@ -9,6 +10,7 @@ const START_STONE: int = 100
 @onready var player: Player = $Player
 @onready var test_box: Interactable = $TestBox
 @onready var build_bar_label: Label = $HUD/BuildBarLabel
+@onready var network_label: Label = $HUD/NetworkLabel
 
 
 func _ready() -> void:
@@ -23,6 +25,7 @@ func _ready() -> void:
 	test_box.interacted.connect(_on_test_box_interacted)
 	builder.placed.connect(_on_building_placed)
 	builder.place_failed.connect(_on_place_failed)
+	builder.cable_changed.connect(_on_cable_changed)
 	builder.mode_changed.connect(_update_label.unbind(1))
 	builder.selection_changed.connect(_update_label)
 	inventory.changed.connect(_update_label)
@@ -44,7 +47,7 @@ func _update_label() -> void:
 	for i: int in BuildController.BAR_SIZE:
 		var text: String = "%d —" % (i + 1)
 		if i < builder.build_bar.size() and builder.build_bar[i] != null:
-			text = "%d %s" % [i + 1, tr(builder.build_bar[i].name_key)]
+			text = "%d %s" % [i + 1, tr(str(builder.build_bar[i].get("name_key")))]
 		if i == builder.selected_slot:
 			text = "[" + text + "]"
 		parts.append(text)
@@ -73,4 +76,29 @@ func _on_building_placed(placed: PlacedBuilding) -> void:
 
 
 func _on_place_failed(reason_key: String) -> void:
-	print("No se pudo colocar: ", tr(reason_key))
+	print("No se pudo: ", tr(reason_key))
+
+
+func _on_cable_changed(added: bool) -> void:
+	var island: IslandState = WorldState.get_island(player.build_controller.island_id)
+	print("%s · cables: %d · redes: %d" % ["Cable tendido" if added else "Cable quitado", island.cables.size(), island.get_networks().size()])
+
+
+## Red eléctrica de lo que miras (con E a 3 m): "Red · genera 4 · consume 6 · ¡FUSIBLE SALTADO! …".
+func _process(_delta: float) -> void:
+	var view := player.focused_interactable as BuildingView
+	if view == null or view.island == null:
+		network_label.text = ""
+		return
+	var network: PowerNetwork = view.island.get_network(view.placed.id)
+	if network == null:
+		network_label.text = ""
+		return
+	var state: String = "funciona"
+	if network.is_tripped():
+		state = "¡FUSIBLE SALTADO! Quita carga y pulsa E en un generador"
+	elif network.supply <= 0.0:
+		state = "sin generación"
+	elif network.is_overloaded():
+		state = "sobrecarga"
+	network_label.text = "Red · genera %d · consume %d · %s" % [int(network.supply), int(network.demand), state]

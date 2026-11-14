@@ -5,9 +5,15 @@ extends Interactable
 ## reflejada; si no, una caja provisional con un cubito por puerto (azul = entrada, naranja = salida).
 ## Encima, un texto flotante con el contenido y el progreso de la máquina, leído en cada fotograma.
 ## Las cintas son una losa baja con una flecha, y sus ítems se ven como cubitos del color de cada ítem.
+## Los postes son un palo alto; los generadores, una losa azulada (B2.6b). E sobre un generador
+## rearma el fusible de su red; sobre una máquina, hace el intercambio rápido provisional.
 
 const BODY_HEIGHT: float = 1.0
 const BODY_COLOR: Color = Color(0.55, 0.5, 0.45)
+const GENERATOR_COLOR: Color = Color(0.15, 0.25, 0.5)
+const POLE_COLOR: Color = Color(0.45, 0.32, 0.2)
+const POLE_HEIGHT: float = 2.0
+const GENERATOR_HEIGHT: float = 0.5
 const COLOR_INPUT: Color = Color(0.2, 0.5, 1.0)
 const COLOR_OUTPUT: Color = Color(1.0, 0.55, 0.1)
 const BELT_HEIGHT: float = 0.1
@@ -22,6 +28,8 @@ static var _item_materials: Dictionary[ItemData, StandardMaterial3D] = {}
 
 ## Construcción que muestra.
 var placed: PlacedBuilding
+## Isla a la que pertenece (para preguntar por su red eléctrica).
+var island: IslandState
 
 var _label: Label3D = null
 ## Solo cintas: dirección de avance (hacia la salida) y cubitos de los ítems.
@@ -29,9 +37,30 @@ var _belt_forward: Vector3 = Vector3.ZERO
 var _belt_cubes: Array[MeshInstance3D] = []
 
 
+## Altura de la pieza provisional: palo alto para los postes, losa para los generadores, caja para el resto.
+static func body_height(data: BuildingData) -> float:
+	if is_pole(data):
+		return POLE_HEIGHT
+	if data.power > 0.0:
+		return GENERATOR_HEIGHT
+	return BODY_HEIGHT
+
+
+## ¿Es un poste? (admite varios cables y ni genera, ni consume, ni trabaja)
+static func is_pole(data: BuildingData) -> bool:
+	return data.power_connections > 1 and data.power == 0.0 and data.recipe == null and data.belt_speed <= 0.0
+
+
+## Punto del mundo donde se engancha un cable a esta construcción: arriba del todo, en su centro.
+static func cable_anchor(p_placed: PlacedBuilding) -> Vector3:
+	var center: Vector3 = GridMath.footprint_center(p_placed.origin, p_placed.data.size, p_placed.rotation)
+	return center + Vector3(0.0, body_height(p_placed.data) - 0.1, 0.0)
+
+
 ## Prepara la vista. Se llama ANTES de añadirla al árbol.
-func setup(p_placed: PlacedBuilding) -> void:
+func setup(p_placed: PlacedBuilding, p_island: IslandState) -> void:
 	placed = p_placed
+	island = p_island
 	name = "%s_%d" % [placed.data.id, placed.id]
 	display_name_key = placed.data.name_key
 	position = GridMath.footprint_center(placed.origin, placed.data.size, placed.rotation)
@@ -41,11 +70,14 @@ func setup(p_placed: PlacedBuilding) -> void:
 		return
 
 	# Colisión del tamaño de la huella girada: bloquea el paso y el rayo de interacción la encuentra.
+	var height: float = body_height(placed.data)
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(s.x, BODY_HEIGHT, s.y)
+	shape.size = Vector3(s.x, height, s.y)
+	if is_pole(placed.data):
+		shape.size = Vector3(0.4, height, 0.4)
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
-	collision.position.y = BODY_HEIGHT * 0.5
+	collision.position.y = height * 0.5
 	add_child(collision)
 
 	if placed.data.scene != null:
@@ -55,8 +87,13 @@ func setup(p_placed: PlacedBuilding) -> void:
 		if placed.flipped:
 			model.scale.z = -1.0
 		add_child(model)
+	elif is_pole(placed.data):
+		_add_box(Vector3(0.2, height, 0.2), Vector3(0.0, height * 0.5, 0.0), POLE_COLOR)
 	else:
-		_add_box(Vector3(s.x - 0.1, BODY_HEIGHT, s.y - 0.1), Vector3(0.0, BODY_HEIGHT * 0.5, 0.0), BODY_COLOR)
+		var color: Color = BODY_COLOR
+		if placed.data.power > 0.0:
+			color = GENERATOR_COLOR
+		_add_box(Vector3(s.x - 0.1, height, s.y - 0.1), Vector3(0.0, height * 0.5, 0.0), color)
 		_add_port_markers()
 
 	_label = Label3D.new()
@@ -64,7 +101,7 @@ func setup(p_placed: PlacedBuilding) -> void:
 	_label.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED # el texto ya va traducido
 	_label.font_size = 40
 	_label.outline_size = 8
-	_label.position.y = BODY_HEIGHT + 0.5
+	_label.position.y = height + 0.5
 	add_child(_label)
 
 
@@ -89,7 +126,10 @@ func _machine_text() -> String:
 	parts.append("%d %%" % int(placed.progress / recipe.duration * 100.0))
 	for item: ItemData in recipe.outputs:
 		parts.append("%s %d" % [tr(item.name_key), placed.output.get_total(item)])
-	return " → ".join(parts)
+	var text: String = " → ".join(parts)
+	if placed.data.power < 0.0 and island != null and not island.is_powered(placed.id):
+		text += "  · " + tr("POWER_NO_POWER")
+	return text
 
 
 ## Cinta: losa baja, flecha hacia la salida y un cubito por cada hueco de ítem.
@@ -151,9 +191,15 @@ static func _material_for(item: ItemData) -> StandardMaterial3D:
 	return _item_materials[item]
 
 
-## E: avisa (señal `interacted`) y hace el intercambio rápido provisional con el inventario del jugador.
+## E: avisa (señal `interacted`). Sobre un generador rearma el fusible de su red; sobre una máquina,
+## hace el intercambio rápido provisional con el inventario del jugador.
 func interact(by: Node) -> void:
 	super(by)
+	if placed.data.power > 0.0 and island != null:
+		var network: PowerNetwork = island.get_network(placed.id)
+		if network != null:
+			network.reset_fuse() # si sigue sobrecargada, volverá a saltar en el siguiente paso
+		return
 	placed.quick_exchange(WorldState.player_inventory)
 
 
