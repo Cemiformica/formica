@@ -31,6 +31,11 @@ func _ready() -> void:
 	island.add_tree(Vector2i(-6, -3), NatureState.Stage.YOUNG)
 	island.add_tree(Vector2i(-8, -3), NatureState.Stage.SPROUT)
 	island.add_tree(Vector2i(-10, -3), NatureState.Stage.STUMP)
+	# Rocas (B2.8): aparecen solas cada 45 s dentro del suelo de 40×40 m; ponemos tres para empezar.
+	island.bounds = Rect2i(-20, -20, 40, 40)
+	island.add_rock(Vector2i(-3, 1))
+	island.add_rock(Vector2i(-5, 2))
+	island.add_rock(Vector2i(6, 2))
 
 	var builder: BuildController = player.build_controller
 	player.focus_changed.connect(_on_player_focus_changed)

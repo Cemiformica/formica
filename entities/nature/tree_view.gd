@@ -1,14 +1,16 @@
 class_name TreeView
 extends Interactable
-## Árbol o tocón visible (B2.7b). Solo MUESTRA su `NatureState` (D-046): la crea, actualiza y borra
+## Árbol, tocón o roca visible (B2.7b, B2.8). El nombre de la clase es de antes de las rocas. Solo MUESTRA su `NatureState` (D-046): la crea, actualiza y borra
 ## `IslandView` cuando la isla avisa con `nature_changed`. La forma cambia con la fase:
 ## tocón bajo, brote pequeño, árbol joven y árbol maduro. Formas provisionales hasta B3.
 ## E sobre un árbol maduro: talar a mano (4 de madera + 1 semilla, queda un tocón).
 ## E sobre un tocón: arrancarlo (1 de madera, libera la casilla). Brotes y jóvenes no se tocan.
+## E sobre una roca: picarla (2 de piedra, libera la casilla).
 
 const TRUNK_COLOR: Color = Color(0.45, 0.3, 0.17)
 const LEAVES_COLOR: Color = Color(0.2, 0.55, 0.22)
 const SPROUT_COLOR: Color = Color(0.45, 0.75, 0.3)
+const ROCK_COLOR: Color = Color(0.5, 0.5, 0.53)
 
 ## Casilla que ocupa.
 var cell: Vector2i
@@ -41,6 +43,14 @@ func refresh() -> void:
 	_visual = Node3D.new()
 	add_child(_visual)
 	var collision_height: float = 0.4
+	if state.is_rock():
+		display_name_key = "PROP_ROCK"
+		_add_sphere(0.45, 0.25, ROCK_COLOR)
+		(_visual.get_child(0) as Node3D).scale = Vector3(1.0, 0.6, 0.85) # aplastada para que parezca una roca
+		_shape.radius = 0.45
+		_shape.height = 0.55
+		(get_child(0) as CollisionShape3D).position.y = 0.275
+		return
 	match state.stage:
 		NatureState.Stage.STUMP:
 			display_name_key = "PROP_STUMP"
@@ -74,14 +84,18 @@ func interact(by: Node) -> void:
 		return
 	var inventory: Inventory = WorldState.player_inventory
 	var preview: Dictionary[ItemData, int] = {}
-	if state.is_mature_tree():
+	if state.is_rock():
+		preview = {Content.find_item(&"stone"): IslandState.ROCK_STONE}
+	elif state.is_mature_tree():
 		preview = {Content.find_item(&"wood"): IslandState.TREE_WOOD, Content.find_item(&"seed"): 1}
 	elif state.is_stump():
 		preview = {Content.find_item(&"wood"): IslandState.STUMP_WOOD}
 	if preview.is_empty() or not inventory.can_add_all(preview):
 		return
 	var gained: Dictionary[ItemData, int] = {}
-	if state.is_mature_tree():
+	if state.is_rock():
+		gained = island.mine_rock(cell)
+	elif state.is_mature_tree():
 		gained = island.chop_tree(cell, true)
 	else:
 		gained = island.uproot_stump(cell)

@@ -25,6 +25,18 @@ var _links_dirty: bool = true
 ## Madera y semillas que dan los árboles (B2.7, D-057). Más adelante podrían ir en un Resource por especie.
 const TREE_WOOD: int = 4
 const STUMP_WOOD: int = 1
+## Rocas (B2.8, D-057): piedra que dan, cada cuánto aparece una y cuántas puede haber a la vez.
+const ROCK_STONE: int = 2
+const ROCK_SPAWN_TIME: float = 45.0
+const MAX_ROCKS: int = 12
+
+## Casillas de la isla donde pueden aparecer rocas. Vacío = no aparecen. Es parte de cómo es la isla
+## (lo pone su escena), no de la partida, así que no se guarda.
+var bounds: Rect2i = Rect2i()
+## Generador aleatorio de las rocas. Las pruebas le ponen una semilla fija para repetir el resultado.
+var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+## Segundos desde la última roca que apareció (se guarda).
+var _rock_timer: float = 0.0
 
 ## Capa natural (B2.7): casilla → árbol o tocón. Bloquea construir. Se guarda con la isla.
 var nature: Dictionary[Vector2i, NatureState] = {}
@@ -103,7 +115,7 @@ func to_data() -> Dictionary:
 	var nature_list: Array = []
 	for cell: Vector2i in nature:
 		nature_list.append(nature[cell].to_data(cell))
-	return {"next_id": _next_id, "buildings": list, "cables": cable_list, "nature": nature_list}
+	return {"next_id": _next_id, "buildings": list, "cables": cable_list, "nature": nature_list, "rock_timer": _rock_timer}
 
 
 ## Datos del guardado → estado. Ignora con aviso lo dañado, lo desconocido y lo que se solape.
@@ -113,6 +125,7 @@ func load_data(data: Dictionary) -> void:
 	_links_dirty = true
 	cables.clear()
 	nature.clear()
+	_rock_timer = clampf(float(data.get("rock_timer", 0.0)), 0.0, ROCK_SPAWN_TIME)
 	_networks_dirty = true
 	var max_id: int = 0
 	var list: Variant = data.get("buildings", [])
@@ -137,6 +150,10 @@ func load_data(data: Dictionary) -> void:
 				push_warning("IslandState: naturaleza dañada ignorada: %s" % str(entry))
 				continue
 			var cell := Vector2i(int(entry.get("x", 0)), int(entry.get("y", 0)))
+			if int(entry.get("k", NatureState.Kind.TREE)) == NatureState.Kind.ROCK:
+				if not add_rock(cell):
+					push_warning("IslandState: roca en casilla ocupada ignorada: %s" % str(entry))
+				continue
 			var stage: int = clampi(int(entry.get("s", NatureState.Stage.MATURE)), 0, NatureState.Stage.MATURE)
 			if add_tree(cell, stage as NatureState.Stage):
 				nature[cell].timer = clampf(float(entry.get("t", 0.0)), 0.0, NatureState.STAGE_TIME)
@@ -337,8 +354,54 @@ func uproot_stump(cell: Vector2i) -> Dictionary[ItemData, int]:
 	return result
 
 
-## Hace crecer los árboles y rebrotar los tocones `dt` segundos (lo llama `Simulation`).
+## Pone una roca. Devuelve false si la casilla tiene una construcción o ya hay algo.
+func add_rock(cell: Vector2i) -> bool:
+	if nature.has(cell) or grid.get_occupant(cell) != 0:
+		return false
+	nature[cell] = NatureState.new(NatureState.Kind.ROCK)
+	nature_changed.emit(cell)
+	return true
+
+
+## Pica una roca: da 2 de piedra y libera la casilla. Diccionario vacío si ahí no hay una roca.
+func mine_rock(cell: Vector2i) -> Dictionary[ItemData, int]:
+	var result: Dictionary[ItemData, int] = {}
+	if not nature.has(cell) or not nature[cell].is_rock():
+		return result
+	nature.erase(cell)
+	result[Content.find_item(&"stone")] = ROCK_STONE
+	nature_changed.emit(cell)
+	return result
+
+
+## Rocas que hay ahora en la isla.
+func rock_count() -> int:
+	var count: int = 0
+	for state: NatureState in nature.values():
+		if state.is_rock():
+			count += 1
+	return count
+
+
+## Hace crecer los árboles y rebrotar los tocones `dt` segundos, y cada `ROCK_SPAWN_TIME` hace aparecer
+## una roca en una casilla libre al azar dentro de `bounds` (si hay menos de `MAX_ROCKS`). Lo llama `Simulation`.
 func step_nature(dt: float) -> void:
 	for cell: Vector2i in nature:
 		if nature[cell].grow(dt):
 			nature_changed.emit(cell)
+	if not bounds.has_area():
+		return
+	_rock_timer += dt
+	if _rock_timer + 0.0001 < ROCK_SPAWN_TIME:
+		return
+	_rock_timer = 0.0
+	if rock_count() >= MAX_ROCKS:
+		return
+	var free_cells: Array[Vector2i] = []
+	for x: int in range(bounds.position.x, bounds.end.x):
+		for y: int in range(bounds.position.y, bounds.end.y):
+			var cell := Vector2i(x, y)
+			if not nature.has(cell) and grid.get_occupant(cell) == 0:
+				free_cells.append(cell)
+	if not free_cells.is_empty():
+		add_rock(free_cells[rng.randi_range(0, free_cells.size() - 1)])
