@@ -69,7 +69,7 @@ func _step() -> void:
 ## Si no, espera sin perder el progreso. Al completar el ciclo consume y produce a la vez.
 func _step_machine(placed: PlacedBuilding) -> void:
 	var recipe: RecipeData = placed.data.recipe
-	if not placed.input.has_items(recipe.inputs) or not placed.output.can_add_all(recipe.outputs):
+	if not placed.input.has_items(recipe.inputs) or not placed.output_fits(recipe.outputs):
 		return
 	placed.progress += TICK
 	if placed.progress + EPSILON >= recipe.duration:
@@ -91,8 +91,7 @@ func _step_harvester(island: IslandState, placed: PlacedBuilding) -> void:
 			target = cell
 			found = true
 			break
-	var wood: Dictionary[ItemData, int] = {Content.find_item(&"wood"): IslandState.TREE_WOOD}
-	if not found or not placed.output.can_add_all(wood):
+	if not found or not placed.output_fits(_tree_wood()):
 		return
 	placed.progress += TICK
 	if placed.progress + EPSILON >= placed.data.harvest_time:
@@ -100,6 +99,16 @@ func _step_harvester(island: IslandState, placed: PlacedBuilding) -> void:
 		for item: ItemData in gained:
 			placed.output.add_item(item, gained[item])
 		placed.progress = 0.0
+
+
+## Madera que da un árbol talado, preparada una sola vez (B2.9: antes se creaba en cada paso).
+var _tree_wood_cache: Dictionary[ItemData, int] = {}
+
+
+func _tree_wood() -> Dictionary[ItemData, int]:
+	if _tree_wood_cache.is_empty():
+		_tree_wood_cache[Content.find_item(&"wood")] = IslandState.TREE_WOOD
+	return _tree_wood_cache
 
 
 ## Pasa un ítem de una salida a la entrada conectada, si hay algo listo y el destino lo acepta.

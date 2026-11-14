@@ -14,6 +14,9 @@ var members: Array[PlacedBuilding] = []
 var supply: float = 0.0
 ## Puntos que piden sus consumidores conectados (cuentan siempre enteros, trabajen o no).
 var demand: float = 0.0
+## Fusible saltado, guardado aquí para no recorrer todos los miembros en cada consulta (B2.9).
+## Se calcula al formar la red y cambia solo con `trip()` y `reset_fuse()`.
+var _tripped: bool = false
 
 
 ## Añade una construcción a la red (lo usa `IslandState` al rehacer las redes).
@@ -21,6 +24,8 @@ func add(placed: PlacedBuilding) -> void:
 	members.append(placed)
 	if placed.data.power > 0.0:
 		supply += placed.data.power
+		if placed.fuse_tripped:
+			_tripped = true
 	elif placed.data.power < 0.0:
 		demand -= placed.data.power
 
@@ -32,10 +37,7 @@ func is_overloaded() -> bool:
 
 ## ¿Ha saltado el fusible? (algún generador de la red lo tiene saltado)
 func is_tripped() -> bool:
-	for placed: PlacedBuilding in members:
-		if placed.data.power > 0.0 and placed.fuse_tripped:
-			return true
-	return false
+	return _tripped
 
 
 ## ¿Funciona? Tiene generadores, no está sobrecargada y el fusible está armado.
@@ -48,9 +50,11 @@ func trip() -> void:
 	for placed: PlacedBuilding in members:
 		if placed.data.power > 0.0:
 			placed.fuse_tripped = true
+	_tripped = true
 
 
 ## Rearma el fusible. Si la red sigue sobrecargada, volverá a saltar en el siguiente paso.
 func reset_fuse() -> void:
 	for placed: PlacedBuilding in members:
 		placed.fuse_tripped = false
+	_tripped = false

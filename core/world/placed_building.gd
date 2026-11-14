@@ -23,6 +23,9 @@ var progress: float = 0.0
 ## (0 = acaba de entrar por detrás, 1 = listo para salir por delante). Los mueve `Simulation`.
 var belt_items: Array[ItemData] = []
 var belt_progress: Array[float] = []
+## Solo taladores: casillas del área, calculadas una vez (la construcción no se mueve; B2.9).
+var _harvest_cells: Array[Vector2i] = []
+
 ## Solo generadores: fusible saltado. Una red está cortada si alguno de sus generadores lo tiene (D-068).
 var fuse_tripped: bool = false
 
@@ -63,7 +66,9 @@ func is_harvester() -> bool:
 
 ## Solo taladores: casillas del área que tala, delante de la construcción según su giro.
 func get_harvest_cells() -> Array[Vector2i]:
-	return harvest_cells_for(data, origin, rotation)
+	if _harvest_cells.is_empty():
+		_harvest_cells = harvest_cells_for(data, origin, rotation)
+	return _harvest_cells
 
 
 ## Casillas del área de tala de un tipo de construcción colocado en `p_origin` con `p_rotation`
@@ -79,6 +84,24 @@ static func harvest_cells_for(p_data: BuildingData, p_origin: Vector2i, p_rotati
 			var local: Vector2i = Vector2i(left + dx, -1 - dy)
 			cells.append(p_origin + GridMath.rotate_offset(local, p_rotation))
 	return cells
+
+
+## ¿Cabe en la salida todo esto? Camino rápido para un solo tipo de ítem (lo normal), sin copias:
+## suma el hueco de las pilas de ese ítem y de las casillas vacías. Con varios tipos usa
+## `Inventory.can_add_all()`, que simula sobre una copia y es exacto (B2.9).
+func output_fits(items: Dictionary[ItemData, int]) -> bool:
+	if items.size() != 1:
+		return output.can_add_all(items)
+	var item: ItemData = items.keys()[0]
+	var needed: int = items[item]
+	for stack: ItemStack in output.slots:
+		if stack == null:
+			needed -= item.max_stack
+		elif stack.item == item:
+			needed -= stack.space_left()
+		if needed <= 0:
+			return true
+	return needed <= 0
 
 
 # --- Logística (B2.5): lo usa `Simulation` con las conexiones de `IslandState` ---

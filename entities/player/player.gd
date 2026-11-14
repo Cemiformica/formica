@@ -10,7 +10,8 @@ signal focus_changed(interactable: Interactable)
 @export_group("Movimiento")
 @export var walk_speed: float = 5.0 ## Velocidad al caminar (m/s).
 @export var acceleration: float = 40.0 ## Rapidez para alcanzar la velocidad (m/s²).
-@export var jump_velocity: float = 4.5 ## Impulso vertical del salto (m/s).
+@export var jump_velocity: float = 6.3 ## Impulso vertical del salto (m/s). Con gravedad ×2 da ~1 m de altura.
+@export var gravity_multiplier: float = 2.0 ## Gravedad del personaje respecto a la del mundo: ×2 = salto más firme, menos flotante.
 
 @export_group("Cámara")
 @export var mouse_sensitivity: float = 0.002 ## Radianes girados por cada píxel de ratón.
@@ -62,7 +63,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if not is_on_floor():
-		velocity += get_gravity() * delta
+		velocity += get_gravity() * gravity_multiplier * delta
 
 	if Input.is_action_just_pressed("jump") and is_on_floor() and not Aim.ui_open:
 		velocity.y = jump_velocity
