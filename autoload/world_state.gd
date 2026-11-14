@@ -1,8 +1,8 @@
 extends Node
 ## Autoload `WorldState`: el ESTADO de la partida en datos (D-046). Todo lo que se guarda vive aquí;
 ## los nodos de las escenas solo lo muestran. Nunca contiene contenido (eso es `Content`).
-## Empieza pequeño: inventario y posición del jugador, y un hueco por isla que se llenará en B2
-## (construcciones, máquinas, cuadrícula de ocupación).
+## Contiene el inventario y la posición del jugador y el estado de cada isla (`IslandState`:
+## cuadrícula y construcciones), esté o no cargada en pantalla. `Simulation` lo hace avanzar.
 
 ## Se emite después de cargar una partida o empezar una nueva: quien muestre el estado debe releerlo.
 signal state_replaced
@@ -14,8 +14,15 @@ var current_island: StringName = &""
 ## Posición y giro horizontal del jugador dentro de esa isla.
 var player_position: Vector3 = Vector3.ZERO
 var player_rotation_y: float = 0.0
-## Estado de cada isla: id de isla → datos (por ahora, un diccionario libre que se guarda tal cual).
-var islands: Dictionary[StringName, Dictionary] = {}
+## Estado de cada isla: id de isla → `IslandState`. Usa `get_island()` para no tener que comprobar si existe.
+var islands: Dictionary[StringName, IslandState] = {}
+
+
+## Estado de la isla `id`. Si aún no existe, la crea vacía.
+func get_island(id: StringName) -> IslandState:
+	if not islands.has(id):
+		islands[id] = IslandState.new()
+	return islands[id]
 
 
 ## Partida nueva: todo vacío.
@@ -32,7 +39,7 @@ func reset() -> void:
 func to_data() -> Dictionary:
 	var islands_data: Dictionary = {}
 	for id: StringName in islands:
-		islands_data[String(id)] = islands[id]
+		islands_data[String(id)] = islands[id].to_data()
 	return {
 		"island": String(current_island),
 		"player": {
@@ -61,5 +68,7 @@ func load_data(data: Dictionary) -> void:
 	if islands_data is Dictionary:
 		for id: Variant in islands_data:
 			if islands_data[id] is Dictionary:
-				islands[StringName(str(id))] = islands_data[id]
+				var island := IslandState.new()
+				island.load_data(islands_data[id])
+				islands[StringName(str(id))] = island
 	state_replaced.emit()

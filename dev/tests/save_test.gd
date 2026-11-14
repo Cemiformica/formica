@@ -11,6 +11,7 @@ var _failures: int = 0
 func _ready() -> void:
 	_delete_test_files()
 	var wood: ItemData = Content.find_item(&"wood")
+	var crusher: BuildingData = Content.find_building(&"crusher")
 	var inventory_ref: Inventory = WorldState.player_inventory
 
 	# 1) Sin partida.
@@ -21,7 +22,7 @@ func _ready() -> void:
 	WorldState.player_inventory.add_item(wood, 30)
 	WorldState.current_island = &"alba"
 	WorldState.player_position = Vector3(1.5, 2.0, -3.0)
-	WorldState.islands[&"alba"] = {"note": "prueba"}
+	WorldState.get_island(&"alba").place(crusher, Vector2i(3, 4), 2)
 	_check("guardar 1", SaveSystem.save_game(TEST_PATH) == "SAVE_DONE")
 	WorldState.player_inventory.remove_item(wood, 20) # quedan 10
 	_check("guardar 2", SaveSystem.save_game(TEST_PATH) == "SAVE_DONE")
@@ -33,7 +34,8 @@ func _ready() -> void:
 	_check("madera = 10", WorldState.player_inventory.get_total(wood) == 10)
 	_check("isla", WorldState.current_island == &"alba")
 	_check("posición", WorldState.player_position.is_equal_approx(Vector3(1.5, 2.0, -3.0)))
-	_check("datos de isla", WorldState.islands.get(&"alba", {}).get("note", "") == "prueba")
+	var placed: PlacedBuilding = WorldState.get_island(&"alba").get_at(Vector2i(3, 4))
+	_check("construcción de la isla", placed != null and placed.data == crusher and placed.rotation == 2)
 	_check("mismo objeto de inventario", WorldState.player_inventory == inventory_ref)
 
 	# 4) Principal dañada: se carga la copia (la de 30 de madera).
@@ -49,7 +51,10 @@ func _ready() -> void:
 
 	_delete_test_files()
 	WorldState.reset()
-	print("--- WorldState y SaveSystem: %s ---" % ("TODO OK" if _failures == 0 else "%d FALLOS" % _failures))
+	if _failures == 0:
+		print("--- WorldState y SaveSystem: TODO OK ---")
+	else:
+		print("--- WorldState y SaveSystem: %d FALLOS ---" % _failures)
 
 
 func _check(label: String, condition: bool) -> void:
