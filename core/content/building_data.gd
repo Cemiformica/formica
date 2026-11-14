@@ -12,3 +12,5 @@ extends Resource
 @export var size: Vector2i = Vector2i.ONE
 ## Coste: qué ítems y cuántos de cada uno.
 @export var cost: Dictionary[ItemData, int] = {}
+## Puertos de entrada y salida (cintas). Se definen sin girar; giran y se reflejan con la construcción.
+@export var ports: Array[PortData] = []
