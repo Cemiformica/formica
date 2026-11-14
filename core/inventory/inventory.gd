@@ -89,7 +89,10 @@ func can_add_all(items: Dictionary[ItemData, int]) -> bool:
 	# Copia ligera: por casilla, [ítem, cantidad] o null.
 	var sim: Array = []
 	for stack: ItemStack in slots:
-		sim.append(null if stack == null else [stack.item, stack.amount])
+		if stack == null:
+			sim.append(null)
+		else:
+			sim.append([stack.item, stack.amount])
 	for item: ItemData in items:
 		var remaining: int = items[item]
 		for entry: Variant in sim:
@@ -165,7 +168,10 @@ func get_total(item: ItemData) -> int:
 func to_data() -> Array:
 	var data: Array = []
 	for stack: ItemStack in slots:
-		data.append(null if stack == null else {"id": String(stack.item.id), "amount": stack.amount})
+		if stack == null:
+			data.append(null)
+		else:
+			data.append({"id": String(stack.item.id), "amount": stack.amount})
 	return data
 
 
