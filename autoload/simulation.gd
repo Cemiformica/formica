@@ -1,5 +1,5 @@
 extends Node
-## Autoload `Simulation`: hace avanzar el mundo a pasos fijos (D-046): máquinas, cintas y conexiones. Recorre TODAS las islas de
+## Autoload `Simulation`: hace avanzar el mundo a pasos fijos (D-046): energía, máquinas, cintas y conexiones. Recorre TODAS las islas de
 ## `WorldState`, estén o no cargadas en pantalla, así que una fábrica lejana sigue produciendo.
 ## Los nodos no hacen trabajar a las máquinas: solo muestran lo que hay en los datos.
 ## Se pausa con el árbol (`get_tree().paused`), como el resto del juego.
@@ -41,10 +41,15 @@ func advance(seconds: float) -> void:
 ## Un paso de simulación para todo el mundo.
 func _step() -> void:
 	for island: IslandState in WorldState.islands.values():
-		# 1) Máquinas trabajan y cintas mueven sus ítems.
+		# 0) Energía: si una red con generadores pide más de lo que da, salta su fusible (D-068).
+		for network: PowerNetwork in island.get_networks():
+			if network.supply > 0.0 and network.is_overloaded() and not network.is_tripped():
+				network.trip()
+		# 1) Máquinas trabajan (las eléctricas, solo con energía) y cintas mueven sus ítems.
 		for placed: PlacedBuilding in island.buildings.values():
 			if placed.is_machine():
-				_step_machine(placed)
+				if placed.data.power >= 0.0 or island.is_powered(placed.id):
+					_step_machine(placed)
 			elif placed.is_belt():
 				placed.advance_belt(TICK)
 		# 2) Por cada conexión, pasa como mucho un ítem por paso.

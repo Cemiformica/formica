@@ -18,6 +18,11 @@ extends Resource
 @export var belt_speed: float = 0.0
 ## Solo cintas: ítems que caben a la vez en una casilla.
 @export_range(1, 8) var belt_capacity: int = 2
+## Energía en puntos: positivo = genera, negativo = consume, 0 = no eléctrica (D-068).
+## Lo que consume cuenta entero mientras esté conectado, trabaje o no.
+@export var power: float = 0.0
+## Cables de energía que admite: máquinas y generadores, 1; poste, 4. 0 = no se conecta.
+@export_range(0, 8) var power_connections: int = 0
 ## Puertos de entrada y salida (cintas). Se definen sin girar; giran y se reflejan con la construcción.
 @export var ports: Array[PortData] = []
 

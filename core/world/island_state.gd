@@ -18,6 +18,16 @@ var buildings: Dictionary[int, PlacedBuilding] = {}
 ## Se recalculan solo cuando algo cambia (colocar, quitar, cargar), no en cada paso.
 var _links: Array[Dictionary] = []
 var _links_dirty: bool = true
+## Longitud máxima de un cable (m), entre los centros de las dos construcciones.
+const MAX_CABLE_LENGTH: float = 12.0
+
+## Cables de energía: pares de ids de construcción, siempre con x < y (D-068).
+var cables: Array[Vector2i] = []
+## Redes eléctricas: grupos unidos por cables. Se recalculan solo cuando algo cambia.
+var _networks: Array[PowerNetwork] = []
+var _network_by_id: Dictionary[int, PowerNetwork] = {}
+var _networks_dirty: bool = true
+
 ## Siguiente id libre. Nunca se reutilizan ids, ni tras quitar ni tras cargar.
 var _next_id: int = 1
 
@@ -35,6 +45,7 @@ func place(data: BuildingData, origin: Vector2i, rotation: int = 0, flipped: boo
 	buildings[_next_id] = placed
 	_next_id += 1
 	_links_dirty = true
+	_networks_dirty = true
 	building_placed.emit(placed)
 	return placed
 
@@ -46,7 +57,13 @@ func remove(id: int) -> PlacedBuilding:
 	var placed: PlacedBuilding = buildings[id]
 	grid.remove(id)
 	buildings.erase(id)
+	var kept: Array[Vector2i] = []
+	for cable: Vector2i in cables:
+		if cable.x != id and cable.y != id:
+			kept.append(cable)
+	cables = kept
 	_links_dirty = true
+	_networks_dirty = true
 	building_removed.emit(placed)
 	return placed
 
@@ -61,7 +78,10 @@ func to_data() -> Dictionary:
 	var list: Array = []
 	for id: int in buildings:
 		list.append(buildings[id].to_data())
-	return {"next_id": _next_id, "buildings": list}
+	var cable_list: Array = []
+	for cable: Vector2i in cables:
+		cable_list.append([cable.x, cable.y])
+	return {"next_id": _next_id, "buildings": list, "cables": cable_list}
 
 
 ## Datos del guardado → estado. Ignora con aviso lo dañado, lo desconocido y lo que se solape.
@@ -69,6 +89,8 @@ func load_data(data: Dictionary) -> void:
 	grid = OccupancyGrid.new()
 	buildings.clear()
 	_links_dirty = true
+	cables.clear()
+	_networks_dirty = true
 	var max_id: int = 0
 	var list: Variant = data.get("buildings", [])
 	if list is Array:
@@ -85,6 +107,11 @@ func load_data(data: Dictionary) -> void:
 			buildings[placed.id] = placed
 			max_id = maxi(max_id, placed.id)
 	_next_id = maxi(int(data.get("next_id", 1)), max_id + 1)
+	var cable_list: Variant = data.get("cables", [])
+	if cable_list is Array:
+		for entry: Variant in cable_list:
+			if not entry is Array or entry.size() != 2 or not add_cable(int(entry[0]), int(entry[1])):
+				push_warning("IslandState: cable no válido ignorado: %s" % str(entry))
 
 
 ## Conexiones actuales (las recalcula si algo cambió).
@@ -115,3 +142,107 @@ func _rebuild_links() -> void:
 					_links.append({"from": from, "out": out_port, "to": to, "in": in_port})
 					break
 	_links_dirty = false
+
+
+# --- Energía (B2.6a, D-068) ---
+
+## Cables que ya tiene una construcción.
+func cable_count(id: int) -> int:
+	var count: int = 0
+	for cable: Vector2i in cables:
+		if cable.x == id or cable.y == id:
+			count += 1
+	return count
+
+
+## Distancia entre los centros de dos construcciones (m).
+func cable_length(a: int, b: int) -> float:
+	var pa: PlacedBuilding = buildings[a]
+	var pb: PlacedBuilding = buildings[b]
+	return GridMath.footprint_center(pa.origin, pa.data.size, pa.rotation).distance_to(
+			GridMath.footprint_center(pb.origin, pb.data.size, pb.rotation))
+
+
+## ¿Se puede tender un cable entre `a` y `b`? Las dos deben existir, admitir cables, tener una
+## conexión libre, no estar ya unidas y estar a `MAX_CABLE_LENGTH` como mucho.
+func can_add_cable(a: int, b: int) -> bool:
+	if a == b or not buildings.has(a) or not buildings.has(b):
+		return false
+	if cables.has(_cable_key(a, b)):
+		return false
+	if cable_count(a) >= buildings[a].data.power_connections or cable_count(b) >= buildings[b].data.power_connections:
+		return false
+	return cable_length(a, b) <= MAX_CABLE_LENGTH + 0.001
+
+
+## Tiende un cable. Devuelve false (y no toca nada) si no se puede.
+func add_cable(a: int, b: int) -> bool:
+	if not can_add_cable(a, b):
+		return false
+	cables.append(_cable_key(a, b))
+	_networks_dirty = true
+	return true
+
+
+## Quita un cable. Devuelve false si no existía.
+func remove_cable(a: int, b: int) -> bool:
+	var key: Vector2i = _cable_key(a, b)
+	if not cables.has(key):
+		return false
+	cables.erase(key)
+	_networks_dirty = true
+	return true
+
+
+## Redes actuales (las recalcula si algo cambió).
+func get_networks() -> Array[PowerNetwork]:
+	if _networks_dirty:
+		_rebuild_networks()
+	return _networks
+
+
+## Red de una construcción, o null si no admite cables.
+func get_network(id: int) -> PowerNetwork:
+	if _networks_dirty:
+		_rebuild_networks()
+	return _network_by_id.get(id, null)
+
+
+## ¿Le llega energía a esta construcción? (está en una red con generadores, sin sobrecarga ni fusible saltado)
+func is_powered(id: int) -> bool:
+	var network: PowerNetwork = get_network(id)
+	return network != null and network.is_powered()
+
+
+func _cable_key(a: int, b: int) -> Vector2i:
+	return Vector2i(mini(a, b), maxi(a, b))
+
+
+## Agrupa en redes las construcciones unidas por cables (búsqueda en anchura).
+## Una construcción con conexiones pero sin cables forma una red ella sola.
+func _rebuild_networks() -> void:
+	_networks.clear()
+	_network_by_id.clear()
+	var neighbours: Dictionary[int, Array] = {}
+	for cable: Vector2i in cables:
+		if not neighbours.has(cable.x):
+			neighbours[cable.x] = []
+		if not neighbours.has(cable.y):
+			neighbours[cable.y] = []
+		neighbours[cable.x].append(cable.y)
+		neighbours[cable.y].append(cable.x)
+	for id: int in buildings:
+		if buildings[id].data.power_connections <= 0 or _network_by_id.has(id):
+			continue
+		var network := PowerNetwork.new()
+		var pending: Array[int] = [id]
+		_network_by_id[id] = network
+		while not pending.is_empty():
+			var current: int = pending.pop_back()
+			network.add(buildings[current])
+			for other: int in neighbours.get(current, []):
+				if not _network_by_id.has(other):
+					_network_by_id[other] = network
+					pending.append(other)
+		_networks.append(network)
+	_networks_dirty = false

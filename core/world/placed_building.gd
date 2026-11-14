@@ -23,6 +23,8 @@ var progress: float = 0.0
 ## (0 = acaba de entrar por detrás, 1 = listo para salir por delante). Los mueve `Simulation`.
 var belt_items: Array[ItemData] = []
 var belt_progress: Array[float] = []
+## Solo generadores: fusible saltado. Una red está cortada si alguno de sus generadores lo tiene (D-068).
+var fuse_tripped: bool = false
 
 
 func _init(p_id: int, p_data: BuildingData, p_origin: Vector2i, p_rotation: int = 0, p_flipped: bool = false) -> void:
@@ -150,6 +152,8 @@ func to_data() -> Dictionary:
 		result["in"] = input.to_data()
 		result["out"] = output.to_data()
 		result["progress"] = progress
+	if data.power > 0.0:
+		result["fuse"] = fuse_tripped
 	if is_belt():
 		var items: Array = []
 		for i: int in belt_items.size():
@@ -174,6 +178,7 @@ static func from_data(entry: Dictionary) -> PlacedBuilding:
 		placed.input.load_data(_as_array(entry.get("in")))
 		placed.output.load_data(_as_array(entry.get("out")))
 		placed.progress = clampf(float(entry.get("progress", 0.0)), 0.0, building_data.recipe.duration)
+	placed.fuse_tripped = entry.get("fuse", false) == true
 	if placed.is_belt():
 		for belt_entry: Variant in _as_array(entry.get("belt")):
 			if not belt_entry is Dictionary or placed.belt_items.size() >= building_data.belt_capacity:
