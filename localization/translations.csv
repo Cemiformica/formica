@@ -27,3 +27,6 @@ CABLE_TOO_FAR,Demasiado lejos,Massa lluny,Too far
 POWER_NO_POWER,Sin energía,Sense energia,No power
 ITEM_SEED,Semilla,Llavor,Seed
 BUILDING_TREE_CUTTER,Talador,Talador,Tree cutter
+PROP_STUMP,Tocón,Soca,Stump
+PROP_SPROUT,Brote,Brot,Sprout
+PROP_YOUNG_TREE,Árbol joven,Arbre jove,Young tree

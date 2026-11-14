@@ -57,6 +57,9 @@ var _ghost_material: StandardMaterial3D
 var _input_material: StandardMaterial3D
 var _output_material: StandardMaterial3D
 var _port_markers: Array[MeshInstance3D] = []
+## Losas translúcidas que marcan el área de un talador en el fantasma (B2.7b).
+var _area_markers: Array[MeshInstance3D] = []
+var _area_material: StandardMaterial3D
 var _has_target: bool = false
 var _target_origin: Vector2i = Vector2i.ZERO
 ## Cable: id de la construcción donde empieza el cable que estamos tendiendo (0 = ninguno).
@@ -76,6 +79,7 @@ func _ready() -> void:
 	_ghost.mesh = _ghost_box
 	_ghost.material_override = _ghost_material
 	add_child(_ghost)
+	_area_material = _make_material(Color(1.0, 0.85, 0.2, 0.3), true)
 	_cable_ok_material = _make_material(COLOR_OK, false)
 	_cable_bad_material = _make_material(COLOR_BAD, false)
 	_cable_preview = MeshInstance3D.new()
@@ -165,6 +169,7 @@ func _process(_delta: float) -> void:
 	else:
 		_ghost_material.albedo_color = COLOR_BAD
 	_update_port_markers(building, hit_pos.y)
+	_update_area_markers(building, hit_pos.y)
 	visible = true
 
 
@@ -244,6 +249,26 @@ func _update_port_markers(building: BuildingData, ground_y: float) -> void:
 		marker.visible = true
 
 
+## Talador: una losa amarilla translúcida en cada casilla del área que talará (sale de los datos).
+func _update_area_markers(building: BuildingData, ground_y: float) -> void:
+	var cells: Array[Vector2i] = []
+	if building.harvest_area.x > 0 and building.harvest_area.y > 0:
+		cells = PlacedBuilding.harvest_cells_for(building, _target_origin, rotation_steps)
+	while _area_markers.size() < cells.size():
+		var marker := MeshInstance3D.new()
+		var slab := BoxMesh.new()
+		slab.size = Vector3(0.9, 0.04, 0.9)
+		marker.mesh = slab
+		marker.material_override = _area_material
+		add_child(marker)
+		_area_markers.append(marker)
+	for i: int in _area_markers.size():
+		var marker: MeshInstance3D = _area_markers[i]
+		marker.visible = i < cells.size()
+		if marker.visible:
+			marker.global_position = GridMath.cell_center(cells[i], ground_y + 0.03)
+
+
 ## Coloca en los datos de la isla y cobra. Avisa con señales de lo que pasó.
 func _try_place() -> void:
 	var building: BuildingData = get_held()
@@ -307,6 +332,8 @@ func _cable_click() -> void:
 func _update_cable_preview() -> void:
 	_ghost.visible = false
 	for marker: MeshInstance3D in _port_markers:
+		marker.visible = false
+	for marker: MeshInstance3D in _area_markers:
 		marker.visible = false
 	var island: IslandState = WorldState.get_island(island_id)
 	if _cable_from == 0 or not island.buildings.has(_cable_from):

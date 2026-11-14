@@ -62,16 +62,22 @@ func is_harvester() -> bool:
 
 
 ## Solo taladores: casillas del área que tala, delante de la construcción según su giro.
-## Pensado para taladores de 1×1: el área queda centrada a lo ancho y pegada por delante.
 func get_harvest_cells() -> Array[Vector2i]:
+	return harvest_cells_for(data, origin, rotation)
+
+
+## Casillas del área de tala de un tipo de construcción colocado en `p_origin` con `p_rotation`
+## (también la usa el fantasma del modo construcción). Pensado para taladores de 1×1: el área
+## queda centrada a lo ancho y pegada por delante (sin girar, "delante" es el norte, y negativa).
+static func harvest_cells_for(p_data: BuildingData, p_origin: Vector2i, p_rotation: int) -> Array[Vector2i]:
 	var cells: Array[Vector2i] = []
-	var w: int = data.harvest_area.x
-	var h: int = data.harvest_area.y
+	var w: int = p_data.harvest_area.x
+	var h: int = p_data.harvest_area.y
 	var left: int = -int((w - 1) / 2.0)
 	for dx: int in w:
 		for dy: int in h:
-			var local: Vector2i = Vector2i(left + dx, -1 - dy) # sin girar, "delante" es el norte (y negativa)
-			cells.append(origin + GridMath.rotate_offset(local, rotation))
+			var local: Vector2i = Vector2i(left + dx, -1 - dy)
+			cells.append(p_origin + GridMath.rotate_offset(local, p_rotation))
 	return cells
 
 

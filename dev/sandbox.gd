@@ -6,6 +6,9 @@ extends Node3D
 ## Materiales iniciales (trituradora: 6 madera + 4 piedra; cinta: 1 + 1).
 const START_WOOD: int = 100
 const START_STONE: int = 100
+## Arboleda de 3×3 ya plantada (B2.7b), desde esta esquina noroeste: casillas x 3–5, y −9…−7.
+## Para probar el talador: colócalo en (4, −6), justo al sur de la arboleda, sin girar (mira al norte).
+const GROVE_ORIGIN: Vector2i = Vector2i(3, -9)
 
 @onready var player: Player = $Player
 @onready var test_box: Interactable = $TestBox
@@ -19,6 +22,15 @@ func _ready() -> void:
 	inventory.add_item(Content.find_item(&"wood"), START_WOOD)
 	inventory.add_item(Content.find_item(&"stone"), START_STONE)
 	print("Inventario inicial: ", inventory.debug_string())
+	# Naturaleza de prueba: una arboleda de 3×3 madura y unos árboles sueltos en distintas fases.
+	var island: IslandState = WorldState.get_island(player.build_controller.island_id)
+	for x: int in 3:
+		for y: int in 3:
+			island.add_tree(GROVE_ORIGIN + Vector2i(x, y))
+	island.add_tree(Vector2i(-4, -3))
+	island.add_tree(Vector2i(-6, -3), NatureState.Stage.YOUNG)
+	island.add_tree(Vector2i(-8, -3), NatureState.Stage.SPROUT)
+	island.add_tree(Vector2i(-10, -3), NatureState.Stage.STUMP)
 
 	var builder: BuildController = player.build_controller
 	player.focus_changed.connect(_on_player_focus_changed)
@@ -39,7 +51,8 @@ func _update_label() -> void:
 	var inventory: Inventory = WorldState.player_inventory
 	var wood: ItemData = Content.find_item(&"wood")
 	var stone: ItemData = Content.find_item(&"stone")
-	var materials: String = "%s %d · %s %d" % [tr(wood.name_key), inventory.get_total(wood), tr(stone.name_key), inventory.get_total(stone)]
+	var seed_item: ItemData = Content.find_item(&"seed")
+	var materials: String = "%s %d · %s %d · %s %d" % [tr(wood.name_key), inventory.get_total(wood), tr(stone.name_key), inventory.get_total(stone), tr(seed_item.name_key), inventory.get_total(seed_item)]
 	if not builder.active:
 		build_bar_label.text = "B: construir · " + materials
 		return
@@ -86,6 +99,9 @@ func _on_cable_changed(added: bool) -> void:
 
 ## Red eléctrica de lo que miras (con E a 3 m): "Red · genera 4 · consume 6 · ¡FUSIBLE SALTADO! …".
 func _process(_delta: float) -> void:
+	if not is_instance_valid(player.focused_interactable):
+		network_label.text = ""
+		return
 	var view := player.focused_interactable as BuildingView
 	if view == null or view.island == null:
 		network_label.text = ""

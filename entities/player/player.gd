@@ -48,7 +48,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 	# E interactúa con lo que miramos.
-	if event.is_action_pressed("interact") and focused_interactable != null:
+	if event.is_action_pressed("interact") and is_instance_valid(focused_interactable):
 		focused_interactable.interact(self)
 
 	# Mirar con el ratón (solo con el ratón capturado).
@@ -86,6 +86,10 @@ func _physics_process(delta: float) -> void:
 
 ## Avisa (solo cuando cambia) de qué objeto interactuable tenemos delante.
 func _update_focus() -> void:
+	# Si lo que mirábamos ha desaparecido (p. ej., un tocón arrancado), lo soltamos.
+	if focused_interactable != null and not is_instance_valid(focused_interactable):
+		focused_interactable = null
+		focus_changed.emit(null)
 	var new_focus: Interactable = null
 	if interact_ray.is_colliding():
 		new_focus = interact_ray.get_collider() as Interactable # null si no es Interactable

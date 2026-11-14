@@ -3,7 +3,8 @@ extends Node3D
 ## Dibuja una isla de `WorldState` (B2.4c): una `BuildingView` por construcción colocada.
 ## Solo muestra (D-046): los datos los cambian el modo construcción y `Simulation`.
 ## Escucha a su `IslandState` para crear y borrar piezas, y lo rehace todo si se carga una partida.
-## También dibuja los cables de energía como líneas finas entre sus dos construcciones (B2.6b).
+## También dibuja los cables de energía como líneas finas entre sus dos construcciones (B2.6b)
+## y la naturaleza: un `TreeView` por árbol o tocón (B2.7b).
 
 const CABLE_COLOR: Color = Color(0.1, 0.1, 0.1)
 const CABLE_THICKNESS: float = 0.04
@@ -14,6 +15,8 @@ const CABLE_THICKNESS: float = 0.04
 var _island: IslandState = null
 ## Id de la construcción → su vista.
 var _views: Dictionary[int, BuildingView] = {}
+## Casilla → vista de su árbol o tocón.
+var _tree_views: Dictionary[Vector2i, TreeView] = {}
 ## Líneas de los cables dibujados.
 var _cable_meshes: Array[MeshInstance3D] = []
 var _cable_material: StandardMaterial3D
@@ -32,17 +35,24 @@ func _rebuild() -> void:
 		_island.building_placed.disconnect(_on_building_placed)
 		_island.building_removed.disconnect(_on_building_removed)
 		_island.cables_changed.disconnect(_redraw_cables)
+		_island.nature_changed.disconnect(_on_nature_changed)
 	for view: BuildingView in _views.values():
 		view.queue_free()
 	_views.clear()
+	for tree: TreeView in _tree_views.values():
+		tree.queue_free()
+	_tree_views.clear()
 
 	_island = WorldState.get_island(island_id)
 	_island.building_placed.connect(_on_building_placed)
 	_island.building_removed.connect(_on_building_removed)
 	_island.cables_changed.connect(_redraw_cables)
+	_island.nature_changed.connect(_on_nature_changed)
 	for placed: PlacedBuilding in _island.buildings.values():
 		_on_building_placed(placed)
 	_redraw_cables()
+	for cell: Vector2i in _island.nature:
+		_on_nature_changed(cell)
 
 
 func _on_building_placed(placed: PlacedBuilding) -> void:
@@ -56,6 +66,21 @@ func _on_building_removed(placed: PlacedBuilding) -> void:
 	if _views.has(placed.id):
 		_views[placed.id].queue_free()
 		_views.erase(placed.id)
+
+
+## Algo natural cambió en `cell`: crea, actualiza o borra su vista.
+func _on_nature_changed(cell: Vector2i) -> void:
+	if not _island.nature.has(cell):
+		if _tree_views.has(cell):
+			_tree_views[cell].queue_free()
+			_tree_views.erase(cell)
+		return
+	if not _tree_views.has(cell):
+		var view := TreeView.new()
+		view.setup(cell, _island)
+		add_child(view)
+		_tree_views[cell] = view
+	_tree_views[cell].refresh()
 
 
 ## Borra las líneas y las vuelve a crear desde `IslandState.cables` (son pocas: no merece la pena más).
