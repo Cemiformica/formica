@@ -18,8 +18,17 @@
 
 import bpy
 import bmesh
+import importlib
 import math
+import os
+import sys
 from mathutils import Matrix, Vector
+
+# Emblema de la colonia: pieza común en art/tools/crest.py (sin dejar __pycache__ en el proyecto).
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.normpath(bpy.path.abspath("//../tools")))
+import crest
+importlib.reload(crest)
 
 PALETTE = 64
 SWATCH = 8
@@ -326,6 +335,9 @@ def build() -> None:
         finish("window_frame_low_%s" % side, box((0.48, 0.02, 0.04), (DYN_X, sy * 0.485, 0.42)), METAL_DARK, root, mat, 0.0)
         # Luces de estado arriba, una a cada lado.
         finish("status_light_" + side, prism(6, 0.05, 0.035, 1.22, 1.3, x=DYN_X, y=sy * 0.3), GLASS, root, mat, 0.006)
+    # Emblema de la colonia pintado (crest.py) en la cara este de la dinamo, la que mira a tierra (donde
+    # está el jugador), entre los dos anillos naranjas.
+    crest.add_crest(finish, root, mat, (DYN_X + 0.33, 0.0, 0.6), (1.0, 0.0, 0.0), scale=0.85, style="painted")
     # Donde entra el eje: un collarín.
     finish("dynamo_collar", cylinder_x(DYN_X - 0.37, DYN_X - 0.31, 0.12, 8, 0.0, AXLE_Z), METAL_DARK, root, mat, 0.0)
     for dy in (-0.36, 0.36):

@@ -1,7 +1,7 @@
 # Arcón manual (B3.7, D-093). 2×1, sin puertos: solo se abre a mano (ventana de almacén).
 # Con forma de ABDOMEN DE HORMIGA (César aprobó la idea): caja de madera con flejes y remaches
 # hexagonales sobre seis patitas metálicas cortas, y una tapa abombada partida en segmentos con franjas
-# naranjas, como los anillos del abdomen. Cerradura hexagonal delante, como emblema de la colonia.
+# naranjas, como los anillos del abdomen. Cerradura hexagonal delante con el emblema de la colonia (crest.py).
 # Convenciones: sin girar, el frente (cerradura) mira al SUR (−Y en Blender), que es la cara que el fantasma
 # pone hacia el jugador. Origen en el centro de la huella, a ras de suelo. Huella: x ∈ [−1, 1], y ∈ [−0,5, 0,5].
 # Altura declarada 1 (todo por debajo de 1 m).
@@ -13,8 +13,17 @@
 
 import bpy
 import bmesh
+import importlib
 import math
+import os
+import sys
 from mathutils import Matrix, Vector
+
+# Emblema de la colonia: pieza común en art/tools/crest.py (sin dejar __pycache__ en el proyecto).
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.normpath(bpy.path.abspath("//../tools")))
+import crest
+importlib.reload(crest)
 
 PALETTE = 64
 SWATCH = 8
@@ -268,17 +277,17 @@ def build() -> None:
         bmesh.ops.transform(hb, matrix=Matrix.Translation((x, hinge.y + 0.01, hinge.z)) @ Matrix.Rotation(math.radians(90), 4, "Y"), verts=hb.verts)
         finish("hinge_%d" % k, hb, METAL, root, mat, 0.0)
 
-    # --- Cerradura hexagonal delante: el emblema de la colonia ---
-    # Placa gris y hexágono naranja con la MISMA orientación (dos vértices arriba y abajo) y el naranja
-    # claramente por delante de la placa, para que no se solapen al moverte alrededor (César).
-    lock_z = BODY_Z1 - 0.12
+    # --- Cerradura hexagonal delante con el emblema de la colonia pintado (crest.py) ---
+    # Placa gris de canto plano arriba (como el emblema), justo bajo el pestillo de la tapa; el emblema
+    # va pintado por delante, con margen, para que no se solapen al moverte alrededor (César).
+    lock_z = BODY_Z1 - 0.148  # el canto de arriba de la placa toca justo el pie del pestillo (César)
 
     def front_hex(r: float, y_back: float, y_front: float):
         # Prisma hexagonal tumbado hacia el sur, con dos vértices arriba y abajo, de y_back a y_front.
         bm = bmesh.new()
         back, front = [], []
         for i in range(6):
-            a = math.radians(90 + 60 * i)
+            a = math.radians(60 * i)
             back.append(bm.verts.new((r * math.cos(a), y_back, lock_z + r * math.sin(a))))
             front.append(bm.verts.new((r * math.cos(a), y_front, lock_z + r * math.sin(a))))
         bm.faces.new(back)
@@ -289,9 +298,8 @@ def build() -> None:
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
         return bm
 
-    finish("lock_plate", front_hex(0.095, -HALF_Y + 0.004, -HALF_Y - 0.022), METAL, root, mat, 0.006)
-    finish("lock_ring", front_hex(0.058, -HALF_Y - 0.02, -HALF_Y - 0.034), ACCENT, root, mat, 0.004)
-    finish("lock_hole", box((0.022, 0.012, 0.05), (0.0, -HALF_Y - 0.036, lock_z - 0.006)), METAL_DEEP, root, mat, 0.0)
+    finish("lock_plate", front_hex(0.115, -HALF_Y + 0.004, -HALF_Y - 0.022), METAL, root, mat, 0.006)
+    crest.add_crest(finish, root, mat, (0.0, -HALF_Y - 0.022, lock_z), (0.0, -1.0, 0.0), scale=0.7, style="painted")
 
     tris = 0
     for child in root.children_recursive:

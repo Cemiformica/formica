@@ -15,8 +15,17 @@
 
 import bpy
 import bmesh
+import importlib
 import math
+import os
+import sys
 from mathutils import Matrix, Vector
+
+# Emblema de la colonia: pieza común en art/tools/crest.py (sin dejar __pycache__ en el proyecto).
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.normpath(bpy.path.abspath("//../tools")))
+import crest
+importlib.reload(crest)
 
 PALETTE = 64
 SWATCH = 8
@@ -389,6 +398,18 @@ def add_details(root, mat, body_stone) -> None:
         a = HEX + 2 * math.pi * i / 3
         finish("cap_leg_%d" % i, box((0.025, 0.025, 0.11), (0.15 * math.cos(a), 0.15 * math.sin(a), 2.855)), METAL, root, mat, 0.0)
     finish("chimney_cap", prism(6, 0.26, 0.22, 2.9, 2.94, angle=HEX), METAL_DARK, root, mat, 0.008, 1)
+
+    # Emblema de la colonia en placa (crest.py) en las dos caras de las ventanas de brasa (este y oeste),
+    # sobre la arcilla, entre los dos flejes (César los quiere ahí aunque el naranja se parezca: el marco
+    # gris los separa). La cara se inclina hacia dentro al subir: el emblema se inclina con ella.
+    z = 1.65
+    slope = 0.13 / 0.55
+    apothem = (0.71 - slope * (z - 1.4)) * math.cos(math.radians(30))
+    for side, sx in (("east", 1.0), ("west", -1.0)):
+        horizontal = Vector((sx, 0.0, 0.0))
+        normal = (horizontal + Vector((0.0, 0.0, slope * math.cos(math.radians(30))))).normalized()
+        crest.add_crest(finish, root, mat, horizontal * apothem + Vector((0.0, 0.0, z)), normal, scale=0.7,
+                        style="plate", frame_depth=0.03, embed=0.02, prefix="crest_" + side)
 
 
 build()

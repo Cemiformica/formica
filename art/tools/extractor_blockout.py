@@ -18,8 +18,17 @@
 
 import bpy
 import bmesh
+import importlib
 import math
+import os
+import sys
 from mathutils import Matrix, Vector
+
+# Emblema de la colonia: pieza común en art/tools/crest.py (sin dejar __pycache__ en el proyecto).
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.normpath(bpy.path.abspath("//../tools")))
+import crest
+importlib.reload(crest)
 
 PALETTE = 64
 SWATCH = 8
@@ -290,14 +299,17 @@ def build() -> None:
     # Igual de ancho que el puerto estándar (0,8 m) o un poco más, para que no sobresalga (César).
     # Base, flejes y tapa sobresalen por los lados y por detrás, pero acaban A RAS de la cara del puerto
     # (y = 0,75), para que no hagan escalón con él (César).
-    trim_y0, trim_y1 = 0.105, 0.75
+    # Las franjas y la tapa sobresalen 3 cm de la carcasa por los lados y por el sur; por el norte el
+    # almacén se mete 2,5 cm para que también sobresalgan ahí sin pasar de la cara del puerto (César).
+    trim_y0, trim_y1 = 0.09, 0.75
+    store_y0, store_y1 = 0.12, 0.725
     trim_len, trim_mid = trim_y1 - trim_y0, (trim_y0 + trim_y1) / 2
-    finish("store_base", box((0.9, trim_len, 0.08), (0.0, trim_mid, 0.04)), METAL_DEEP, root, mat, 0.01)
+    finish("store_base", box((0.96, trim_len, 0.08), (0.0, trim_mid, 0.04)), METAL_DEEP, root, mat, 0.01)
     # Más alto que en la v1 (César): el conducto entra por el costado, por debajo de la tapa.
-    store = finish("store", box((0.84, 0.63, 0.92), (0.0, STORE_Y, 0.54)), METAL, root, mat, 0.02)
-    finish("store_lid", box((0.88, trim_len, 0.06), (0.0, trim_mid, 1.03)), ACCENT, root, mat, 0.012)
-    finish("store_band", box((0.87, trim_len, 0.06), (0.0, trim_mid, 0.3)), ACCENT, root, mat, 0.006)
-    finish("store_band_top", box((0.87, trim_len, 0.04), (0.0, trim_mid, 0.96)), ACCENT, root, mat, 0.006)
+    store = finish("store", box((0.84, store_y1 - store_y0, 0.92), (0.0, (store_y0 + store_y1) / 2, 0.54)), METAL, root, mat, 0.02)
+    finish("store_lid", box((0.92, trim_len, 0.06), (0.0, trim_mid, 1.03)), ACCENT, root, mat, 0.012)
+    finish("store_band", box((0.9, trim_len, 0.06), (0.0, trim_mid, 0.3)), ACCENT, root, mat, 0.006)
+    finish("store_band_top", box((0.9, trim_len, 0.04), (0.0, trim_mid, 0.96)), ACCENT, root, mat, 0.006)
     # Mirillas HUNDIDAS en los lados este y oeste (César), con el mineral dentro: se ve qué guarda.
     for side, sx in (("east", 1.0), ("west", -1.0)):
         cut_recess(store, (0.1, 0.3, 0.18), (sx * 0.42, STORE_Y, 0.6), METAL_DEEP)
@@ -317,6 +329,12 @@ def build() -> None:
             for dz in (0.16, 0.86):
                 finish("store_rivet_%s_%d_%d" % (side, dy > 0, dz > 0.5), hex_rivet((sx * 0.42, STORE_Y + dy, dz), (sx, 0, 0)),
                        METAL_DEEP, root, mat, 0.0)
+
+    # Emblema de la colonia pintado (crest.py) en los dos costados del almacén, sobre cada mirilla
+    # (la carcasa de la cabeza no tiene sitio libre: remaches, mirilla y franja).
+    for side, sx in (("east", 1.0), ("west", -1.0)):
+        crest.add_crest(finish, root, mat, (sx * 0.42, STORE_Y, 0.81), (sx, 0.0, 0.0), scale=0.72, style="painted",
+                        prefix="crest_" + side)
 
     tris = 0
     for child in root.children_recursive:

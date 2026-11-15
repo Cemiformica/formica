@@ -16,8 +16,17 @@
 
 import bpy
 import bmesh
+import importlib
 import math
+import os
+import sys
 from mathutils import Matrix, Vector
+
+# Emblema de la colonia: pieza común en art/tools/crest.py (sin dejar __pycache__ en el proyecto).
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.normpath(bpy.path.abspath("//../tools")))
+import crest
+importlib.reload(crest)
 
 PALETTE = 64
 SWATCH = 8
@@ -287,6 +296,15 @@ def build() -> None:
         rot = Vector((0, 0, 1)).rotation_difference(Vector((sx * 0.75, 0.66, 0)).normalized()).to_matrix().to_4x4()
         bmesh.ops.transform(eye, matrix=Matrix.Translation((sx * 0.21, 0.27, 0.9)) @ rot, verts=eye.verts)
         finish("eye_" + side, eye, METAL_DEEP, root, mat, 0.0)
+
+    # Emblema de la colonia pintado (crest.py) en la nuca: la cara plana de la cabeza que mira al sur (al
+    # jugador, sobre el puerto de salida), entre el cuello y la franja naranja. La cabeza se ensancha al
+    # subir, así que esa cara mira un poco hacia abajo: el emblema la sigue.
+    crest_z = 0.67
+    slope = 0.04 / 0.43
+    apothem = (0.3 + slope * (crest_z - 0.55)) * math.cos(math.radians(30))
+    crest.add_crest(finish, root, mat, (0.0, 0.06 - apothem, crest_z),
+                    Vector((0.0, -1.0, -slope * math.cos(math.radians(30)))), scale=0.65, style="painted")
 
     # Antenas con las luces de estado en la punta (ámbar sin cable, verde con cable, rojo con el fusible).
     for side, sx in (("east", 1.0), ("west", -1.0)):
