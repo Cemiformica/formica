@@ -33,6 +33,12 @@ func _process(delta: float) -> void:
 		_accumulator = 0.0 # se descarta el retraso en vez de acumularlo
 
 
+## Segundos de juego desde el último paso (0 ≤ x < TICK). Las vistas lo usan para dibujar suave
+## lo que entre pasos se movería (p. ej. los ítems de las cintas), sin tocar los datos.
+func time_since_step() -> float:
+	return _accumulator
+
+
 ## Avanza `seconds` de golpe, sin esperar (pruebas, y más adelante el tiempo pasado fuera de una isla).
 func advance(seconds: float) -> void:
 	for _i: int in roundi(seconds / TICK):
@@ -117,5 +123,6 @@ func _transfer(link: Dictionary) -> void:
 	var to: PlacedBuilding = link["to"]
 	var item: ItemData = from.peek_output(link["out"])
 	if item != null and to.can_accept(item, link["in"]):
+		var start: float = from.belt_overflow if from.is_belt() else 0.0
 		from.take_output(item)
-		to.accept(item)
+		to.accept(item, start)

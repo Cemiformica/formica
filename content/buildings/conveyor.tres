@@ -5,6 +5,7 @@
 [ext_resource type="Script" uid="uid://dkooqj2ouj1ft" path="res://core/content/port_data.gd" id="3_portscript"]
 [ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
 [ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
+[ext_resource type="PackedScene" path="res://assets/models/buildings/conveyor.glb" id="6_model"]
 
 [sub_resource type="Resource" id="Resource_in"]
 script = ExtResource("3_portscript")
@@ -18,9 +19,10 @@ kind = 1
 script = ExtResource("1_building")
 id = &"conveyor"
 name_key = "BUILDING_CONVEYOR"
+scene = ExtResource("6_model")
 cost = Dictionary[ExtResource("2_itemscript"), int]({
 ExtResource("4_wood"): 1,
 ExtResource("5_stone"): 1
 })
-belt_speed = 1.5
+belt_speed = 0.75
 ports = Array[ExtResource("3_portscript")]([SubResource("Resource_in"), SubResource("Resource_out")])

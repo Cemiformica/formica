@@ -21,7 +21,8 @@ const POLE_HEIGHT: float = 2.0
 const GENERATOR_HEIGHT: float = 0.5
 const COLOR_INPUT: Color = Color(0.2, 0.5, 1.0)
 const COLOR_OUTPUT: Color = Color(1.0, 0.55, 0.1)
-const BELT_HEIGHT: float = 0.1
+## Altura de la superficie de la cinta (la banda del modelo está a 0,125 m, D-079).
+const BELT_HEIGHT: float = 0.125
 const BELT_COLOR: Color = Color(0.25, 0.25, 0.27)
 const ARROW_COLOR: Color = Color(0.85, 0.85, 0.8)
 ## Puertos estándar (D-079): se modelan en el lado norte de su casilla, con el origen en su centro.
@@ -64,6 +65,16 @@ var _label: Label3D = null
 ## Solo cintas: dirección de avance (hacia la salida) y cubitos de los ítems.
 var _belt_forward: Vector3 = Vector3.ZERO
 var _belt_cubes: Array[MeshInstance3D] = []
+## Solo cintas con modelo: en cada extremo, la vuelta de banda (si está libre) o el tramo de unión
+## (si está conectado). Índices de sus puertos de entrada (atrás) y salida (delante).
+var _belt_end_back: Node3D = null
+var _belt_end_front: Node3D = null
+var _belt_join_back: Node3D = null
+var _belt_join_front: Node3D = null
+var _belt_in_port: int = -1
+var _belt_out_port: int = -1
+## ¿Está conectada la salida de la cinta? (el ítem de delante puede asomar por ella al dibujarlo)
+var _belt_out_linked: bool = false
 ## Solo con modelo: lengüeta de cada puerto (mismo orden que `data.ports`; null si no tiene) y aislante del borne.
 var _port_tongues: Array[Node3D] = []
 var _insulator: MeshInstance3D = null
@@ -221,17 +232,33 @@ func _setup_belt() -> void:
 	collision.shape = shape
 	collision.position.y = BELT_HEIGHT * 0.5
 	add_child(collision)
-	_add_box(Vector3(0.9, BELT_HEIGHT, 0.9), Vector3(0.0, BELT_HEIGHT * 0.5, 0.0), BELT_COLOR)
 
 	# Dirección: hacia donde mira su puerto de salida.
-	for port: PortData in placed.data.ports:
+	for i: int in placed.data.ports.size():
+		var port: PortData = placed.data.ports[i]
 		if port.kind == PortData.Kind.OUTPUT:
+			_belt_out_port = i
 			var offset: Vector2i = PortData.side_offset(port.get_grid_side(placed.rotation, placed.flipped))
 			_belt_forward = Vector3(offset.x, 0.0, offset.y)
-			break
-	# Flecha: un palo y una punta, sobre la losa.
-	_add_box(_arrow_size(0.08, 0.5), _belt_forward * -0.05 + Vector3(0.0, BELT_HEIGHT + 0.01, 0.0), ARROW_COLOR)
-	_add_box(_arrow_size(0.3, 0.08), _belt_forward * 0.22 + Vector3(0.0, BELT_HEIGHT + 0.01, 0.0), ARROW_COLOR)
+		else:
+			_belt_in_port = i
+	if placed.data.scene != null:
+		# Modelo real (B3.7): sin puertos estándar (la cinta encaja en los de las máquinas). Su banda avanza
+		# con el material compartido belt_band, que mueve IslandView. En cada extremo se ve la vuelta de
+		# banda mientras esté libre (ver set_linked_ports).
+		var model := placed.data.scene.instantiate() as Node3D
+		model.rotation.y = GridMath.rotation_to_yaw(placed.rotation)
+		add_child(model)
+		_belt_end_back = model.find_child("belt_end_back", true, false) as Node3D
+		_belt_end_front = model.find_child("belt_end_front", true, false) as Node3D
+		_belt_join_back = model.find_child("belt_join_back", true, false) as Node3D
+		_belt_join_front = model.find_child("belt_join_front", true, false) as Node3D
+		_show_belt_ends(false, false)
+	else:
+		_add_box(Vector3(0.9, BELT_HEIGHT, 0.9), Vector3(0.0, BELT_HEIGHT * 0.5, 0.0), BELT_COLOR)
+		# Flecha: un palo y una punta, sobre la losa.
+		_add_box(_arrow_size(0.08, 0.5), _belt_forward * -0.05 + Vector3(0.0, BELT_HEIGHT + 0.01, 0.0), ARROW_COLOR)
+		_add_box(_arrow_size(0.3, 0.08), _belt_forward * 0.22 + Vector3(0.0, BELT_HEIGHT + 0.01, 0.0), ARROW_COLOR)
 
 	for i: int in placed.data.belt_capacity:
 		var cube := MeshInstance3D.new()
@@ -250,15 +277,22 @@ func _arrow_size(across: float, along: float) -> Vector3:
 	return Vector3(across, 0.02, along)
 
 
-## Coloca los cubitos según el avance de cada ítem en los datos (0 = detrás, 1 = delante).
+## Coloca los cubitos según el avance de cada ítem (0 = detrás, 1 = delante). La simulación avanza a
+## 10 pasos por segundo: entre paso y paso se predice el avance para que se deslicen sin saltitos.
 func _update_belt_items() -> void:
+	# Si la salida está conectada, el de delante puede asomar un poco por ella mientras llega el paso que
+	# lo pasa a la siguiente (allí empieza justo donde iba): así no se para en cada unión.
+	var front_limit: float = 1.0
+	if _belt_out_linked and not placed.belt_progress.is_empty() and placed.belt_progress[0] < 1.0:
+		front_limit = 1.0 + placed.data.belt_speed * Simulation.TICK
+	var shown: Array[float] = placed.predict_belt_progress(Simulation.time_since_step(), front_limit)
 	for i: int in _belt_cubes.size():
 		var cube: MeshInstance3D = _belt_cubes[i]
 		if i >= placed.belt_items.size():
 			cube.visible = false
 			continue
 		var item: ItemData = placed.belt_items[i]
-		cube.position = _belt_forward * (placed.belt_progress[i] - 0.5) + Vector3(0.0, BELT_HEIGHT + 0.125, 0.0)
+		cube.position = _belt_forward * (shown[i] - 0.5) + Vector3(0.0, BELT_HEIGHT + 0.125, 0.0)
 		cube.material_override = _material_for(item)
 		cube.visible = true
 
@@ -439,10 +473,27 @@ func _add_port_models() -> void:
 
 
 ## Enseña la lengüeta de los puertos conectados. `linked`: índices de `data.ports` con conexión.
+## En una cinta con modelo, decide en cada extremo si se ve la vuelta de banda o el tramo de unión.
 func set_linked_ports(linked: Array[int]) -> void:
+	if placed.is_belt():
+		_belt_out_linked = linked.has(_belt_out_port)
+		_show_belt_ends(linked.has(_belt_in_port), _belt_out_linked)
+		return
 	for i: int in _port_tongues.size():
 		if _port_tongues[i] != null:
 			_port_tongues[i].visible = linked.has(i)
+
+
+## Extremo conectado → tramo recto de unión (la banda sigue en la cinta de al lado); libre → vuelta de banda.
+func _show_belt_ends(back_linked: bool, front_linked: bool) -> void:
+	if _belt_end_back != null:
+		_belt_end_back.visible = not back_linked
+	if _belt_join_back != null:
+		_belt_join_back.visible = back_linked
+	if _belt_end_front != null:
+		_belt_end_front.visible = not front_linked
+	if _belt_join_front != null:
+		_belt_join_front.visible = front_linked
 
 
 ## Ilumina el borne si la construcción tiene algún cable, llegue o no la energía (decisión de César:

@@ -30,12 +30,34 @@ MOUTH = (5, 6)         # interior oscuro
 ARROW_IN = (2, 2)      # verde: entra
 ARROW_OUT = (6, 2)     # ámbar: sale
 RIVET = (5, 5)         # remaches, gris oscuro
-TONGUE = (5, 4)        # lengüeta de cinta: banda gris
-TONGUE_RIB = (5, 2)    # nervios de la banda, más claros
+BAND_TEXTURE = "//../../assets/textures/belt_band.png"
+BAND_TEX_PER_M = 2     # repeticiones de la textura de la banda por metro: el TEX_PER_M de conveyor_blockout.py
+TONGUE_SHELL = (5, 3)  # artesa de la lengüeta: el mismo gris que el marco y que la cinta
 
 
 def swatch_uv(row: int, col: int) -> Vector:
     return Vector(((col * SWATCH + SWATCH / 2) / PALETTE, 1.0 - (row * SWATCH + SWATCH / 2) / PALETTE))
+
+
+def get_band_material():
+    # El mismo material «belt_band» que la cinta (en Godot, el .tres compartido que hace avanzar la banda).
+    mat = bpy.data.materials.get("belt_band")
+    if mat is not None:
+        return mat
+    img = bpy.data.images.load(BAND_TEXTURE, check_existing=True)
+    mat = bpy.data.materials.new("belt_band")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial"); out.location = (300, 0)
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled"); bsdf.location = (0, 0)
+    tex = nt.nodes.new("ShaderNodeTexImage"); tex.location = (-350, 0)
+    tex.image = img
+    tex.interpolation = "Closest"
+    bsdf.inputs["Roughness"].default_value = 0.9
+    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    return mat
 
 
 def get_palette_material():
@@ -180,35 +202,59 @@ def build_port(name: str, inward: bool, arrow_color: tuple, mat) -> None:
 
 
 def build_tongue(port_obj, mat) -> int:
-    # Lengüeta de cinta dentro de la boca: Godot la muestra SOLO si el puerto está conectado, para que
-    # la cinta parezca entrar en la máquina. Se llama «belt_tongue_input» o «belt_tongue_output».
+    # Lengüeta de cinta dentro de la boca: el mismo perfil de MEDIO HEXÁGONO que la cinta (artesa gris)
+    # y su misma banda animada (material «belt_band»), para que la cinta parezca seguir dentro de la máquina. Godot la
+    # muestra SOLO si el puerto está conectado. Se llama «belt_tongue_input» o «belt_tongue_output».
+    # Los números del perfil son los de conveyor_blockout.py: si cambian allí, cambiarlos aquí.
+    band_half, band_top, wall_x, wall_z, lip, bottom = 0.19, 0.125, 0.29, 0.28, 0.04, (0.24, 0.06)
     name = "belt_tongue_" + port_obj.name.split("_")[-1]
-    floor_z = HEX_Z - MOUTH_H   # suelo plano de la boca (0,11 m)
     y0, y1 = OUTER_Y - DEPTH + 0.03, OUTER_Y + 0.015   # del tapón del fondo al borde de la casilla
+    profile = [(-wall_x - lip, wall_z), (-wall_x, wall_z), (-band_half, band_top - 0.01), (band_half, band_top - 0.01),
+               (wall_x, wall_z), (wall_x + lip, wall_z), (bottom[0], bottom[1]), (-bottom[0], bottom[1])]
     bm = bmesh.new()
-    parts = []
-    made = bmesh.ops.create_cube(bm, size=1.0)
-    bmesh.ops.scale(bm, vec=(0.5, y1 - y0, 0.02), verts=made["verts"])
-    bmesh.ops.translate(bm, vec=(0.0, (y0 + y1) / 2, floor_z + 0.01), verts=made["verts"])
-    band = {f for v in made["verts"] for f in v.link_faces}
-    ribs = set()
-    for y in (y0 + 0.07, y0 + 0.16):
-        made = bmesh.ops.create_cube(bm, size=1.0)
-        bmesh.ops.scale(bm, vec=(0.5, 0.025, 0.012), verts=made["verts"])
-        bmesh.ops.translate(bm, vec=(0.0, y, floor_z + 0.026), verts=made["verts"])
-        ribs |= {f for v in made["verts"] for f in v.link_faces}
+    back = [bm.verts.new((x, y0, z)) for x, z in profile]
+    front = [bm.verts.new((x, y1, z)) for x, z in profile]
+    shell = [bm.faces.new(back), bm.faces.new(list(reversed(front)))]
+    for i in range(len(profile)):
+        j = (i + 1) % len(profile)
+        shell.append(bm.faces.new((back[i], back[j], front[j], front[i])))
+    shell = set(shell)
+    bmesh.ops.recalc_face_normals(bm, faces=list(shell))
+    # Banda: una sola cara hacia arriba con el material «belt_band» de la cinta, para que avance con ella.
+    band = bm.faces.new([bm.verts.new((-band_half, y0, band_top)), bm.verts.new((band_half, y0, band_top)),
+                         bm.verts.new((band_half, y1, band_top)), bm.verts.new((-band_half, y1, band_top))])
+    band.normal_update()
+    if band.normal.z < 0.0:
+        band.normal_flip()
+    band.material_index = 1
+    is_input = name.endswith("input")
     uv = bm.loops.layers.uv.new("UVMap")
     for f in bm.faces:
-        target = swatch_uv(*(TONGUE_RIB if f in ribs else TONGUE))
+        if f is band:
+            # Igual que la banda de la cinta: u a lo ancho, v a lo largo en el sentido de avance, 2 por metro,
+            # con v entero en el borde de la casilla (y = 0,5) para que los chevrones casen con la cinta.
+            # Entrada: los ítems van hacia dentro (−Y); salida: hacia fuera (+Y).
+            for loop in f.loops:
+                co = loop.vert.co
+                if is_input:
+                    loop[uv].uv = Vector(((band_half - co.x) / (2 * band_half), (0.5 - co.y) * BAND_TEX_PER_M))
+                else:
+                    loop[uv].uv = Vector(((co.x + band_half) / (2 * band_half), (co.y - 0.5) * BAND_TEX_PER_M))
+            continue
+        target = swatch_uv(*TONGUE_SHELL)
         for loop in f.loops:
             loop[uv].uv = target
     mesh = bpy.data.meshes.new(name)
     bm.to_mesh(mesh)
     bm.free()
     mesh.materials.append(mat)
+    mesh.materials.append(get_band_material())
     tongue = bpy.data.objects.new(name, mesh)
     bpy.context.collection.objects.link(tongue)
     tongue.parent = port_obj
+    for p in mesh.polygons:
+        p.use_smooth = True
+    mesh.set_sharp_from_angle(angle=math.radians(30))
     return sum(len(p.vertices) - 2 for p in mesh.polygons)
 
 

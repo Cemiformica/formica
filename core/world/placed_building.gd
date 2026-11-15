@@ -23,6 +23,9 @@ var progress: float = 0.0
 ## (0 = acaba de entrar por detrás, 1 = listo para salir por delante). Los mueve `Simulation`.
 var belt_items: Array[ItemData] = []
 var belt_progress: Array[float] = []
+## Lo que el ítem de delante se pasó del final en el último paso (en fracción de casilla). Al pasar a
+## otra cinta empieza ahí, no en 0, para no perder ese trocito de tiempo en cada unión. No se guarda.
+var belt_overflow: float = 0.0
 ## Solo taladores: casillas del área, calculadas una vez (la construcción no se mueve; B2.9).
 var _harvest_cells: Array[Vector2i] = []
 
@@ -124,10 +127,14 @@ func can_accept(item: ItemData, port: PortData) -> bool:
 
 
 ## Recibe una unidad de `item`. Llamar solo si `can_accept()` dio true.
-func accept(item: ItemData) -> void:
+## Cinta: el ítem entra en `start` (lo que se pasó en la cinta anterior), sin acercarse al de delante.
+func accept(item: ItemData, start: float = 0.0) -> void:
 	if is_belt():
+		var max_start: float = 1.0
+		if not belt_progress.is_empty():
+			max_start = belt_progress[belt_progress.size() - 1] - _belt_spacing()
 		belt_items.append(item)
-		belt_progress.append(0.0)
+		belt_progress.append(clampf(start, 0.0, maxf(max_start, 0.0)))
 	elif is_machine():
 		input.add_item(item, 1)
 
@@ -151,6 +158,7 @@ func take_output(item: ItemData) -> void:
 	if is_belt():
 		belt_items.remove_at(0)
 		belt_progress.remove_at(0)
+		belt_overflow = 0.0
 	elif output != null:
 		output.remove_item(item, 1)
 
@@ -158,13 +166,25 @@ func take_output(item: ItemData) -> void:
 ## Avanza los ítems de la cinta `dt` segundos. Ninguno adelanta al de delante (separación mínima)
 ## ni pasa del final (1,0): si el destino está lleno, la cinta se para y se llena hacia atrás.
 func advance_belt(dt: float) -> void:
-	var limit: float = 1.0
+	belt_overflow = 0.0
+	# Solo cuenta si el de delante llega al final en este paso (si ya estaba parado allí, no se pasa).
+	if not belt_progress.is_empty() and belt_progress[0] < 1.0:
+		belt_overflow = maxf(0.0, belt_progress[0] + data.belt_speed * dt - 1.0)
+	belt_progress = predict_belt_progress(dt)
+
+
+## Avance que tendrían los ítems de la cinta dentro de `dt` segundos, con las mismas reglas que
+## `advance_belt`, pero SIN cambiar los datos. La vista lo usa para dibujarlos suaves entre pasos.
+## `front_limit`: hasta dónde puede llegar el de delante (la vista deja que asome por la salida).
+func predict_belt_progress(dt: float, front_limit: float = 1.0) -> Array[float]:
+	var result: Array[float] = []
+	var limit: float = front_limit
 	for i: int in belt_items.size():
 		var current: float = belt_progress[i]
-		var target: float = minf(current + data.belt_speed * dt, limit)
-		if target > current:
-			belt_progress[i] = target
-		limit = belt_progress[i] - _belt_spacing()
+		var value: float = maxf(current, minf(current + data.belt_speed * dt, limit))
+		result.append(value)
+		limit = value - _belt_spacing()
+	return result
 
 
 ## Distancia mínima entre dos ítems de la cinta (en fracción de casilla).

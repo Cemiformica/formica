@@ -40,9 +40,9 @@ func _ready() -> void:
 	_check("el resto espera en la salida de A (14)", a.output.get_total(gravel) == 14)
 	_check("el de delante está parado al final", is_equal_approx(b3.belt_progress[0], 1.0))
 
-	# 3) Cinta → máquina: piedra puesta en c entra en B (1 casilla a 1,5/s ≈ 0,7 s).
+	# 3) Cinta → máquina: piedra puesta en c entra en B (1 casilla a 0,75/s ≈ 1,33 s, con margen).
 	c.accept(stone)
-	Simulation.advance(1.0)
+	Simulation.advance(2.0)
 	_check("la piedra entra en B", b.input.get_total(stone) == 1 and c.belt_items.is_empty())
 
 	# 4) Lo que la máquina no acepta se queda esperando en la cinta.
@@ -66,6 +66,16 @@ func _ready() -> void:
 	# 7) Quitar una cinta corta la cadena.
 	island.remove(b2.id)
 	_check("sin b2: 3 conexiones", island.get_links().size() == 3)
+
+	# 8) Cinta → cinta: lo que el ítem se pasa del final en un paso no se pierde; sigue en la siguiente.
+	var x: PlacedBuilding = island.place(conveyor, Vector2i(0, 8), 1)
+	var y: PlacedBuilding = island.place(conveyor, Vector2i(1, 8), 1)
+	x.accept(stone)
+	x.belt_progress[0] = 0.95
+	Simulation.advance(Simulation.TICK)
+	var expected: float = 0.95 + conveyor.belt_speed * Simulation.TICK - 1.0
+	_check("unión: el ítem pasa a la siguiente cinta", x.belt_items.is_empty() and y.belt_items.size() == 1)
+	_check("unión: sigue donde iba, no en 0", y.belt_items.size() == 1 and is_equal_approx(y.belt_progress[0], expected))
 
 	WorldState.reset()
 	Simulation.running = true

@@ -252,7 +252,7 @@ func _update_ghost_model(building: BuildingData, ground_y: float) -> void:
 		_ghost_body.scale.z = -1.0
 	else:
 		_ghost_body.scale.z = 1.0
-	for i: int in building.ports.size():
+	for i: int in _ghost_ports.size():
 		var port: PortData = building.ports[i]
 		var cell: Vector2i = port.get_grid_cell(_target_origin, building.size, rotation_steps, flipped)
 		_ghost_ports[i].global_position = GridMath.cell_center(cell, ground_y)
@@ -269,7 +269,11 @@ func _build_ghost_model(building: BuildingData) -> void:
 	_ghost_body = building.scene.instantiate() as Node3D
 	_ghost_model.add_child(_ghost_body)
 	_ghost_ports.clear()
-	for port: PortData in building.ports:
+	# Las cintas no llevan puertos estándar: encajan en los de las máquinas (B3.7).
+	var port_list: Array[PortData] = building.ports
+	if building.belt_speed > 0.0:
+		port_list = []
+	for port: PortData in port_list:
 		var scene: PackedScene = BuildingView.PORT_INPUT_SCENE
 		if port.kind == PortData.Kind.OUTPUT:
 			scene = BuildingView.PORT_OUTPUT_SCENE
@@ -280,7 +284,7 @@ func _build_ghost_model(building: BuildingData) -> void:
 		var mesh := node as MeshInstance3D
 		mesh.material_override = _ghost_material
 		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		if mesh.name.begins_with("belt_tongue"):
+		if mesh.name.begins_with("belt_tongue") or mesh.name.begins_with("belt_join"):
 			mesh.visible = false
 	_ghost_data = building
 

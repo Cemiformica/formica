@@ -9,6 +9,11 @@ extends Node3D
 const CABLE_COLOR: Color = Color(0.1, 0.1, 0.11)
 ## Grosor de los cables (B3: más gruesos para que se vean bien, petición de César).
 const CABLE_THICKNESS: float = 0.08
+## Material de la banda de las cintas, compartido por todas: se desplaza una sola vez por fotograma
+## para que todas las bandas avancen (B3.7). Su textura se repite BELT_TEXTURE_PER_M veces por metro.
+## Si la banda avanzara hacia atrás, cambiar el signo de BELT_SCROLL_SIGN.
+const BELT_TEXTURE_PER_M: float = 2.0
+const BELT_SCROLL_SIGN: float = 1.0
 
 ## Isla de `WorldState` que dibuja.
 @export var island_id: StringName = &"dev_sandbox"
@@ -23,13 +28,27 @@ var _cable_meshes: Array[MeshInstance3D] = []
 var _cable_material: StandardMaterial3D
 ## true mientras `_rebuild` crea todas las vistas: las conexiones se repasan una sola vez al final.
 var _rebuilding: bool = false
+## Velocidad de las cintas (casillas por segundo) y desplazamiento actual de su banda.
+var _belt_speed: float = 0.75
+var _belt_scroll: float = 0.0
+## Material compartido de la banda: es una variable porque GDScript no deja modificar propiedades de una constante.
+var _belt_material: StandardMaterial3D = preload("res://assets/materials/belt_band.tres")
 
 
 func _ready() -> void:
+	var conveyor: BuildingData = Content.find_building(&"conveyor")
+	if conveyor != null:
+		_belt_speed = conveyor.belt_speed
 	_cable_material = StandardMaterial3D.new()
 	_cable_material.albedo_color = CABLE_COLOR
 	WorldState.state_replaced.connect(_rebuild)
 	_rebuild()
+
+
+## Hace avanzar la banda de todas las cintas a la vez (cuesta lo mismo con 1 cinta que con 1.000).
+func _process(delta: float) -> void:
+	_belt_scroll = fposmod(_belt_scroll + BELT_SCROLL_SIGN * delta * _belt_speed * BELT_TEXTURE_PER_M, 1.0)
+	_belt_material.uv1_offset = Vector3(0.0, _belt_scroll, 0.0)
 
 
 ## Borra todas las vistas y las vuelve a crear desde los datos (al empezar o al cargar una partida).

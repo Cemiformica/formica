@@ -13,7 +13,7 @@
 
 import bpy
 
-KEEP = ("ember_window", "cable_insulator", "belt_tongue")
+KEEP = ("ember_window", "cable_insulator", "belt_tongue", "belt_end", "belt_join")
 
 
 def _is_kept(name: str) -> bool:
