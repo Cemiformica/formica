@@ -166,9 +166,10 @@ func _process(_delta: float) -> void:
 		_has_target = false
 		return
 
-	# Rayo desde el centro de la pantalla; solo vale una superficie casi plana.
+	# Rayo desde el centro de la pantalla; solo vale una superficie poco inclinada (las rampas de las
+	# orillas del agua, unos 39°, también valen: así se puede apuntar al agua, D-094).
 	var hit: Dictionary = _aim_hit()
-	if hit.is_empty() or hit["normal"].y < 0.9:
+	if hit.is_empty() or hit["normal"].y < 0.7:
 		visible = false
 		_has_target = false
 		return
@@ -177,7 +178,12 @@ func _process(_delta: float) -> void:
 	var hit_pos: Vector3 = hit["position"]
 	var s: Vector2i = OccupancyGrid.rotated_size(building.size, rotation_steps)
 	_target_origin = GridMath.world_to_cell(hit_pos) - Vector2i(int((s.x - 1) / 2.0), int((s.y - 1) / 2.0))
-	if building.extract_time > 0.0:
+	if not building.water_cells.is_empty():
+		# Rueda hidráulica: la casilla apuntada es la del CENTRO de la rueda (la que va sobre el agua). Así,
+		# apuntando al agua, R cambia la orilla de la dinamo sin tener que mover la mira (César).
+		var anchor: Vector2i = building.water_cells[floori(building.water_cells.size() * 0.5)]
+		_target_origin = GridMath.world_to_cell(hit_pos) - OccupancyGrid.local_to_cell(Vector2i.ZERO, building.size, rotation_steps, anchor)
+	elif building.extract_time > 0.0:
 		# Extractor: la casilla apuntada es la de la CABEZA (la que va sobre la veta).
 		var head_offset: Vector2i = PlacedBuilding.head_cell_for(building, Vector2i.ZERO, rotation_steps)
 		_target_origin = GridMath.world_to_cell(hit_pos) - head_offset

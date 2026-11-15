@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="BuildingData" format=3]
+
+[ext_resource type="Script" path="res://core/content/building_data.gd" id="1_building"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Resource" path="res://content/items/wood.tres" id="3_wood"]
+[ext_resource type="Resource" path="res://content/items/stone.tres" id="4_stone"]
+[ext_resource type="Resource" path="res://content/items/copper_coil.tres" id="5_coil"]
+[ext_resource type="PackedScene" path="res://assets/models/buildings/water_wheel.glb" id="6_model"]
+
+[resource]
+script = ExtResource("1_building")
+id = &"water_wheel"
+name_key = "BUILDING_WATER_WHEEL"
+scene = ExtResource("6_model")
+size = Vector2i(2, 3)
+height = 3
+cost = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("3_wood"): 20,
+ExtResource("4_stone"): 10,
+ExtResource("5_coil"): 4
+})
+power = 6.0
+power_connections = 1
+water_cells = Array[Vector2i]([Vector2i(0, 0), Vector2i(0, 1), Vector2i(0, 2)])

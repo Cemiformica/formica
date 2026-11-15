@@ -44,3 +44,5 @@ BUILDING_CHARCOAL_KILN,Carbonera,Carbonera,Charcoal kiln
 ITEM_COPPER_COIL,Bobina de cobre,Bobina de coure,Copper coil
 BUILDING_STORAGE_CHEST,Arcón,Arcó,Chest
 BUILDING_LOGISTIC_BOX,Caja logística,Caixa logística,Logistic box
+BUILDING_WATER_WHEEL,Rueda hidráulica,Roda hidràulica,Water wheel
+BUILD_NEEDS_WATER,Necesita agua que corra a lo largo de la rueda,Necessita aigua que corri al llarg de la roda,Needs water flowing along the wheel

@@ -42,6 +42,9 @@ extends Resource
 ## Solo cajas logísticas (B3.7, D-093): F no refleja, sino que cambia el lado de la salida: recta →
 ## derecha → izquierda → recta (César). La salida es el puerto de tipo salida de `ports`.
 @export var output_turns: bool = false
+## Rueda hidráulica (D-094): casillas locales (sin girar) que tienen que ser AGUA QUE CORRE a lo largo
+## del eje Y local (norte-sur sin girar). El resto de la huella, tierra. Vacío = no necesita agua.
+@export var water_cells: Array[Vector2i] = []
 ## Almacenes (arcón y caja logística, D-093): casillas de su inventario. 0 = no es almacén.
 @export_range(0, 64) var storage_slots: int = 0
 

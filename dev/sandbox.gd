@@ -22,6 +22,7 @@ const GROVE_ORIGIN: Vector2i = Vector2i(3, -9)
 ## Esquina noroeste de la veta de malaquita de prueba (B3.7).
 const VEIN_ORIGIN: Vector2i = Vector2i(6, -4)
 ## Canal de agua de prueba (D-094): una columna de casillas en x = −12, de norte a sur, que corre al sur.
+## Para probar la rueda hidráulica (2×3, tecla 5): con la rueda sobre el canal y la dinamo en x = −11.
 const CANAL_X: int = -12
 ## Estanque de agua quieta (D-094): 3×3 casillas desde esta esquina noroeste (x −18…−16, y 6…8).
 const POND_ORIGIN: Vector2i = Vector2i(-18, 6)

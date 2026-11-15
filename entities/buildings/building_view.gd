@@ -65,6 +65,10 @@ const JAW_BITE: float = 0.6
 const ANTENNA_SWAY: float = 0.22
 const LOG_WOOD: int = 4
 const CHIPS_COLOR: Color = Color(0.85, 0.68, 0.45)
+## Rueda hidráulica (D-094): vueltas por segundo de la rueda (radianes/s), cada cuánto salpica y de qué color.
+const WHEEL_SPIN: float = 0.8
+const SPLASH_INTERVAL: float = 0.45
+const SPLASH_COLOR: Color = Color(0.78, 0.92, 1.0)
 ## Capas de colisión de las cintas: la 1 (sólidas, B3.7, César: el jugador ya no las atraviesa; las
 ## sube andando gracias al escalón automático de `Player`) y la 2 (la de siempre de las cintas, por si
 ## algún rayo las busca solo a ellas).
@@ -129,6 +133,13 @@ var _antennas: Array[Node3D] = []
 var _chips_origin: Node3D = null
 var _bite_closed: bool = false
 var _store_logs: Array[Node3D] = []
+## Solo rueda hidráulica: la rueda que gira, su sentido (las paletas de abajo van con la corriente),
+## dónde salpica (local al modelo, ya del lado por el que salen del agua) y el modelo.
+var _wheel: Node3D = null
+var _wheel_sign: float = 1.0
+var _splash_local: Vector3 = Vector3.ZERO
+var _splash_timer: float = 0.0
+var _model_root: Node3D = null
 var _heat: float = 0.0 ## 0 = apagado, 1 = a pleno
 var _working_hold: float = 0.0
 var _last_progress: float = 0.0
@@ -281,6 +292,8 @@ func _process(delta: float) -> void:
 	elif placed.is_storage():
 		_update_storage_visuals()
 		_label.text = _storage_text()
+	if _wheel != null:
+		_update_water_wheel(delta)
 	else:
 		_label.text = tr(placed.data.name_key)
 
@@ -307,6 +320,31 @@ func _harvester_text() -> String:
 	if placed.data.power < 0.0 and island != null and not island.is_powered(placed.id):
 		text += "  · " + tr("POWER_NO_POWER")
 	return text
+
+
+## Rueda hidráulica: busca la rueda y decide hacia dónde gira. Girando en +X (local), las paletas de abajo
+## van hacia el norte del modelo; si el agua corre al revés, gira al revés. Salpica del lado por el que
+## las paletas salen del agua (el de aguas abajo).
+func _setup_water_wheel(model: Node3D) -> void:
+	_wheel = model.find_child("wheel_pivot", true, false) as Node3D
+	if _wheel == null or placed.data.water_cells.is_empty() or island == null:
+		return
+	var cell: Vector2i = OccupancyGrid.local_to_cell(placed.origin, placed.data.size, placed.rotation, placed.data.water_cells[0])
+	var model_north: Vector2i = GridMath.rotate_offset(Vector2i(0, -1), placed.rotation)
+	_wheel_sign = 1.0 if island.water.get(cell, model_north) == model_north else -1.0
+	var splash := model.find_child("splash_origin", true, false) as Node3D
+	if splash != null:
+		_splash_local = splash.position
+		_splash_local.z = absf(_splash_local.z) * -_wheel_sign # aguas abajo: norte (−Z) si gira en +X
+
+
+## La rueda gira siempre (el agua siempre corre) y salpica cada poco.
+func _update_water_wheel(delta: float) -> void:
+	_wheel.rotation.x += WHEEL_SPIN * _wheel_sign * delta
+	_splash_timer -= delta
+	if _splash_timer <= 0.0 and _model_root != null:
+		_splash_timer = SPLASH_INTERVAL
+		DustPuff.spawn(self, _model_root.to_global(_splash_local), SPLASH_COLOR)
 
 
 ## "Caja logística · Escoria 12 · Madera 3" (hasta 3 ítems; si hay más, "…").
@@ -472,6 +510,8 @@ func interact(by: Node) -> void:
 
 ## Busca en el modelo las piezas que muestran el estado de la máquina y las prepara (todas son opcionales).
 func _setup_machine_visuals(model: Node3D) -> void:
+	_model_root = model
+	_setup_water_wheel(model)
 	_last_progress = placed.progress
 	_phase = randf() * TAU
 	var embers: Array[Node] = model.find_children("ember_window*", "MeshInstance3D", true, false)

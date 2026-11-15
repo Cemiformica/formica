@@ -85,8 +85,18 @@ func placement_problem(data: BuildingData, origin: Vector2i, rotation: int = 0) 
 		head = PlacedBuilding.head_cell_for(data, origin, rotation)
 		if not is_vein_edge(head):
 			return "BUILD_NEEDS_VEIN"
+	# Rueda hidráulica (D-094): sus casillas de agua tienen que ser agua que corre a lo largo de su eje.
+	var wet: Dictionary[Vector2i, bool] = {}
+	if not data.water_cells.is_empty():
+		var axis: Vector2i = GridMath.rotate_offset(Vector2i(0, 1), rotation)
+		for local: Vector2i in data.water_cells:
+			var cell: Vector2i = OccupancyGrid.local_to_cell(origin, data.size, rotation, local)
+			var flow: Vector2i = water.get(cell, Vector2i.ZERO)
+			if flow == Vector2i.ZERO or (flow != axis and flow != -axis):
+				return "BUILD_NEEDS_WATER"
+			wet[cell] = true
 	for cell: Vector2i in OccupancyGrid.footprint_cells(origin, data.size, rotation):
-		if nature.has(cell) or (_vein_cells.has(cell) and cell != head) or water.has(cell):
+		if nature.has(cell) or (_vein_cells.has(cell) and cell != head) or (water.has(cell) and not wet.has(cell)):
 			return "BUILD_NO_ROOM"
 	return ""
 
