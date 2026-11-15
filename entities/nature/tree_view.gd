@@ -7,11 +7,25 @@ extends Interactable
 ## se tala a mano (4 de madera + 1 semilla, queda un tocón) (D-090). Cada golpe levanta polvo y lo agita.
 ## E sobre un tocón: arrancarlo (1 de madera, libera la casilla). Brotes y jóvenes no se tocan.
 ## E sobre una roca: recogerla de una vez (1 de piedra, libera la casilla).
+## Modelos (B3.7, D-097): `nature.glb` trae cada pieza en una malla con su nombre («tree_a_mature_1»,
+## «rock_2»…). Se cargan una vez y todas las vistas comparten esas mallas. Cada casilla elige siempre la
+## misma especie (3 frondosos por cada pino), variante, giro y tamaño: al rebrotar sale el mismo árbol.
+## Dónde tocar: PINE_EVERY (cuántos pinos), SCALE_MIN/MAX y las listas de variantes de MODELS.
 
-const TRUNK_COLOR: Color = Color(0.45, 0.3, 0.17)
-const LEAVES_COLOR: Color = Color(0.2, 0.55, 0.22)
-const SPROUT_COLOR: Color = Color(0.45, 0.75, 0.3)
-const ROCK_COLOR: Color = Color(0.5, 0.5, 0.53)
+const NATURE_SCENE: PackedScene = preload("res://assets/models/props/nature.glb")
+## Uno de cada PINE_EVERY árboles es un pino (especie B); el resto, frondosos (A).
+const PINE_EVERY: int = 4
+const SCALE_MIN: float = 0.9
+const SCALE_MAX: float = 1.1
+## Variantes por especie y fase (sufijo _0, _1…). Las rocas no tienen especie.
+const MODELS: Dictionary = {
+	"a": {"mature": 3, "young": 2, "sprout": 1, "stump": 1},
+	"b": {"mature": 2, "young": 1, "sprout": 1, "stump": 1},
+}
+const ROCK_VARIANTS: int = 3
+
+## Mallas de `nature.glb` por nombre, compartidas por todas las vistas.
+static var _meshes: Dictionary[String, Mesh] = {}
 
 ## Casilla que ocupa.
 var cell: Vector2i
@@ -48,34 +62,37 @@ func refresh() -> void:
 	_visual = Node3D.new()
 	add_child(_visual)
 	var collision_height: float = 0.4
+	# Giro y tamaño fijos de esta casilla: el mismo árbol (o roca) cada vez que se dibuja.
+	var seed_value: int = _cell_hash()
+	_visual.rotation.y = deg_to_rad(float(seed_value % 360))
+	_visual.scale = Vector3.ONE * lerpf(SCALE_MIN, SCALE_MAX, float((seed_value >> 9) % 101) / 100.0)
 	if state.is_rock():
 		display_name_key = "PROP_ROCK"
-		_add_sphere(0.45, 0.25, ROCK_COLOR)
-		(_visual.get_child(0) as Node3D).scale = Vector3(1.0, 0.6, 0.85) # aplastada para que parezca una roca
-		_shape.radius = 0.45
-		_shape.height = 0.55
-		(get_child(0) as CollisionShape3D).position.y = 0.275
+		_add_model("rock_%d" % ((seed_value >> 4) % ROCK_VARIANTS))
+		_shape.radius = 0.3
+		_shape.height = 0.4
+		(get_child(0) as CollisionShape3D).position.y = 0.2
 		return
+	var species: String = "b" if (seed_value >> 3) % PINE_EVERY == 0 else "a"
+	var phase: String = "mature"
 	match state.stage:
 		NatureState.Stage.STUMP:
 			display_name_key = "PROP_STUMP"
-			_add_cylinder(0.25, 0.3, 0.15, TRUNK_COLOR)
+			phase = "stump"
 			collision_height = 0.3
 		NatureState.Stage.SPROUT:
 			display_name_key = "PROP_SPROUT"
-			_add_cylinder(0.04, 0.3, 0.15, SPROUT_COLOR)
-			_add_sphere(0.15, 0.35, SPROUT_COLOR)
+			phase = "sprout"
 		NatureState.Stage.YOUNG:
 			display_name_key = "PROP_YOUNG_TREE"
-			_add_cylinder(0.1, 0.9, 0.45, TRUNK_COLOR)
-			_add_sphere(0.45, 1.1, LEAVES_COLOR)
+			phase = "young"
 			collision_height = 1.4
 		_:
 			display_name_key = "PROP_TREE"
-			_add_cylinder(0.2, 1.6, 0.8, TRUNK_COLOR)
-			_add_sphere(0.85, 2.1, LEAVES_COLOR)
 			collision_height = 2.8
-	_shape.radius = 0.3
+	var variants: int = MODELS[species][phase]
+	_add_model("tree_%s_%s_%d" % [species, phase, (seed_value >> 5) % variants])
+	_shape.radius = 0.25
 	_shape.height = collision_height
 	(get_child(0) as CollisionShape3D).position.y = collision_height * 0.5
 
@@ -127,26 +144,29 @@ func _process(delta: float) -> void:
 	_visual.rotation.z = 0.06 * sin(_shake * PI * 3.0) * _shake
 
 
-func _add_cylinder(radius: float, height: float, center_y: float, color: Color) -> void:
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = radius
-	mesh.bottom_radius = radius
-	mesh.height = height
-	_add_mesh(mesh, center_y, color)
+## Número fijo y bien repartido para esta casilla (no cambia entre partidas ni al recargar).
+func _cell_hash() -> int:
+	var h: int = (cell.x * 73856093) ^ (cell.y * 19349663)
+	h = (h ^ (h >> 13)) * 1274126177
+	return (h ^ (h >> 16)) & 0x7fffffff
 
 
-func _add_sphere(radius: float, center_y: float, color: Color) -> void:
-	var mesh := SphereMesh.new()
-	mesh.radius = radius
-	mesh.height = radius * 2.0
-	_add_mesh(mesh, center_y, color)
-
-
-func _add_mesh(mesh: Mesh, center_y: float, color: Color) -> void:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
+## Pone la malla `model_name` de `nature.glb` (si no existe, avisa y no dibuja nada).
+func _add_model(model_name: String) -> void:
+	if _meshes.is_empty():
+		_load_meshes()
+	var mesh: Mesh = _meshes.get(model_name, null)
+	if mesh == null:
+		push_warning("TreeView: no hay modelo «%s» en nature.glb" % model_name)
+		return
 	var instance := MeshInstance3D.new()
 	instance.mesh = mesh
-	instance.material_override = material
-	instance.position.y = center_y
 	_visual.add_child(instance)
+
+
+## Saca una vez las mallas de `nature.glb` y las guarda por nombre.
+static func _load_meshes() -> void:
+	var scene := NATURE_SCENE.instantiate()
+	for node: Node in scene.find_children("*", "MeshInstance3D", true, false):
+		_meshes[String(node.name)] = (node as MeshInstance3D).mesh
+	scene.free()
