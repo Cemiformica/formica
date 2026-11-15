@@ -14,7 +14,10 @@ var origin: Vector2i
 var rotation: int
 ## Reflejada de norte a sur (tecla F en el modo construcción; ver `PortData`).
 var flipped: bool
+## Solo cajas logísticas (D-093): lado de la salida. 0 = recta, 1 = derecha, 2 = izquierda (tecla F).
+var output_turn: int = 0
 ## Solo máquinas: entrada (admite los ingredientes de la receta) y salida (solo se saca).
+## Almacenes: todo lo que guardan está en `output` (se mete y se saca de ahí).
 var input: Inventory = null
 var output: Inventory = null
 ## Solo máquinas: segundos que lleva el ciclo actual. Lo hace avanzar `Simulation` (B2.3b).
@@ -38,12 +41,15 @@ var vein_output: Dictionary[ItemData, int] = {}
 var fuse_tripped: bool = false
 
 
-func _init(p_id: int, p_data: BuildingData, p_origin: Vector2i, p_rotation: int = 0, p_flipped: bool = false) -> void:
+func _init(p_id: int, p_data: BuildingData, p_origin: Vector2i, p_rotation: int = 0, p_flipped: bool = false,
+		p_turn: int = 0) -> void:
 	id = p_id
 	data = p_data
 	origin = p_origin
 	rotation = posmod(p_rotation, 4)
 	flipped = p_flipped
+	if data.output_turns:
+		output_turn = posmod(p_turn, 3)
 	if data.recipe != null:
 		# Una casilla por ingrediente y otra por producto.
 		var accepted: Array[ItemData] = []
@@ -55,6 +61,21 @@ func _init(p_id: int, p_data: BuildingData, p_origin: Vector2i, p_rotation: int 
 		# Talador y extractor solo tienen salida: ahí dejan lo que sacan hasta que la cinta se lo lleva.
 		var any_item: Array[ItemData] = []
 		output = Inventory.new(1, any_item, false)
+	elif is_storage():
+		# Almacén (arcón o caja logística): admite cualquier ítem.
+		var any_item: Array[ItemData] = []
+		output = Inventory.new(data.storage_slots, any_item, true)
+
+
+## Puertos de esta construcción, con la salida girada si es una caja logística (usar siempre esto en
+## lugar de `data.ports`).
+func get_ports() -> Array[PortData]:
+	return data.ports_for(output_turn)
+
+
+## ¿Es un almacén? (arcón o caja logística, D-093)
+func is_storage() -> bool:
+	return data.storage_slots > 0
 
 
 ## ¿Es una máquina (tiene receta)?
@@ -148,6 +169,9 @@ func can_accept(item: ItemData, port: PortData) -> bool:
 			return false
 		var one: Dictionary[ItemData, int] = {item: 1}
 		return input.can_add_all(one)
+	if is_storage():
+		var unit: Dictionary[ItemData, int] = {item: 1}
+		return output.can_add_all(unit)
 	return false
 
 
@@ -162,6 +186,8 @@ func accept(item: ItemData, start: float = 0.0) -> void:
 		belt_progress.append(clampf(start, 0.0, maxf(max_start, 0.0)))
 	elif is_machine():
 		input.add_item(item, 1)
+	elif is_storage():
+		output.add_item(item, 1)
 
 
 ## Ítem que puede salir ahora por el puerto de salida `port`, o null si ninguno.
@@ -222,7 +248,8 @@ func _belt_spacing() -> float:
 ## Lo que no quepa se queda donde estaba.
 func quick_exchange(other: Inventory) -> void:
 	if not is_machine():
-		# Talador o extractor: solo se recoge lo que haya en la salida.
+		# Talador, extractor o almacén: solo se recoge lo que haya en la salida (almacén: PROVISIONAL,
+		# hasta la ventana de almacén).
 		if output != null:
 			for stack: ItemStack in output.slots.duplicate():
 				if stack == null:
@@ -253,6 +280,8 @@ func to_data() -> Dictionary:
 		"r": rotation,
 		"flip": flipped,
 	}
+	if data.output_turns:
+		result["turn"] = output_turn
 	if is_machine():
 		result["in"] = input.to_data()
 	if output != null:
@@ -279,7 +308,8 @@ static func from_data(entry: Dictionary) -> PlacedBuilding:
 		push_warning("PlacedBuilding: tipo de construcción desconocido: '%s'" % entry.get("type", ""))
 		return null
 	var placed := PlacedBuilding.new(int(entry["id"]), building_data,
-			Vector2i(int(entry["x"]), int(entry["y"])), int(entry.get("r", 0)), entry.get("flip", false) == true)
+			Vector2i(int(entry["x"]), int(entry["y"])), int(entry.get("r", 0)), entry.get("flip", false) == true,
+			int(entry.get("turn", 0)))
 	if placed.is_machine():
 		placed.input.load_data(_as_array(entry.get("in")))
 		placed.output.load_data(_as_array(entry.get("out")))
@@ -290,6 +320,8 @@ static func from_data(entry: Dictionary) -> PlacedBuilding:
 	elif placed.is_extractor():
 		placed.output.load_data(_as_array(entry.get("out")))
 		placed.progress = clampf(float(entry.get("progress", 0.0)), 0.0, building_data.extract_time)
+	elif placed.is_storage():
+		placed.output.load_data(_as_array(entry.get("out")))
 	placed.fuse_tripped = entry.get("fuse", false) == true
 	if placed.is_belt():
 		for belt_entry: Variant in _as_array(entry.get("belt")):

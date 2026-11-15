@@ -22,7 +22,7 @@ signal place_failed(reason_key: String)
 signal cable_changed(added: bool)
 
 ## Número de casillas de la barra de construcción.
-const BAR_SIZE: int = 9
+const BAR_SIZE: int = 10 # teclas 1–9 y 0 (la décima, como en Satisfactory)
 
 ## Barra de construcción (hasta 9): `BuildingData` o `CableTool`. Por ahora fija en el Inspector;
 ## el catálogo con Q llegará en la fase C.
@@ -48,6 +48,8 @@ var selected_slot: int = 0
 var rotation_steps: int = 0
 ## Reflejo norte-sur (D-061).
 var flipped: bool = false
+## Solo cajas logísticas (D-093): lado de la salida. 0 = recta, 1 = derecha, 2 = izquierda. F lo cambia.
+var output_turn: int = 0
 
 ## Construcción cogida con el cuentagotas que no está en la barra (tiene prioridad sobre la casilla).
 var _picked: BuildingData = null
@@ -145,6 +147,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_cable_from = 0
 	elif event.is_action_pressed("build_rotate"):
 		rotation_steps = (rotation_steps + 1) % 4
+	elif event.is_action_pressed("build_flip") and get_held() != null and get_held().output_turns:
+		output_turn = (output_turn + 1) % 3 # recta → derecha → izquierda → recta (César)
 	elif event.is_action_pressed("build_flip") and get_held() != null and get_held().can_flip():
 		flipped = not flipped
 	elif event.is_action_pressed("build_place") and Aim.pointer_ready():
@@ -253,6 +257,7 @@ func _pick_building() -> void:
 		_cable_from = 0
 		selection_changed.emit()
 	rotation_steps = view.placed.rotation # copia también el giro, como el cuentagotas de Satisfactory
+	output_turn = view.placed.output_turn # y el lado de la salida de una caja logística
 	if not active:
 		_set_active(true)
 
@@ -283,8 +288,10 @@ func _update_ghost_model(building: BuildingData, ground_y: float) -> void:
 		_ghost_body.scale.z = -1.0
 	else:
 		_ghost_body.scale.z = 1.0
+	BuildingView.show_output_tunnel(_ghost_body, output_turn) # caja logística: el túnel del lado elegido
+	var ghost_ports: Array[PortData] = building.ports_for(output_turn)
 	for i: int in _ghost_ports.size():
-		var port: PortData = building.ports[i]
+		var port: PortData = ghost_ports[i]
 		var cell: Vector2i = port.get_grid_cell(_target_origin, building.size, rotation_steps, flipped)
 		_ghost_ports[i].global_position = GridMath.cell_center(cell, ground_y)
 		_ghost_ports[i].rotation.y = GridMath.rotation_to_yaw(port.get_grid_side(rotation_steps, flipped))
@@ -334,7 +341,7 @@ func _update_port_markers(building: BuildingData, ground_y: float) -> void:
 		if i >= building.ports.size():
 			marker.visible = false
 			continue
-		var port: PortData = building.ports[i]
+		var port: PortData = building.ports_for(output_turn)[i]
 		var cell: Vector2i = port.get_target_cell(_target_origin, building.size, rotation_steps, flipped)
 		marker.global_position = GridMath.cell_center(cell, ground_y + 0.15)
 		if port.kind == PortData.Kind.INPUT:
@@ -378,7 +385,7 @@ func _try_place() -> void:
 	if problem != "":
 		place_failed.emit(problem)
 		return
-	var result: PlacedBuilding = island.place(building, _target_origin, rotation_steps, flipped and building.can_flip())
+	var result: PlacedBuilding = island.place(building, _target_origin, rotation_steps, flipped and building.can_flip(), output_turn)
 	if result == null:
 		place_failed.emit("BUILD_NO_ROOM")
 		return

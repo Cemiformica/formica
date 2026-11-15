@@ -163,7 +163,7 @@ func _refresh_connections() -> void:
 func _mark_port(linked: Dictionary[int, Array], building: PlacedBuilding, port: PortData) -> void:
 	if not linked.has(building.id):
 		linked[building.id] = []
-	linked[building.id].append(building.data.ports.find(port))
+	linked[building.id].append(building.get_ports().find(port))
 
 
 ## Enciende el borne de las construcciones que tienen algún cable.

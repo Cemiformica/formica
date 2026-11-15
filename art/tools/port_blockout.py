@@ -201,6 +201,10 @@ def build_port(name: str, inward: bool, arrow_color: tuple, mat) -> None:
         in_tunnel = abs(c.x) < MOUTH_W + 0.02 and abs(c.z - HEX_Z) < MOUTH_H + 0.03 and abs(f.normal.y) < 0.5
         if f in plug_set or in_tunnel:
             color = MOUTH
+        if f in plug_set and f.normal.y < -0.5:
+            # La cara de DETRÁS del tapón va del gris del marco: así, si el cuerpo de la máquina no tapa
+            # del todo el fondo del puerto, no asoma un hexágono oscuro por detrás (César, caja logística).
+            color = FRAME
         if f in arrow_set:
             color = arrow_color
         if f in rivet_set:

@@ -86,10 +86,11 @@ func placement_problem(data: BuildingData, origin: Vector2i, rotation: int = 0) 
 
 
 ## Coloca una construcción. Devuelve la nueva `PlacedBuilding`, o null si no cabe.
-func place(data: BuildingData, origin: Vector2i, rotation: int = 0, flipped: bool = false) -> PlacedBuilding:
+## `turn`: solo cajas logísticas, lado de la salida (0 = recta, 1 = derecha, 2 = izquierda).
+func place(data: BuildingData, origin: Vector2i, rotation: int = 0, flipped: bool = false, turn: int = 0) -> PlacedBuilding:
 	if not can_place(data, origin, rotation) or not grid.place(_next_id, origin, data.size, rotation):
 		return null
-	var placed := PlacedBuilding.new(_next_id, data, origin, rotation, flipped)
+	var placed := PlacedBuilding.new(_next_id, data, origin, rotation, flipped, turn)
 	if placed.is_extractor():
 		placed.set_vein_item(vein_at(PlacedBuilding.head_cell_for(data, origin, rotation)).item)
 	buildings[_next_id] = placed
@@ -219,7 +220,7 @@ func get_links() -> Array[Dictionary]:
 func _rebuild_links() -> void:
 	_links.clear()
 	for from: PlacedBuilding in buildings.values():
-		for out_port: PortData in from.data.ports:
+		for out_port: PortData in from.get_ports():
 			if out_port.kind != PortData.Kind.OUTPUT:
 				continue
 			var out_cell: Vector2i = out_port.get_grid_cell(from.origin, from.data.size, from.rotation, from.flipped)
@@ -227,7 +228,7 @@ func _rebuild_links() -> void:
 			var to: PlacedBuilding = get_at(target_cell)
 			if to == null or to == from:
 				continue
-			for in_port: PortData in to.data.ports:
+			for in_port: PortData in to.get_ports():
 				if in_port.kind != PortData.Kind.INPUT:
 					continue
 				if in_port.get_grid_cell(to.origin, to.data.size, to.rotation, to.flipped) == target_cell \

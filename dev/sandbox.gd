@@ -82,7 +82,7 @@ func _update_label() -> void:
 	var stone: ItemData = Content.find_item(&"stone")
 	var seed_item: ItemData = Content.find_item(&"seed")
 	var materials: String = "%s %d · %s %d · %s %d" % [tr(wood.name_key), inventory.get_total(wood), tr(stone.name_key), inventory.get_total(stone), tr(seed_item.name_key), inventory.get_total(seed_item)]
-	for id: StringName in [&"copper_ore", &"charcoal", &"copper_ingot", &"slag", &"iron_ingot", &"solar_cell"]:
+	for id: StringName in [&"copper_ore", &"charcoal", &"copper_ingot", &"slag", &"iron_ingot", &"solar_cell", &"copper_coil"]:
 		var item: ItemData = Content.find_item(id)
 		if inventory.get_total(item) > 0:
 			materials += " · %s %d" % [tr(item.name_key), inventory.get_total(item)]
@@ -91,9 +91,10 @@ func _update_label() -> void:
 		return
 	var parts: PackedStringArray = []
 	for i: int in BuildController.BAR_SIZE:
-		var text: String = "%d —" % (i + 1)
+		var key: int = (i + 1) % 10 # la décima casilla va con el 0
+		var text: String = "%d —" % key
 		if i < builder.build_bar.size() and builder.build_bar[i] != null:
-			text = "%d %s" % [i + 1, tr(str(builder.build_bar[i].get("name_key")))]
+			text = "%d %s" % [key, tr(str(builder.build_bar[i].get("name_key")))]
 		if i == builder.selected_slot:
 			text = "[" + text + "]"
 		parts.append(text)

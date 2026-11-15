@@ -39,6 +39,14 @@ extends Resource
 ## Color del humo de sus «smoke_origin…» mientras trabaja (B3.7): casi negro el horno (carbón), blanco
 ## grisáceo la carbonera (vapor y madera, como en las carboneras reales). El humo se aclara al subir.
 @export var smoke_color: Color = Color(0.12, 0.11, 0.1)
+## Solo cajas logísticas (B3.7, D-093): F no refleja, sino que cambia el lado de la salida: recta →
+## derecha → izquierda → recta (César). La salida es el puerto de tipo salida de `ports`.
+@export var output_turns: bool = false
+## Almacenes (arcón y caja logística, D-093): casillas de su inventario. 0 = no es almacén.
+@export_range(0, 64) var storage_slots: int = 0
+
+## Caché de `ports_for()`: lista de puertos por giro de la salida (1 = derecha, 2 = izquierda).
+var _turned_ports: Dictionary = {}
 ## Energía en puntos: positivo = genera, negativo = consume, 0 = no eléctrica (D-068).
 ## Lo que consume cuenta entero mientras esté conectado, trabaje o no.
 @export var power: float = 0.0
@@ -48,11 +56,33 @@ extends Resource
 @export var ports: Array[PortData] = []
 
 
+## Puertos con la salida girada `turn` (0 = recta, 1 = derecha, 2 = izquierda), en el mismo orden que
+## `ports`. Solo cambia algo si `output_turns`; los puertos girados se crean una vez y se guardan.
+func ports_for(turn: int) -> Array[PortData]:
+	var key: int = posmod(turn, 3)
+	if not output_turns or key == 0:
+		return ports
+	if not _turned_ports.has(key):
+		var list: Array[PortData] = []
+		for port: PortData in ports:
+			if port.kind != PortData.Kind.OUTPUT:
+				list.append(port)
+				continue
+			var turned: PortData = port.duplicate() as PortData
+			var steps: int = 1 if key == 1 else 3 # derecha = un cuarto de vuelta horario; izquierda = tres
+			turned.side = ((port.side + steps) % 4) as PortData.PortSide
+			list.append(turned)
+		_turned_ports[key] = list
+	return _turned_ports[key]
+
+
 ## ¿Cambia algo al reflejarla (tecla F)? Solo si algún puerto queda distinto: otra casilla, otro lado
 ## u otro filtro (p. ej., las dos salidas del horno). Si reflejar no cambia nada, F no hace nada.
 func can_flip() -> bool:
 	if extract_time > 0.0:
 		return false # reflejar cambiaría la cabeza de lado: el giro con R basta
+	if output_turns:
+		return false # F cambia el lado de la salida, no refleja (lo gestiona BuildController)
 	if harvest_area != Vector2i.ZERO:
 		return false # el talador trabaja siempre delante y saca por detrás: reflejarlo no tiene sentido
 	var normal: Array[String] = []

@@ -15,3 +15,6 @@ desktop.ini
 
 # Configuración local de VS Code
 .vscode/
+
+# Archivos temporales de Python (scripts de art/tools importados desde Blender)
+__pycache__/

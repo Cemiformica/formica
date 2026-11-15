@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="BuildingData" format=3]
+
+[ext_resource type="Script" path="res://core/content/building_data.gd" id="1_building"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Resource" path="res://content/items/wood.tres" id="3_wood"]
+[ext_resource type="PackedScene" path="res://assets/models/buildings/storage_chest.glb" id="4_model"]
+
+[resource]
+script = ExtResource("1_building")
+id = &"storage_chest"
+name_key = "BUILDING_STORAGE_CHEST"
+scene = ExtResource("4_model")
+size = Vector2i(2, 1)
+height = 1
+storage_slots = 16
+cost = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("3_wood"): 6
+})

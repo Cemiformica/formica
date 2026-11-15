@@ -103,7 +103,7 @@ var _belt_in_port: int = -1
 var _belt_out_port: int = -1
 ## ¿Está conectada la salida de la cinta? (el ítem de delante puede asomar por ella al dibujarlo)
 var _belt_out_linked: bool = false
-## Solo con modelo: lengüeta de cada puerto (mismo orden que `data.ports`; null si no tiene) y aislante del borne.
+## Solo con modelo: lengüeta de cada puerto (mismo orden que `placed.get_ports()`; null si no tiene) y aislante del borne.
 var _port_tongues: Array[Node3D] = []
 var _insulator: MeshInstance3D = null
 ## Solo máquinas con modelo: material propio de la brasa, humo, pivote del fuelle y estado del calor.
@@ -119,6 +119,8 @@ var _dust_timer: float = 0.0
 ## Solo extractores con modelo: mineral de las mirillas, que sube según lo lleno que esté el almacén.
 var _store_fill: Node3D = null
 var _store_fill_painted: bool = false
+## Solo almacenes: ítem del que están pintadas las mirillas ahora.
+var _store_fill_item: ItemData = null
 ## Solo taladores con modelo: hojas de la mandíbula (giran en Y; el signo dice hacia dónde cierran),
 ## antenas que tantean, punto de donde saltan las virutas y troncos de las bandejas, en orden.
 var _jaws: Array[Node3D] = []
@@ -167,6 +169,18 @@ static func cable_anchor(p_placed: PlacedBuilding) -> Vector3:
 			offset.z = -offset.z # primero se refleja (como el modelo, escala −1 en Z) y luego se gira
 		return center + offset.rotated(Vector3.UP, GridMath.rotation_to_yaw(p_placed.rotation))
 	return center + Vector3(0.0, body_height(p_placed.data) - 0.1, 0.0)
+
+
+## Caja logística (D-093): el modelo trae tres versiones del túnel de salida; enseña solo la del lado
+## elegido (0 = recta, 1 = derecha, 2 = izquierda). En otros modelos no hace nada. La usa también el fantasma.
+const OUTPUT_TUNNELS: Array[String] = ["tunnel_straight", "tunnel_right", "tunnel_left"]
+
+
+static func show_output_tunnel(model: Node3D, turn: int) -> void:
+	for i: int in OUTPUT_TUNNELS.size():
+		var tunnel := model.find_child(OUTPUT_TUNNELS[i], true, false) as Node3D
+		if tunnel != null:
+			tunnel.visible = i == posmod(turn, 3)
 
 
 ## Posición de «cable_anchor» dentro del modelo (sin girar), o null. Instancia el modelo una sola vez.
@@ -227,6 +241,7 @@ func setup(p_placed: PlacedBuilding, p_island: IslandState) -> void:
 		add_child(model)
 		_insulator = model.find_child("cable_insulator", true, false) as MeshInstance3D
 		_add_port_models()
+		show_output_tunnel(model, placed.output_turn)
 		_setup_machine_visuals(model)
 		_setup_status_lights(model)
 	elif is_pole(placed.data):
@@ -263,6 +278,9 @@ func _process(delta: float) -> void:
 		_label.text = _extractor_text()
 	elif placed.is_harvester():
 		_label.text = _harvester_text()
+	elif placed.is_storage():
+		_update_storage_visuals()
+		_label.text = _storage_text()
 	else:
 		_label.text = tr(placed.data.name_key)
 
@@ -289,6 +307,50 @@ func _harvester_text() -> String:
 	if placed.data.power < 0.0 and island != null and not island.is_powered(placed.id):
 		text += "  · " + tr("POWER_NO_POWER")
 	return text
+
+
+## "Caja logística · Escoria 12 · Madera 3" (hasta 3 ítems; si hay más, "…").
+func _storage_text() -> String:
+	var totals: Dictionary[ItemData, int] = {}
+	for stack: ItemStack in placed.output.slots:
+		if stack != null:
+			totals[stack.item] = totals.get(stack.item, 0) + stack.amount
+	var parts: PackedStringArray = [tr(placed.data.name_key)]
+	for item: ItemData in totals:
+		if parts.size() > 3:
+			parts.append("…")
+			break
+		parts.append("%s %d" % [tr(item.name_key), totals[item]])
+	return " · ".join(parts)
+
+
+## ¿Le cabe algo más? (alguna casilla vacía o alguna pila sin llenar)
+func _storage_has_space() -> bool:
+	for stack: ItemStack in placed.output.slots:
+		if stack == null or stack.space_left() > 0:
+			return true
+	return false
+
+
+## Almacén con modelo: las mirillas se llenan según las casillas ocupadas, del color de lo primero que
+## guarda (cambia si cambia lo que guarda).
+func _update_storage_visuals() -> void:
+	if _store_fill == null:
+		return
+	var used: int = 0
+	var first: ItemData = null
+	for stack: ItemStack in placed.output.slots:
+		if stack != null:
+			used += 1
+			if first == null:
+				first = stack.item
+	var ratio: float = float(used) / maxf(placed.output.slots.size(), 1)
+	_store_fill.visible = ratio > 0.0
+	_store_fill.scale.y = maxf(ratio, 0.01)
+	if first != null and first != _store_fill_item:
+		_store_fill_item = first
+		for mesh: Node in _store_fill.find_children("*", "MeshInstance3D", true, false):
+			(mesh as MeshInstance3D).material_override = _material_for(first)
 
 
 ## Ítems que guarda en su salida, de cualquier tipo.
@@ -614,7 +676,7 @@ static func _make_puff_mesh() -> ArrayMesh:
 ## Puerto estándar en cada `PortData`: en el centro de su casilla, girado hacia su lado. Su lengüeta de
 ## cinta empieza oculta (la enseña `set_linked_ports`).
 func _add_port_models() -> void:
-	for port: PortData in placed.data.ports:
+	for port: PortData in placed.get_ports():
 		var scene: PackedScene = PORT_INPUT_SCENE
 		if port.kind == PortData.Kind.OUTPUT:
 			scene = PORT_OUTPUT_SCENE
@@ -629,7 +691,7 @@ func _add_port_models() -> void:
 		_port_tongues.append(tongue)
 
 
-## Enseña la lengüeta de los puertos conectados. `linked`: índices de `data.ports` con conexión.
+## Enseña la lengüeta de los puertos conectados. `linked`: índices de `placed.get_ports()` con conexión.
 ## En una cinta con modelo, decide en cada extremo si se ve la vuelta de banda o el tramo de unión.
 func set_linked_ports(linked: Array[int]) -> void:
 	if placed.is_belt():
@@ -669,7 +731,10 @@ func _setup_status_lights(model: Node3D) -> void:
 func _update_status_lights(delta: float) -> void:
 	var color: Color = STATUS_COLOR
 	var lit: bool = true
-	if placed.fuse_tripped:
+	if placed.is_storage():
+		# Almacén (caja logística): verde si le cabe algo más, ámbar si está llena.
+		color = STATUS_OK_COLOR if _storage_has_space() else STATUS_COLOR
+	elif placed.fuse_tripped:
 		color = STATUS_TRIPPED_COLOR
 		_status_time += delta
 		lit = fposmod(_status_time * STATUS_BLINK_RATE, 1.0) < 0.5
@@ -702,7 +767,7 @@ func set_cabled(cabled: bool) -> void:
 
 ## Un cubito por puerto, pegado al borde de su casilla por el lado del puerto.
 func _add_port_markers() -> void:
-	for port: PortData in placed.data.ports:
+	for port: PortData in placed.get_ports():
 		var cell: Vector2i = port.get_grid_cell(placed.origin, placed.data.size, placed.rotation, placed.flipped)
 		var offset: Vector2i = PortData.side_offset(port.get_grid_side(placed.rotation, placed.flipped))
 		var world: Vector3 = GridMath.cell_center(cell, 0.2) + Vector3(offset.x, 0.0, offset.y) * 0.5

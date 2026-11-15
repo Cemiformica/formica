@@ -42,3 +42,5 @@ BUILDING_EXTRACTOR,Extractor,Extractor,Extractor
 BUILD_NEEDS_VEIN,La cabeza debe ir sobre el borde de una veta,El cap ha d'anar sobre la vora d'una veta,The head must sit on the edge of a vein
 BUILDING_CHARCOAL_KILN,Carbonera,Carbonera,Charcoal kiln
 ITEM_COPPER_COIL,Bobina de cobre,Bobina de coure,Copper coil
+BUILDING_STORAGE_CHEST,Arcón,Arcó,Chest
+BUILDING_LOGISTIC_BOX,Caja logística,Caixa logística,Logistic box

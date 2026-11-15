@@ -28,10 +28,12 @@
 [ext_resource type="Resource" path="res://content/recipes/make_charcoal.tres" id="26_charcoal_recipe"]
 [ext_resource type="Resource" path="res://content/buildings/charcoal_kiln.tres" id="27_kiln"]
 [ext_resource type="Resource" path="res://content/items/copper_coil.tres" id="28_coil"]
+[ext_resource type="Resource" path="res://content/buildings/storage_chest.tres" id="29_chest"]
+[ext_resource type="Resource" path="res://content/buildings/logistic_box.tres" id="30_logistic"]
 
 [resource]
 script = ExtResource("1_catalog")
 items = Array[ExtResource("2_itemscript")]([ExtResource("4_wood"), ExtResource("5_stone"), ExtResource("6_gravel"), ExtResource("13_seed"), ExtResource("15_ore"), ExtResource("16_charcoal"), ExtResource("17_ingot"), ExtResource("18_slag"), ExtResource("21_iron"), ExtResource("22_cell"), ExtResource("28_coil")])
 recipes = Array[ExtResource("3_recipescript")]([ExtResource("7_crush"), ExtResource("19_smelt"), ExtResource("26_charcoal_recipe")])
-buildings = Array[ExtResource("8_buildingscript")]([ExtResource("9_crusher"), ExtResource("10_conveyor"), ExtResource("11_pole"), ExtResource("12_solar"), ExtResource("14_cutter"), ExtResource("20_furnace"), ExtResource("25_extractor"), ExtResource("27_kiln")])
+buildings = Array[ExtResource("8_buildingscript")]([ExtResource("9_crusher"), ExtResource("10_conveyor"), ExtResource("11_pole"), ExtResource("12_solar"), ExtResource("14_cutter"), ExtResource("20_furnace"), ExtResource("25_extractor"), ExtResource("27_kiln"), ExtResource("29_chest"), ExtResource("30_logistic")])
 veins = Array[ExtResource("23_veinscript")]([ExtResource("24_malachite")])

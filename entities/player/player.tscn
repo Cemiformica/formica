@@ -2,16 +2,16 @@
 
 [ext_resource type="Script" path="res://entities/player/player.gd" id="1_player"]
 [ext_resource type="Script" path="res://entities/player/build_controller.gd" id="2_build"]
-[ext_resource type="Resource" path="res://content/buildings/crusher.tres" id="3_crusher"]
 [ext_resource type="Resource" path="res://content/buildings/conveyor.tres" id="4_conveyor"]
 [ext_resource type="Resource" path="res://content/buildings/power_pole.tres" id="5_pole"]
 [ext_resource type="Resource" path="res://content/buildings/solar_panel.tres" id="6_solar"]
-[ext_resource type="Resource" path="res://dev/content/electric_crusher.tres" id="7_ecrusher"]
 [ext_resource type="Resource" path="res://content/tools/cable_tool.tres" id="8_cable"]
 [ext_resource type="Resource" path="res://content/buildings/tree_cutter.tres" id="9_cutter"]
 [ext_resource type="Resource" path="res://content/buildings/furnace.tres" id="10_furnace"]
 [ext_resource type="Resource" path="res://content/buildings/extractor.tres" id="11_extractor"]
 [ext_resource type="Resource" path="res://content/buildings/charcoal_kiln.tres" id="12_kiln"]
+[ext_resource type="Resource" path="res://content/buildings/storage_chest.tres" id="13_chest"]
+[ext_resource type="Resource" path="res://content/buildings/logistic_box.tres" id="14_logistic"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.4
@@ -43,4 +43,4 @@ target_position = Vector3(0, 0, -3)
 
 [node name="BuildController" type="Node3D" parent="."]
 script = ExtResource("2_build")
-build_bar = Array[Resource]([ExtResource("12_kiln"), ExtResource("4_conveyor"), ExtResource("5_pole"), ExtResource("6_solar"), ExtResource("7_ecrusher"), ExtResource("9_cutter"), ExtResource("10_furnace"), ExtResource("11_extractor"), ExtResource("8_cable")])
+build_bar = Array[Resource]([ExtResource("12_kiln"), ExtResource("4_conveyor"), ExtResource("5_pole"), ExtResource("6_solar"), ExtResource("13_chest"), ExtResource("9_cutter"), ExtResource("10_furnace"), ExtResource("11_extractor"), ExtResource("8_cable"), ExtResource("14_logistic")])
