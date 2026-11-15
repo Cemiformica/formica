@@ -14,8 +14,17 @@
 
 import bpy
 import bmesh
+import importlib
 import math
+import os
+import sys
 from mathutils import Matrix, Vector
+
+# Emblema de la colonia: pieza común en art/tools/crest.py (sin dejar __pycache__ en el proyecto).
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.normpath(bpy.path.abspath("//../tools")))
+import crest
+importlib.reload(crest)
 
 PALETTE = 64
 SWATCH = 8
@@ -305,32 +314,9 @@ def build() -> None:
     for x in (-0.7, -0.4, 0.4, 0.7):
         finish("cap_rivet_%d" % int((x + 1) * 100), hex_rivet((x, HALF_Y - 0.09, TOP_Z + 0.94), (0, -1, 0), r=0.014), METAL_DEEP, root, mat, 0.0)
     # Emblema de la colonia INTEGRADO en el remate (César: que forme parte de la barra y tenga protagonismo):
-    # un marco hexagonal gris del Nexo fundido con la barra, placa naranja y, delante, una hormiga vista
-    # desde arriba (abdomen, tórax y cabeza como tres hexágonos en fila, y tres patas a cada lado).
-    crest_z = TOP_Z + 0.94
-    back_y = HALF_Y - 0.01
-
-    def upright_hex(name, r, depth, front_y, color, bevel=0.0):
-        # Hexágono de canto plano arriba, de pie y mirando al sur; su cara delantera queda en front_y.
-        bm = prism(6, r, r, 0.0, depth, angle=0.0)
-        bmesh.ops.transform(bm, matrix=Matrix.Translation((0.0, front_y + depth, crest_z)) @ Matrix.Rotation(math.radians(90), 4, "X"), verts=bm.verts)
-        return finish(name, bm, color, root, mat, bevel)
-
-    upright_hex("crest_frame", 0.16, back_y - (HALF_Y - 0.11), HALF_Y - 0.11, METAL_DARK, 0.008)
-    upright_hex("crest_plate", 0.128, 0.02, HALF_Y - 0.13, ACCENT, 0.004)
-    ant_y = HALF_Y - 0.145
-    for k, (dz, r) in enumerate(((-0.062, 0.04), (0.0, 0.025), (0.056, 0.031))):
-        seg = prism(6, r, r, 0.0, 0.015, angle=math.radians(30))
-        bmesh.ops.transform(seg, matrix=Matrix.Translation((0.0, ant_y + 0.015, crest_z + dz)) @ Matrix.Rotation(math.radians(90), 4, "X"), verts=seg.verts)
-        finish("crest_ant_%d" % k, seg, METAL_DEEP, root, mat, 0.0)
-    for k, dz in enumerate((-0.018, 0.0, 0.018)):
-        for sx in (-1.0, 1.0):
-            finish("crest_leg_%d_%d" % (k, sx > 0), strut((0.0, ant_y + 0.008, crest_z + dz * 0.6), (sx * 0.088, ant_y + 0.008, crest_z + dz * 3.2), 0.012, 4),
-                   METAL_DEEP, root, mat, 0.0)
-    # Antenas: dos trazos cortos desde la cabeza.
-    for sx in (-1.0, 1.0):
-        finish("crest_antenna_%d" % (sx > 0), strut((sx * 0.006, ant_y + 0.008, crest_z + 0.074), (sx * 0.045, ant_y + 0.008, crest_z + 0.105), 0.008, 4),
-               METAL_DEEP, root, mat, 0.0)
+    # versión «placa» de la pieza común crest.py, con el marco hundido en la barra.
+    crest.add_crest(finish, root, mat, (0.0, HALF_Y - 0.05, TOP_Z + 0.94), (0.0, -1.0, 0.0), scale=1.0,
+                    style="plate", frame_depth=0.06, embed=0.04)
     for r_i, z in enumerate((TOP_Z + 0.3, TOP_Z + 0.5, TOP_Z + 0.7)):
         for c_i, x in enumerate((-0.6, -0.36, 0.36, 0.6)):
             hole = prism(6, 0.025, 0.025, 0.0, 0.012, angle=math.radians(30))
