@@ -7,6 +7,11 @@ extends Interactable
 ## Las cintas son una losa baja con una flecha, y sus ítems se ven como cubitos del color de cada ítem.
 ## Los postes son un palo alto; los generadores, una losa azulada (B2.6b). E sobre un generador
 ## rearma el fusible de su red; sobre una máquina, hace el intercambio rápido provisional.
+## Con modelo real (B3): pone el puerto estándar en cada `PortData` (D-079), con su lengüeta de cinta
+## visible solo si está conectado; ilumina el borne si tiene cable; y el cable se engancha en el nodo
+## «cable_anchor» del modelo. Las máquinas con modelo muestran su estado (B3): mientras trabajan, la brasa
+## («ember_window…») brilla y parpadea, sale humo de «smoke_origin» y el fuelle («bellows_pivot») bombea;
+## al parar, todo se apaga poco a poco. Dónde tocar: colores y ritmos en las constantes EMBER_… y BELLOWS_….
 
 const BODY_HEIGHT: float = 1.0
 const BODY_COLOR: Color = Color(0.55, 0.5, 0.45)
@@ -19,12 +24,36 @@ const COLOR_OUTPUT: Color = Color(1.0, 0.55, 0.1)
 const BELT_HEIGHT: float = 0.1
 const BELT_COLOR: Color = Color(0.25, 0.25, 0.27)
 const ARROW_COLOR: Color = Color(0.85, 0.85, 0.8)
+## Puertos estándar (D-079): se modelan en el lado norte de su casilla, con el origen en su centro.
+const PORT_INPUT_SCENE: PackedScene = preload("res://assets/models/buildings/port_input.glb")
+const PORT_OUTPUT_SCENE: PackedScene = preload("res://assets/models/buildings/port_output.glb")
+## Color del borne con un cable conectado (verde brillante, petición de César: se entiende mejor).
+const CABLE_LIGHT_COLOR: Color = Color(0.6, 0.95, 0.3)
+## Brasa: color encendido, color apagado, brillo máximo y velocidad de encendido y apagado (por segundo).
+const EMBER_COLOR: Color = Color(1.0, 0.5, 0.15)
+const EMBER_DARK: Color = Color(0.18, 0.08, 0.05)
+const EMBER_ENERGY: float = 1.2
+const EMBER_FADE_IN: float = 1.5
+const EMBER_FADE_OUT: float = 0.5
+## Segundos que se sigue considerando «trabajando» tras el último avance (Simulation da 10 pasos/s).
+const WORKING_HOLD: float = 0.3
+## Fuelle: veces por segundo y cuánto se aplasta (0,35 = hasta el 65 % de su altura).
+const BELLOWS_RATE: float = 0.9
+const BELLOWS_SQUEEZE: float = 0.35
 ## Capa de colisión de las cintas: el jugador camina por encima (no choca), pero los rayos de
 ## construir y del cuentagotas sí las encuentran.
 const BELT_COLLISION_LAYER: int = 2
 
 ## Un material por ítem, compartido por todos los cubitos de todas las cintas.
 static var _item_materials: Dictionary[ItemData, StandardMaterial3D] = {}
+## Punto de enganche del cable de cada modelo, en su espacio local sin girar (null si no tiene).
+## Se calcula una vez por tipo de construcción.
+static var _anchor_cache: Dictionary = {}
+## Material del borne encendido, compartido por todos.
+static var _cable_light: StandardMaterial3D = null
+## Humo de juguete: material de partículas y bolita, compartidos por todas las chimeneas.
+static var _smoke_process: ParticleProcessMaterial = null
+static var _smoke_mesh: ArrayMesh = null
 
 ## Construcción que muestra.
 var placed: PlacedBuilding
@@ -35,10 +64,25 @@ var _label: Label3D = null
 ## Solo cintas: dirección de avance (hacia la salida) y cubitos de los ítems.
 var _belt_forward: Vector3 = Vector3.ZERO
 var _belt_cubes: Array[MeshInstance3D] = []
+## Solo con modelo: lengüeta de cada puerto (mismo orden que `data.ports`; null si no tiene) y aislante del borne.
+var _port_tongues: Array[Node3D] = []
+var _insulator: MeshInstance3D = null
+## Solo máquinas con modelo: material propio de la brasa, humo, pivote del fuelle y estado del calor.
+var _ember_material: StandardMaterial3D = null
+var _smoke: GPUParticles3D = null
+var _bellows: Node3D = null
+var _heat: float = 0.0 ## 0 = apagado, 1 = a pleno
+var _working_hold: float = 0.0
+var _last_progress: float = 0.0
+var _time: float = 0.0
+var _phase: float = 0.0 ## desfase al azar, para que no parpadeen todos los hornos a la vez
 
 
-## Altura de la pieza provisional: palo alto para los postes, losa para los generadores, caja para el resto.
+## Altura de la construcción: la de `BuildingData.height` si la tiene (modelos reales); si no, la de la
+## pieza provisional: palo alto para los postes, losa para los generadores, caja para el resto.
 static func body_height(data: BuildingData) -> float:
+	if data.height > 0:
+		return float(data.height)
 	if is_pole(data):
 		return POLE_HEIGHT
 	if data.power > 0.0:
@@ -51,16 +95,47 @@ static func is_pole(data: BuildingData) -> bool:
 	return data.power_connections > 1 and data.power == 0.0 and data.recipe == null and data.belt_speed <= 0.0
 
 
-## Punto del mundo donde se engancha un cable a esta construcción: arriba del todo, en su centro.
+## Punto del mundo donde se engancha un cable a esta construcción: el nodo «cable_anchor» del modelo
+## (reflejado y girado como la construcción) o, si no lo tiene, arriba del todo, en su centro.
 static func cable_anchor(p_placed: PlacedBuilding) -> Vector3:
 	var center: Vector3 = GridMath.footprint_center(p_placed.origin, p_placed.data.size, p_placed.rotation)
+	var local: Variant = _model_anchor(p_placed.data)
+	if local != null:
+		var offset: Vector3 = local
+		if p_placed.flipped:
+			offset.z = -offset.z # primero se refleja (como el modelo, escala −1 en Z) y luego se gira
+		return center + offset.rotated(Vector3.UP, GridMath.rotation_to_yaw(p_placed.rotation))
 	return center + Vector3(0.0, body_height(p_placed.data) - 0.1, 0.0)
+
+
+## Posición de «cable_anchor» dentro del modelo (sin girar), o null. Instancia el modelo una sola vez.
+static func _model_anchor(data: BuildingData) -> Variant:
+	if data.scene == null:
+		return null
+	if not _anchor_cache.has(data):
+		var result: Variant = null
+		var model := data.scene.instantiate() as Node3D
+		var anchor := model.find_child("cable_anchor", true, false) as Node3D
+		if anchor != null:
+			# Fuera del árbol no hay posiciones globales: se suman a mano las de sus padres.
+			var xform: Transform3D = anchor.transform
+			var node: Node = anchor.get_parent()
+			while node != model and node is Node3D:
+				xform = (node as Node3D).transform * xform
+				node = node.get_parent()
+			result = xform.origin
+		model.free()
+		_anchor_cache[data] = result
+	return _anchor_cache[data]
 
 
 ## Prepara la vista. Se llama ANTES de añadirla al árbol.
 func setup(p_placed: PlacedBuilding, p_island: IslandState) -> void:
 	placed = p_placed
 	island = p_island
+	# Las construcciones no se mueven con la física; lo que anima esta vista (fuelle, ítems de las cintas)
+	# cambia en cada fotograma, así que no debe suavizarse con la interpolación de la física.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	name = "%s_%d" % [placed.data.id, placed.id]
 	display_name_key = placed.data.name_key
 	position = GridMath.footprint_center(placed.origin, placed.data.size, placed.rotation)
@@ -87,6 +162,9 @@ func setup(p_placed: PlacedBuilding, p_island: IslandState) -> void:
 		if placed.flipped:
 			model.scale.z = -1.0
 		add_child(model)
+		_insulator = model.find_child("cable_insulator", true, false) as MeshInstance3D
+		_add_port_models()
+		_setup_machine_visuals(model)
 	elif is_pole(placed.data):
 		_add_box(Vector3(0.2, height, 0.2), Vector3(0.0, height * 0.5, 0.0), POLE_COLOR)
 	else:
@@ -105,12 +183,14 @@ func setup(p_placed: PlacedBuilding, p_island: IslandState) -> void:
 	add_child(_label)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if placed == null:
 		return
 	if placed.is_belt():
 		_update_belt_items()
 		return
+	if placed.is_machine():
+		_update_machine_visuals(delta)
 	if placed.is_machine():
 		_label.text = _machine_text()
 	else:
@@ -201,6 +281,185 @@ func interact(by: Node) -> void:
 			network.reset_fuse() # si sigue sobrecargada, volverá a saltar en el siguiente paso
 		return
 	placed.quick_exchange(WorldState.player_inventory)
+
+
+## Busca en el modelo las piezas que muestran el estado de la máquina y las prepara (todas son opcionales).
+func _setup_machine_visuals(model: Node3D) -> void:
+	_last_progress = placed.progress
+	_phase = randf() * TAU
+	var embers: Array[Node] = model.find_children("ember_window*", "MeshInstance3D", true, false)
+	if not embers.is_empty():
+		_ember_material = StandardMaterial3D.new()
+		_ember_material.albedo_color = EMBER_DARK
+		_ember_material.emission_enabled = true
+		_ember_material.emission = EMBER_COLOR
+		_ember_material.emission_energy_multiplier = 0.0
+		for ember: Node in embers:
+			(ember as MeshInstance3D).material_override = _ember_material
+	var smoke_origin := model.find_child("smoke_origin", true, false) as Node3D
+	if smoke_origin != null:
+		_smoke = _make_smoke()
+		smoke_origin.add_child(_smoke)
+	_bellows = model.find_child("bellows_pivot", true, false) as Node3D
+
+
+## Trabaja si su progreso cambió hace poco. El calor sube y baja suave, y de él dependen la brasa
+## (con parpadeo), el humo y el fuelle.
+func _update_machine_visuals(delta: float) -> void:
+	if placed.progress != _last_progress:
+		_last_progress = placed.progress
+		_working_hold = WORKING_HOLD
+	else:
+		_working_hold = maxf(_working_hold - delta, 0.0)
+	var target: float = 0.0
+	if _working_hold > 0.0:
+		target = 1.0
+	var rate: float = EMBER_FADE_OUT
+	if target > _heat:
+		rate = EMBER_FADE_IN
+	_heat = move_toward(_heat, target, rate * delta)
+	_time += delta
+	if _ember_material != null:
+		var flicker: float = 0.85 + 0.1 * sin(_time * 7.3 + _phase) + 0.05 * sin(_time * 17.9 + _phase * 2.0)
+		_ember_material.emission_energy_multiplier = EMBER_ENERGY * _heat * flicker
+		_ember_material.albedo_color = EMBER_DARK.lerp(EMBER_COLOR, _heat * 0.6)
+	if _smoke != null:
+		_smoke.emitting = _heat > 0.5
+	if _bellows != null:
+		var squeeze: float = 0.5 + 0.5 * sin(_time * TAU * BELLOWS_RATE + _phase)
+		_bellows.scale.y = 1.0 - BELLOWS_SQUEEZE * squeeze * _heat
+
+
+## Humo de juguete: pocas «piedrecitas» de humo facetadas (icosaedro achatado, como el resto del arte
+## low-poly), de gris carbón, con sombreado de dibujo animado y sin reflejos. Suben separadas, girando
+## un poco y con algo de deriva (brisa), crecen y se desvanecen al final. Barato: 5 partículas por chimenea y no se dibuja
+## a más de 60 m. Dónde tocar: cantidad y duración abajo (amount, lifetime); color en `fade`.
+static func _make_smoke() -> GPUParticles3D:
+	if _smoke_process == null:
+		_smoke_process = ParticleProcessMaterial.new()
+		_smoke_process.direction = Vector3.UP
+		_smoke_process.spread = 15.0
+		_smoke_process.initial_velocity_min = 0.5
+		_smoke_process.initial_velocity_max = 0.7
+		_smoke_process.gravity = Vector3(0.12, 0.05, 0.04) # brisa suave: la columna se tuerce un poco
+		_smoke_process.scale_min = 0.8
+		_smoke_process.scale_max = 1.3
+		_smoke_process.particle_flag_rotate_y = true # cada bolita con su giro: no salen todas iguales
+		_smoke_process.angle_min = 0.0
+		_smoke_process.angle_max = 360.0
+		_smoke_process.angular_velocity_min = -45.0
+		_smoke_process.angular_velocity_max = 45.0
+		var grow := Curve.new()
+		grow.max_value = 2.0
+		grow.add_point(Vector2(0.0, 0.5))
+		grow.add_point(Vector2(1.0, 1.8))
+		var grow_texture := CurveTexture.new()
+		grow_texture.curve = grow
+		_smoke_process.scale_curve = grow_texture
+		var fade := Gradient.new()
+		# Casi negro (humo de carbón, César) y casi opaco hasta el 65 % de su vida; luego se aclara un poco
+		# y se desvanece.
+		fade.offsets = PackedFloat32Array([0.0, 0.65, 1.0])
+		fade.colors = PackedColorArray([Color(0.12, 0.11, 0.1, 0.95), Color(0.18, 0.17, 0.16, 0.85), Color(0.28, 0.27, 0.26, 0.0)])
+		var fade_texture := GradientTexture1D.new()
+		fade_texture.gradient = fade
+		_smoke_process.color_ramp = fade_texture
+		var puff_material := StandardMaterial3D.new()
+		puff_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		puff_material.vertex_color_use_as_albedo = true
+		puff_material.roughness = 1.0
+		puff_material.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON # dos tonos: luz y sombra, de juguete
+		puff_material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED # sin reflejos del cielo (no burbujas)
+		_smoke_mesh = _make_puff_mesh()
+		_smoke_mesh.surface_set_material(0, puff_material)
+	var particles := GPUParticles3D.new()
+	particles.amount = 5
+	particles.lifetime = 3.0
+	particles.randomness = 0.3
+	particles.process_material = _smoke_process
+	particles.draw_pass_1 = _smoke_mesh
+	particles.emitting = false
+	particles.local_coords = false
+	particles.visibility_range_end = 60.0
+	particles.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return particles
+
+
+## Bolita de humo facetada: un icosaedro (20 caras planas) de 0,14 m de radio, achatado en vertical.
+## Cada cara lleva su propia normal, para que se vea en facetas como el resto del arte.
+static func _make_puff_mesh() -> ArrayMesh:
+	var t: float = (1.0 + sqrt(5.0)) * 0.5
+	var corners: Array[Vector3] = [
+		Vector3(-1, t, 0), Vector3(1, t, 0), Vector3(-1, -t, 0), Vector3(1, -t, 0),
+		Vector3(0, -1, t), Vector3(0, 1, t), Vector3(0, -1, -t), Vector3(0, 1, -t),
+		Vector3(t, 0, -1), Vector3(t, 0, 1), Vector3(-t, 0, -1), Vector3(-t, 0, 1)]
+	var faces: Array[Vector3i] = [
+		Vector3i(0, 11, 5), Vector3i(0, 5, 1), Vector3i(0, 1, 7), Vector3i(0, 7, 10), Vector3i(0, 10, 11),
+		Vector3i(1, 5, 9), Vector3i(5, 11, 4), Vector3i(11, 10, 2), Vector3i(10, 7, 6), Vector3i(7, 1, 8),
+		Vector3i(3, 9, 4), Vector3i(3, 4, 2), Vector3i(3, 2, 6), Vector3i(3, 6, 8), Vector3i(3, 8, 9),
+		Vector3i(4, 9, 5), Vector3i(2, 4, 11), Vector3i(6, 2, 10), Vector3i(8, 6, 7), Vector3i(9, 8, 1)]
+	var radius: float = corners[0].length()
+	var puff_scale: Vector3 = Vector3(0.14, 0.11, 0.14) / radius
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for face: Vector3i in faces:
+		var a: Vector3 = corners[face.x] * puff_scale
+		var b: Vector3 = corners[face.y] * puff_scale
+		var c: Vector3 = corners[face.z] * puff_scale
+		var cross: Vector3 = (b - a).cross(c - a)
+		if cross.dot(a + b + c) > 0.0:
+			# Godot dibuja la cara de delante con los vértices en sentido horario visto desde fuera.
+			var swap: Vector3 = b
+			b = c
+			c = swap
+			cross = -cross
+		st.set_normal(-cross.normalized()) # normal hacia fuera, la misma para toda la cara (facetas)
+		st.add_vertex(a)
+		st.add_vertex(b)
+		st.add_vertex(c)
+	return st.commit()
+
+
+## Puerto estándar en cada `PortData`: en el centro de su casilla, girado hacia su lado. Su lengüeta de
+## cinta empieza oculta (la enseña `set_linked_ports`).
+func _add_port_models() -> void:
+	for port: PortData in placed.data.ports:
+		var scene: PackedScene = PORT_INPUT_SCENE
+		if port.kind == PortData.Kind.OUTPUT:
+			scene = PORT_OUTPUT_SCENE
+		var port_model := scene.instantiate() as Node3D
+		var cell: Vector2i = port.get_grid_cell(placed.origin, placed.data.size, placed.rotation, placed.flipped)
+		port_model.position = GridMath.cell_center(cell) - position
+		port_model.rotation.y = GridMath.rotation_to_yaw(port.get_grid_side(placed.rotation, placed.flipped))
+		add_child(port_model)
+		var tongue := port_model.find_child("belt_tongue*", true, false) as Node3D
+		if tongue != null:
+			tongue.visible = false
+		_port_tongues.append(tongue)
+
+
+## Enseña la lengüeta de los puertos conectados. `linked`: índices de `data.ports` con conexión.
+func set_linked_ports(linked: Array[int]) -> void:
+	for i: int in _port_tongues.size():
+		if _port_tongues[i] != null:
+			_port_tongues[i].visible = linked.has(i)
+
+
+## Ilumina el borne si la construcción tiene algún cable, llegue o no la energía (decisión de César:
+## sirve para ver de un vistazo qué está bien montado).
+func set_cabled(cabled: bool) -> void:
+	if _insulator == null:
+		return
+	if cabled:
+		if _cable_light == null:
+			_cable_light = StandardMaterial3D.new()
+			_cable_light.albedo_color = CABLE_LIGHT_COLOR
+			_cable_light.emission_enabled = true
+			_cable_light.emission = CABLE_LIGHT_COLOR
+			_cable_light.emission_energy_multiplier = 1.0
+		_insulator.material_override = _cable_light
+	else:
+		_insulator.material_override = null
 
 
 ## Un cubito por puerto, pegado al borde de su casilla por el lado del puerto.

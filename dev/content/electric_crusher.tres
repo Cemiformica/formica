@@ -1,8 +1,8 @@
-[gd_resource type="Resource" script_class="BuildingData" format=3]
+[gd_resource type="Resource" script_class="BuildingData" format=3 uid="uid://kkdehc5k8ova"]
 
-[ext_resource type="Script" path="res://core/content/building_data.gd" id="1_building"]
-[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
-[ext_resource type="Script" path="res://core/content/port_data.gd" id="3_portscript"]
+[ext_resource type="Script" uid="uid://dtbuu1lcqqvkm" path="res://core/content/building_data.gd" id="1_building"]
+[ext_resource type="Script" uid="uid://dhv4e1pjshngy" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Script" uid="uid://dkooqj2ouj1ft" path="res://core/content/port_data.gd" id="3_portscript"]
 [ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
 [ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
 [ext_resource type="Resource" path="res://content/items/gravel.tres" id="6_gravel"]
@@ -10,14 +10,11 @@
 
 [sub_resource type="Resource" id="Resource_in"]
 script = ExtResource("3_portscript")
-kind = 0
-cell = Vector2i(0, 0)
 side = 3
 
 [sub_resource type="Resource" id="Resource_out"]
 script = ExtResource("3_portscript")
 kind = 1
-cell = Vector2i(0, 0)
 side = 1
 item_filter = ExtResource("6_gravel")
 
@@ -25,7 +22,6 @@ item_filter = ExtResource("6_gravel")
 script = ExtResource("1_building")
 id = &"electric_crusher"
 name_key = "BUILDING_ELECTRIC_CRUSHER"
-size = Vector2i(1, 1)
 cost = Dictionary[ExtResource("2_itemscript"), int]({
 ExtResource("4_wood"): 6,
 ExtResource("5_stone"): 4

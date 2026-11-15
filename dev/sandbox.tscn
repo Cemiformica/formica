@@ -1,9 +1,9 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://dseuu376fkoyw"]
 
-[ext_resource type="Script" path="res://dev/sandbox.gd" id="1_sandbox"]
+[ext_resource type="Script" uid="uid://cx6588aaseapu" path="res://dev/sandbox.gd" id="1_sandbox"]
 [ext_resource type="PackedScene" path="res://entities/player/player.tscn" id="2_player"]
-[ext_resource type="Script" path="res://entities/interactable.gd" id="3_interactable"]
-[ext_resource type="Script" path="res://world/island_view.gd" id="4_islandview"]
+[ext_resource type="Script" uid="uid://cc0vt62h30fot" path="res://entities/interactable.gd" id="3_interactable"]
+[ext_resource type="Script" uid="uid://doxb55pwda30a" path="res://world/island_view.gd" id="4_islandview"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.26, 0.5, 0.85, 1)
@@ -34,48 +34,50 @@ albedo_color = Color(0.85, 0.55, 0.2, 1)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_box"]
 
-[node name="Sandbox" type="Node3D"]
+[node name="Sandbox" type="Node3D" unique_id=188027912]
 script = ExtResource("1_sandbox")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=915582976]
 environment = SubResource("Environment_main")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=2137387534]
 transform = Transform3D(-0.8660254, -0.43301278, 0.25, 0, 0.49999997, 0.86602545, -0.50000006, 0.75, -0.43301266, 0, 0, 0)
 shadow_enabled = true
+directional_shadow_max_distance = 40.0
 
-[node name="Floor" type="StaticBody3D" parent="."]
+[node name="Floor" type="StaticBody3D" parent="." unique_id=599490337]
 
-[node name="Mesh" type="MeshInstance3D" parent="Floor"]
+[node name="Mesh" type="MeshInstance3D" parent="Floor" unique_id=2146289814]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.007983446, -2.3841858e-07, 0.0043611526)
 mesh = SubResource("PlaneMesh_floor")
 surface_material_override/0 = SubResource("StandardMaterial3D_floor")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor" unique_id=545573188]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
 shape = SubResource("BoxShape3D_floor")
 
-[node name="TestBox" type="StaticBody3D" parent="."]
+[node name="TestBox" type="StaticBody3D" parent="." unique_id=1206521481]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0.5, -3)
 script = ExtResource("3_interactable")
 display_name_key = "DEV_TEST_BOX"
 
-[node name="Mesh" type="MeshInstance3D" parent="TestBox"]
+[node name="Mesh" type="MeshInstance3D" parent="TestBox" unique_id=534278523]
 mesh = SubResource("BoxMesh_box")
 surface_material_override/0 = SubResource("StandardMaterial3D_box")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="TestBox"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TestBox" unique_id=1940539175]
 shape = SubResource("BoxShape3D_box")
 
-[node name="IslandView" type="Node3D" parent="."]
+[node name="IslandView" type="Node3D" parent="." unique_id=231217754]
 script = ExtResource("4_islandview")
-island_id = &"dev_sandbox"
 
-[node name="Player" parent="." instance=ExtResource("2_player")]
+[node name="Player" parent="." unique_id=40694821 instance=ExtResource("2_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 4)
 
-[node name="HUD" type="CanvasLayer" parent="."]
+[node name="HUD" type="CanvasLayer" parent="." unique_id=840769569]
 
-[node name="Crosshair" type="Label" parent="HUD"]
+[node name="Crosshair" type="Label" parent="HUD" unique_id=1588189756]
+auto_translate_mode = 2
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
@@ -87,12 +89,12 @@ offset_right = 10.0
 offset_bottom = 12.0
 grow_horizontal = 2
 grow_vertical = 2
-auto_translate_mode = 2
 text = "+"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="BuildBarLabel" type="Label" parent="HUD"]
+[node name="BuildBarLabel" type="Label" parent="HUD" unique_id=1786469942]
+auto_translate_mode = 2
 anchors_preset = 12
 anchor_top = 1.0
 anchor_right = 1.0
@@ -101,13 +103,13 @@ offset_top = -48.0
 offset_bottom = -16.0
 grow_horizontal = 2
 grow_vertical = 0
-auto_translate_mode = 2
-theme_override_constants/outline_size = 6
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 6
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="NetworkLabel" type="Label" parent="HUD"]
+[node name="NetworkLabel" type="Label" parent="HUD" unique_id=229705662]
+auto_translate_mode = 2
 anchors_preset = 12
 anchor_top = 1.0
 anchor_right = 1.0
@@ -116,8 +118,7 @@ offset_top = -84.0
 offset_bottom = -52.0
 grow_horizontal = 2
 grow_vertical = 0
-auto_translate_mode = 2
-theme_override_constants/outline_size = 6
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 6
 horizontal_alignment = 1
 vertical_alignment = 1

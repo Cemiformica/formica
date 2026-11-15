@@ -10,6 +10,9 @@ extends Resource
 @export var scene: PackedScene
 ## Tamaño en casillas de la cuadrícula (X, Z).
 @export var size: Vector2i = Vector2i.ONE
+## Altura en metros enteros (colisión y enganche del cable por defecto; guía de arte §7: 1, 2 o 3).
+## 0 = altura provisional de la pieza sin modelo (caja de 1 m, poste de 2 m, losa de 0,5 m).
+@export_range(0, 3) var height: int = 0
 ## Coste: qué ítems y cuántos de cada uno.
 @export var cost: Dictionary[ItemData, int] = {}
 ## Receta fija si es una máquina (vacío = no es máquina: caja, cinta, generador…).

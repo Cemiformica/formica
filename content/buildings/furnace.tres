@@ -1,0 +1,50 @@
+[gd_resource type="Resource" script_class="BuildingData" format=3 uid="uid://clxbi3623rtbw"]
+
+[ext_resource type="Script" uid="uid://dtbuu1lcqqvkm" path="res://core/content/building_data.gd" id="1_building"]
+[ext_resource type="Script" uid="uid://dhv4e1pjshngy" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Script" uid="uid://dkooqj2ouj1ft" path="res://core/content/port_data.gd" id="3_portscript"]
+[ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
+[ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
+[ext_resource type="Resource" path="res://content/items/copper_ingot.tres" id="6_ingot"]
+[ext_resource type="Resource" path="res://content/items/slag.tres" id="7_slag"]
+[ext_resource type="Resource" path="res://content/recipes/smelt_copper.tres" id="8_smelt"]
+[ext_resource type="PackedScene" uid="uid://cnvywy31bhmqg" path="res://assets/models/buildings/furnace.glb" id="9_model"]
+
+[sub_resource type="Resource" id="Resource_in_north"]
+script = ExtResource("3_portscript")
+side = 3
+
+[sub_resource type="Resource" id="Resource_in_south"]
+script = ExtResource("3_portscript")
+cell = Vector2i(0, 1)
+side = 3
+
+[sub_resource type="Resource" id="Resource_out_ingot"]
+script = ExtResource("3_portscript")
+kind = 1
+cell = Vector2i(1, 0)
+side = 1
+item_filter = ExtResource("6_ingot")
+
+[sub_resource type="Resource" id="Resource_out_slag"]
+script = ExtResource("3_portscript")
+kind = 1
+cell = Vector2i(1, 1)
+side = 1
+item_filter = ExtResource("7_slag")
+
+[resource]
+script = ExtResource("1_building")
+id = &"furnace"
+name_key = "BUILDING_FURNACE"
+scene = ExtResource("9_model")
+size = Vector2i(2, 2)
+height = 3
+cost = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("4_wood"): 4,
+ExtResource("5_stone"): 20
+})
+recipe = ExtResource("8_smelt")
+power = -3.0
+power_connections = 1
+ports = Array[ExtResource("3_portscript")]([SubResource("Resource_in_north"), SubResource("Resource_in_south"), SubResource("Resource_out_ingot"), SubResource("Resource_out_slag")])

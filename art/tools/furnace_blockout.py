@@ -7,6 +7,9 @@
 # Godot. Aquí solo se colocan copias de referencia (colección «ref_ports», no se exporta) para ver cómo
 # encajan. Regla: donde hay un puerto, el cuerpo llega con una pared plana hasta 0,25 m del borde.
 #
+# Nodos para Godot: ember_window_east/west (brasa), cable_insulator (se ilumina con cable), cable_anchor,
+# smoke_origin (humo) y bellows_pivot (fuelle animado).
+#
 # Uso: Editor de texto de Blender → abrir → Alt+P. Si ya existe «furnace», lo borra y lo rehace.
 # Dónde tocar: las medidas están en build(); cada pieza dice su color como (fila, columna).
 
@@ -247,10 +250,11 @@ def build() -> None:
     finish("rim", prism(6, 0.64, 0.64, 1.95, 2.06, angle=HEX), STONE_DEEP, root, mat)
     finish("chimney", prism(6, 0.25, 0.2, 2.06, 2.8, angle=HEX), CLAY_DARK, root, mat)
 
-    # Ventanita de brasa: centrada en la cara este (plana, x ≈ 0,63 a esa altura) y HUNDIDA 4 cm.
-    # El cristal usa palette_emissive y se llama «ember_window»: Godot lo busca para encenderlo.
-    cut_recess(body_stone, (0.2, 0.32, 0.24), (0.69, 0.0, 1.14), STONE_DEEP)
-    finish("ember_window", box((0.01, 0.32, 0.24), (0.595, 0.0, 1.14)), EMBER, root, glow, 0.0)
+    # Ventanitas de brasa: centradas en las caras este y oeste (planas, |x| ≈ 0,63 a esa altura) y
+    # HUNDIDAS 4 cm. El cristal usa palette_emissive; Godot enciende todo lo que empiece por «ember_window».
+    for side, sx in (("east", 1.0), ("west", -1.0)):
+        cut_recess(body_stone, (0.2, 0.32, 0.24), (sx * 0.69, 0.0, 1.14), STONE_DEEP)
+        finish("ember_window_" + side, box((0.01, 0.32, 0.24), (sx * 0.595, 0.0, 1.14)), EMBER, root, glow, 0.0)
 
     # Fuelle sobre el zócalo, en la esquina suroeste, soplando hacia la cuba (al norte).
     y_back, y_front, z_mid = -0.93, -0.62, 1.0
@@ -262,6 +266,21 @@ def build() -> None:
     finish("bellows_board_top", box((0.34, 0.33, 0.025), (-0.48, -0.775, z_mid + 0.095)), WOOD, root, mat, 0.008)
     finish("bellows_board_bottom", box((0.34, 0.33, 0.025), (-0.48, -0.775, z_mid - 0.095)), WOOD, root, mat, 0.008)
     finish("bellows_nozzle", box((0.06, 0.16, 0.06), (-0.48, -0.53, z_mid)), WOOD_DARK, root, mat, 0.01)
+
+    # Pivote del fuelle: en la tabla de abajo, del lado de la boquilla. Godot escala el pivote en
+    # vertical (aplasta y estira) mientras el horno trabaja. La tabla de abajo no se mueve; la boquilla
+    # sí (cuelga del pivote), para que siga al fuelle y no asome al aplastarse (César).
+    pivot_pos = Vector((-0.48, y_front, z_mid - 0.095))
+    pivot = bpy.data.objects.new("bellows_pivot", None)
+    pivot.empty_display_type = "ARROWS"
+    pivot.empty_display_size = 0.1
+    pivot.location = pivot_pos
+    pivot.parent = root
+    bpy.context.collection.objects.link(pivot)
+    for moving in ("bellows", "bellows_pleat_0", "bellows_pleat_1", "bellows_board_top", "bellows_nozzle"):
+        obj = bpy.data.objects[moving]
+        obj.parent = pivot
+        obj.matrix_parent_inverse = Matrix.Translation(pivot_pos).inverted()
 
     # Motor eléctrico del fuelle (gris del Nexo y cristal), en la esquina sureste del zócalo.
     finish("motor", box((0.28, 0.26, 0.24), (0.42, -0.74, 1.0)), METAL, root, mat)
@@ -277,6 +296,14 @@ def build() -> None:
     anchor.location = (0.5, -0.74, 1.29)
     anchor.parent = root
     bpy.context.collection.objects.link(anchor)
+
+    # Punto de salida del humo: en la boca de la chimenea, bajo la tapa (Godot pone ahí las partículas).
+    smoke = bpy.data.objects.new("smoke_origin", None)
+    smoke.empty_display_type = "SPHERE"
+    smoke.empty_display_size = 0.05
+    smoke.location = (0.0, 0.0, 2.83)
+    smoke.parent = root
+    bpy.context.collection.objects.link(smoke)
     # Eje del fuelle: del costado oeste del motor (x = 0,28) al fuelle (x = −0,33), por fuera de la
     # esquina sur de la cuba (que está en y = −0,75).
     finish("drive_shaft", box((0.61, 0.06, 0.06), (-0.025, -0.85, 1.0)), METAL, root, mat, 0.01)
@@ -284,7 +311,7 @@ def build() -> None:
     add_details(root, mat, body_stone)
 
     tris = 0
-    for child in root.children:
+    for child in root.children_recursive:
         if child.type == "MESH":
             tris += sum(len(p.vertices) - 2 for p in child.data.polygons)
     print("piezas:", len(root.children), "triángulos:", tris)

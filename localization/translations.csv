@@ -30,3 +30,8 @@ BUILDING_TREE_CUTTER,Talador,Talador,Tree cutter
 PROP_STUMP,Tocón,Soca,Stump
 PROP_SPROUT,Brote,Brot,Sprout
 PROP_YOUNG_TREE,Árbol joven,Arbre jove,Young tree
+ITEM_COPPER_ORE,Mineral de cobre,Mineral de coure,Copper ore
+ITEM_CHARCOAL,Carbón vegetal,Carbó vegetal,Charcoal
+ITEM_COPPER_INGOT,Lingote de cobre,Lingot de coure,Copper ingot
+ITEM_SLAG,Escoria,Escòria,Slag
+BUILDING_FURNACE,Horno de fundición,Forn de fosa,Smelting furnace

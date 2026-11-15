@@ -36,9 +36,9 @@ const COLOR_OK: Color = Color(0.2, 0.9, 0.3, 0.35)
 const COLOR_BAD: Color = Color(0.95, 0.2, 0.2, 0.35)
 const COLOR_INPUT: Color = Color(0.2, 0.5, 1.0)
 const COLOR_OUTPUT: Color = Color(1.0, 0.55, 0.1)
-## Altura del fantasma (provisional: aún no hay modelos).
+## Altura del fantasma de caja (para construcciones sin modelo).
 const GHOST_HEIGHT: float = 1.0
-const CABLE_PREVIEW_THICKNESS: float = 0.05
+const CABLE_PREVIEW_THICKNESS: float = 0.08
 
 ## ¿Estamos en el modo construcción?
 var active: bool = false
@@ -67,10 +67,20 @@ var _cable_from: int = 0
 var _cable_preview: MeshInstance3D
 var _cable_ok_material: StandardMaterial3D
 var _cable_bad_material: StandardMaterial3D
+## Fantasma con la forma del modelo (B3): la construcción y sus puertos, translúcidos en verde o rojo.
+## `_ghost_model` va en el centro de la huella; dentro, `_ghost_body` (el modelo, girado y reflejado) y
+## un puerto estándar por cada `PortData`. Se rehace solo al cambiar de construcción.
+var _ghost_model: Node3D = null
+var _ghost_body: Node3D = null
+var _ghost_ports: Array[Node3D] = []
+var _ghost_data: BuildingData = null
 
 
 func _ready() -> void:
 	top_level = true # el fantasma se coloca en coordenadas del mundo, no relativo al jugador
+	# El fantasma y el cable provisional se mueven en cada fotograma: sin interpolación de la física
+	# (si no, irían con retraso detrás del puntero).
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	_ghost_box = BoxMesh.new()
 	_ghost_material = _make_material(COLOR_OK, true)
 	_input_material = _make_material(COLOR_INPUT, false)
@@ -141,7 +151,6 @@ func _process(_delta: float) -> void:
 		_update_cable_preview()
 		return
 	_cable_preview.visible = false
-	_ghost.visible = true
 	var building: BuildingData = get_held()
 	if building == null:
 		visible = false
@@ -161,9 +170,16 @@ func _process(_delta: float) -> void:
 	_target_origin = GridMath.world_to_cell(hit_pos) - Vector2i(int((s.x - 1) / 2.0), int((s.y - 1) / 2.0))
 	_has_target = true
 
-	# Fantasma del tamaño de la huella girada, verde o rojo.
-	_ghost_box.size = Vector3(s.x - 0.05, GHOST_HEIGHT, s.y - 0.05)
-	_ghost.global_position = GridMath.footprint_center(_target_origin, building.size, rotation_steps, hit_pos.y + GHOST_HEIGHT * 0.5)
+	# Fantasma: el modelo si lo tiene; si no, una caja del tamaño de la huella girada. Verde o rojo.
+	if building.scene != null:
+		_ghost.visible = false
+		_update_ghost_model(building, hit_pos.y)
+	else:
+		if _ghost_model != null:
+			_ghost_model.visible = false
+		_ghost.visible = true
+		_ghost_box.size = Vector3(s.x - 0.05, GHOST_HEIGHT, s.y - 0.05)
+		_ghost.global_position = GridMath.footprint_center(_target_origin, building.size, rotation_steps, hit_pos.y + GHOST_HEIGHT * 0.5)
 	if _can_place_here(building):
 		_ghost_material.albedo_color = COLOR_OK
 	else:
@@ -223,6 +239,50 @@ func _aim_hit() -> Dictionary:
 	if body != null:
 		exclude.append(body.get_rid())
 	return Aim.from_screen_center(get_viewport(), reach, exclude)
+
+
+## Coloca el fantasma con forma de modelo en la huella apuntada, con el giro y el reflejo actuales.
+func _update_ghost_model(building: BuildingData, ground_y: float) -> void:
+	if _ghost_data != building:
+		_build_ghost_model(building)
+	_ghost_model.visible = true
+	_ghost_model.global_position = GridMath.footprint_center(_target_origin, building.size, rotation_steps, ground_y)
+	_ghost_body.rotation.y = GridMath.rotation_to_yaw(rotation_steps)
+	if flipped:
+		_ghost_body.scale.z = -1.0
+	else:
+		_ghost_body.scale.z = 1.0
+	for i: int in building.ports.size():
+		var port: PortData = building.ports[i]
+		var cell: Vector2i = port.get_grid_cell(_target_origin, building.size, rotation_steps, flipped)
+		_ghost_ports[i].global_position = GridMath.cell_center(cell, ground_y)
+		_ghost_ports[i].rotation.y = GridMath.rotation_to_yaw(port.get_grid_side(rotation_steps, flipped))
+
+
+## Crea el fantasma de una construcción: su modelo y sus puertos, todo con el material translúcido
+## del fantasma, sin sombra y sin la lengüeta de cinta.
+func _build_ghost_model(building: BuildingData) -> void:
+	if _ghost_model != null:
+		_ghost_model.queue_free()
+	_ghost_model = Node3D.new()
+	add_child(_ghost_model)
+	_ghost_body = building.scene.instantiate() as Node3D
+	_ghost_model.add_child(_ghost_body)
+	_ghost_ports.clear()
+	for port: PortData in building.ports:
+		var scene: PackedScene = BuildingView.PORT_INPUT_SCENE
+		if port.kind == PortData.Kind.OUTPUT:
+			scene = BuildingView.PORT_OUTPUT_SCENE
+		var port_node := scene.instantiate() as Node3D
+		_ghost_model.add_child(port_node)
+		_ghost_ports.append(port_node)
+	for node: Node in _ghost_model.find_children("*", "MeshInstance3D", true, false):
+		var mesh := node as MeshInstance3D
+		mesh.material_override = _ghost_material
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		if mesh.name.begins_with("belt_tongue"):
+			mesh.visible = false
+	_ghost_data = building
 
 
 ## Un cubito por puerto en la casilla a la que apunta (sale de los datos: así se ve si R y F van bien).
@@ -331,6 +391,8 @@ func _cable_click() -> void:
 ## Cable provisional desde el inicio hasta lo que miramos: verde si se puede tender (o quitar), rojo si no.
 func _update_cable_preview() -> void:
 	_ghost.visible = false
+	if _ghost_model != null:
+		_ghost_model.visible = false
 	for marker: MeshInstance3D in _port_markers:
 		marker.visible = false
 	for marker: MeshInstance3D in _area_markers:

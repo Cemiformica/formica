@@ -30,6 +30,8 @@ MOUTH = (5, 6)         # interior oscuro
 ARROW_IN = (2, 2)      # verde: entra
 ARROW_OUT = (6, 2)     # ámbar: sale
 RIVET = (5, 5)         # remaches, gris oscuro
+TONGUE = (5, 4)        # lengüeta de cinta: banda gris
+TONGUE_RIB = (5, 2)    # nervios de la banda, más claros
 
 
 def swatch_uv(row: int, col: int) -> Vector:
@@ -74,6 +76,13 @@ def hex_prism(bm, w: float, h: float, y0: float, y1: float, cz: float) -> list:
 
 
 def build_port(name: str, inward: bool, arrow_color: tuple, mat) -> None:
+    for child_name in ("belt_tongue_" + name.split("_")[-1],):
+        old_child = bpy.data.objects.get(child_name)
+        if old_child is not None:
+            child_mesh = old_child.data
+            bpy.data.objects.remove(old_child, do_unlink=True)
+            if child_mesh is not None and child_mesh.users == 0:
+                bpy.data.meshes.remove(child_mesh)
     old = bpy.data.objects.get(name)
     if old is not None:
         old_mesh = old.data
@@ -166,7 +175,41 @@ def build_port(name: str, inward: bool, arrow_color: tuple, mat) -> None:
         p.use_smooth = True
     new_mesh.set_sharp_from_angle(angle=math.radians(30))
     tris = sum(len(p.vertices) - 2 for p in new_mesh.polygons)
-    print(name, "triángulos:", tris)
+    tris += build_tongue(obj, mat)
+    print(name, "triángulos (con lengüeta):", tris)
+
+
+def build_tongue(port_obj, mat) -> int:
+    # Lengüeta de cinta dentro de la boca: Godot la muestra SOLO si el puerto está conectado, para que
+    # la cinta parezca entrar en la máquina. Se llama «belt_tongue_input» o «belt_tongue_output».
+    name = "belt_tongue_" + port_obj.name.split("_")[-1]
+    floor_z = HEX_Z - MOUTH_H   # suelo plano de la boca (0,11 m)
+    y0, y1 = OUTER_Y - DEPTH + 0.03, OUTER_Y + 0.015   # del tapón del fondo al borde de la casilla
+    bm = bmesh.new()
+    parts = []
+    made = bmesh.ops.create_cube(bm, size=1.0)
+    bmesh.ops.scale(bm, vec=(0.5, y1 - y0, 0.02), verts=made["verts"])
+    bmesh.ops.translate(bm, vec=(0.0, (y0 + y1) / 2, floor_z + 0.01), verts=made["verts"])
+    band = {f for v in made["verts"] for f in v.link_faces}
+    ribs = set()
+    for y in (y0 + 0.07, y0 + 0.16):
+        made = bmesh.ops.create_cube(bm, size=1.0)
+        bmesh.ops.scale(bm, vec=(0.5, 0.025, 0.012), verts=made["verts"])
+        bmesh.ops.translate(bm, vec=(0.0, y, floor_z + 0.026), verts=made["verts"])
+        ribs |= {f for v in made["verts"] for f in v.link_faces}
+    uv = bm.loops.layers.uv.new("UVMap")
+    for f in bm.faces:
+        target = swatch_uv(*(TONGUE_RIB if f in ribs else TONGUE))
+        for loop in f.loops:
+            loop[uv].uv = target
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.materials.append(mat)
+    tongue = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(tongue)
+    tongue.parent = port_obj
+    return sum(len(p.vertices) - 2 for p in mesh.polygons)
 
 
 def build() -> None:

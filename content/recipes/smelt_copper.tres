@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="RecipeData" format=3]
+
+[ext_resource type="Script" path="res://core/content/recipe_data.gd" id="1_recipe"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Resource" path="res://content/items/copper_ore.tres" id="3_ore"]
+[ext_resource type="Resource" path="res://content/items/charcoal.tres" id="4_charcoal"]
+[ext_resource type="Resource" path="res://content/items/copper_ingot.tres" id="5_ingot"]
+[ext_resource type="Resource" path="res://content/items/slag.tres" id="6_slag"]
+
+[resource]
+script = ExtResource("1_recipe")
+id = &"smelt_copper"
+inputs = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("3_ore"): 2,
+ExtResource("4_charcoal"): 1
+})
+outputs = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("5_ingot"): 1,
+ExtResource("6_slag"): 1
+})
+duration = 8.0

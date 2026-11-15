@@ -36,6 +36,9 @@ func _ready() -> void:
 	interact_ray.add_exception(self) # el rayo no debe tocar nuestra propia cápsula
 	add_to_group(&"player")
 	spawn_transform = global_transform
+	# Interpolación de la física (B3): la cámara va suelta y se coloca en cada fotograma (ver _process).
+	camera.top_level = true
+	camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -61,6 +64,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		head.rotation.x = clampf(head.rotation.x, -max_pitch, max_pitch)
 
 
+## Cámara en cada fotograma: en la posición suavizada de la cabeza (interpolación de la física) y con su
+## giro actual, sin esperar al siguiente paso de física, para que el ratón responda al instante.
+func _process(_delta: float) -> void:
+	camera.global_transform = Transform3D(head.global_transform.basis, head.get_global_transform_interpolated().origin)
+
+
 func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity += get_gravity() * gravity_multiplier * delta
@@ -81,6 +90,7 @@ func _physics_process(delta: float) -> void:
 	if global_position.y < fall_limit_y:
 		global_transform = spawn_transform
 		velocity = Vector3.ZERO
+		reset_physics_interpolation() # salto instantáneo: sin «volar» desde donde caía
 
 	_update_focus()
 

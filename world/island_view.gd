@@ -6,8 +6,9 @@ extends Node3D
 ## También dibuja los cables de energía como líneas finas entre sus dos construcciones (B2.6b)
 ## y la naturaleza: un `TreeView` por árbol o tocón (B2.7b).
 
-const CABLE_COLOR: Color = Color(0.1, 0.1, 0.1)
-const CABLE_THICKNESS: float = 0.04
+const CABLE_COLOR: Color = Color(0.1, 0.1, 0.11)
+## Grosor de los cables (B3: más gruesos para que se vean bien, petición de César).
+const CABLE_THICKNESS: float = 0.08
 
 ## Isla de `WorldState` que dibuja.
 @export var island_id: StringName = &"dev_sandbox"
@@ -20,6 +21,8 @@ var _tree_views: Dictionary[Vector2i, TreeView] = {}
 ## Líneas de los cables dibujados.
 var _cable_meshes: Array[MeshInstance3D] = []
 var _cable_material: StandardMaterial3D
+## true mientras `_rebuild` crea todas las vistas: las conexiones se repasan una sola vez al final.
+var _rebuilding: bool = false
 
 
 func _ready() -> void:
@@ -48,8 +51,11 @@ func _rebuild() -> void:
 	_island.building_removed.connect(_on_building_removed)
 	_island.cables_changed.connect(_redraw_cables)
 	_island.nature_changed.connect(_on_nature_changed)
+	_rebuilding = true
 	for placed: PlacedBuilding in _island.buildings.values():
 		_on_building_placed(placed)
+	_rebuilding = false
+	_refresh_connections()
 	_redraw_cables()
 	for cell: Vector2i in _island.nature:
 		_on_nature_changed(cell)
@@ -60,12 +66,15 @@ func _on_building_placed(placed: PlacedBuilding) -> void:
 	view.setup(placed, _island)
 	add_child(view)
 	_views[placed.id] = view
+	if not _rebuilding:
+		_refresh_connections()
 
 
 func _on_building_removed(placed: PlacedBuilding) -> void:
 	if _views.has(placed.id):
 		_views[placed.id].queue_free()
 		_views.erase(placed.id)
+	_refresh_connections()
 
 
 ## Algo natural cambió en `cell`: crea, actualiza o borra su vista.
@@ -96,6 +105,37 @@ func _redraw_cables() -> void:
 		place_line(line, BuildingView.cable_anchor(_island.buildings[cable.x]), BuildingView.cable_anchor(_island.buildings[cable.y]), CABLE_THICKNESS)
 		line.material_override = _cable_material
 		_cable_meshes.append(line)
+	_refresh_cabled()
+
+
+## Dice a cada vista qué puertos suyos están conectados (para la lengüeta de cinta, B3). Se llama al
+## colocar o quitar algo, no en cada fotograma: recorre las conexiones una vez y reparte el resultado.
+func _refresh_connections() -> void:
+	var linked: Dictionary[int, Array] = {}
+	for link: Dictionary in _island.get_links():
+		_mark_port(linked, link["from"], link["out"])
+		_mark_port(linked, link["to"], link["in"])
+	for id: int in _views:
+		var ports: Array[int] = []
+		if linked.has(id):
+			ports.assign(linked[id])
+		_views[id].set_linked_ports(ports)
+
+
+func _mark_port(linked: Dictionary[int, Array], building: PlacedBuilding, port: PortData) -> void:
+	if not linked.has(building.id):
+		linked[building.id] = []
+	linked[building.id].append(building.data.ports.find(port))
+
+
+## Enciende el borne de las construcciones que tienen algún cable.
+func _refresh_cabled() -> void:
+	var cabled: Dictionary[int, bool] = {}
+	for cable: Vector2i in _island.cables:
+		cabled[cable.x] = true
+		cabled[cable.y] = true
+	for id: int in _views:
+		_views[id].set_cabled(cabled.has(id))
 
 
 ## Convierte `line` en una barra fina de `from` a `to` (también la usa el cable provisional del modo construcción).
