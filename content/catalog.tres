@@ -25,10 +25,12 @@
 [ext_resource type="Script" path="res://core/content/vein_data.gd" id="23_veinscript"]
 [ext_resource type="Resource" path="res://content/veins/malachite_vein.tres" id="24_malachite"]
 [ext_resource type="Resource" path="res://content/buildings/extractor.tres" id="25_extractor"]
+[ext_resource type="Resource" path="res://content/recipes/make_charcoal.tres" id="26_charcoal_recipe"]
+[ext_resource type="Resource" path="res://content/buildings/charcoal_kiln.tres" id="27_kiln"]
 
 [resource]
 script = ExtResource("1_catalog")
 items = Array[ExtResource("2_itemscript")]([ExtResource("4_wood"), ExtResource("5_stone"), ExtResource("6_gravel"), ExtResource("13_seed"), ExtResource("15_ore"), ExtResource("16_charcoal"), ExtResource("17_ingot"), ExtResource("18_slag"), ExtResource("21_iron"), ExtResource("22_cell")])
-recipes = Array[ExtResource("3_recipescript")]([ExtResource("7_crush"), ExtResource("19_smelt")])
-buildings = Array[ExtResource("8_buildingscript")]([ExtResource("9_crusher"), ExtResource("10_conveyor"), ExtResource("11_pole"), ExtResource("12_solar"), ExtResource("14_cutter"), ExtResource("20_furnace"), ExtResource("25_extractor")])
+recipes = Array[ExtResource("3_recipescript")]([ExtResource("7_crush"), ExtResource("19_smelt"), ExtResource("26_charcoal_recipe")])
+buildings = Array[ExtResource("8_buildingscript")]([ExtResource("9_crusher"), ExtResource("10_conveyor"), ExtResource("11_pole"), ExtResource("12_solar"), ExtResource("14_cutter"), ExtResource("20_furnace"), ExtResource("25_extractor"), ExtResource("27_kiln")])
 veins = Array[ExtResource("23_veinscript")]([ExtResource("24_malachite")])

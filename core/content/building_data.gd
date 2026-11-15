@@ -34,6 +34,9 @@ extends Resource
 ## Solo extractores: cuántos ítems caben en su almacén (se para al llenarse). 0 = lo que quepa en la
 ## salida (una pila entera). El extractor del vertical slice guarda 10 (César: «no demasiado alto»).
 @export_range(0, 999) var output_capacity: int = 0
+## Color del humo de sus «smoke_origin…» mientras trabaja (B3.7): casi negro el horno (carbón), blanco
+## grisáceo la carbonera (vapor y madera, como en las carboneras reales). El humo se aclara al subir.
+@export var smoke_color: Color = Color(0.12, 0.11, 0.1)
 ## Energía en puntos: positivo = genera, negativo = consume, 0 = no eléctrica (D-068).
 ## Lo que consume cuenta entero mientras esté conectado, trabaje o no.
 @export var power: float = 0.0

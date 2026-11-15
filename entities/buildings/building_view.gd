@@ -10,7 +10,8 @@ extends Interactable
 ## Con modelo real (B3): pone el puerto estándar en cada `PortData` (D-079), con su lengüeta de cinta
 ## visible solo si está conectado; ilumina el borne si tiene cable; y el cable se engancha en el nodo
 ## «cable_anchor» del modelo. Las máquinas con modelo muestran su estado (B3): mientras trabajan, la brasa
-## («ember_window…») brilla y parpadea, sale humo de «smoke_origin» y el fuelle («bellows_pivot») bombea;
+## («ember_window…») brilla y parpadea, sale humo de cada «smoke_origin…» (del color `smoke_color` de su
+## construcción) y el fuelle («bellows_pivot») bombea;
 ## al parar, todo se apaga poco a poco. Dónde tocar: colores y ritmos en las constantes EMBER_… y BELLOWS_….
 
 const BODY_HEIGHT: float = 1.0
@@ -71,7 +72,8 @@ static var _anchor_cache: Dictionary = {}
 ## Material del borne encendido, compartido por todos.
 static var _cable_light: StandardMaterial3D = null
 ## Humo de juguete: material de partículas y bolita, compartidos por todas las chimeneas.
-static var _smoke_process: ParticleProcessMaterial = null
+## Un material de partículas por color de humo, compartido por todas las chimeneas de ese color.
+static var _smoke_processes: Dictionary[Color, ParticleProcessMaterial] = {}
 static var _smoke_mesh: ArrayMesh = null
 
 ## Construcción que muestra.
@@ -98,7 +100,8 @@ var _port_tongues: Array[Node3D] = []
 var _insulator: MeshInstance3D = null
 ## Solo máquinas con modelo: material propio de la brasa, humo, pivote del fuelle y estado del calor.
 var _ember_material: StandardMaterial3D = null
-var _smoke: GPUParticles3D = null
+## Humo de cada «smoke_origin…» del modelo (una o varias columnas).
+var _smokes: Array[GPUParticles3D] = []
 var _bellows: Node3D = null
 ## Solo extractores con modelo: taladro (gira y sube y baja) y punto de donde sale el polvo.
 var _drill: Node3D = null
@@ -377,10 +380,10 @@ func _setup_machine_visuals(model: Node3D) -> void:
 		_ember_material.emission_energy_multiplier = 0.0
 		for ember: Node in embers:
 			(ember as MeshInstance3D).material_override = _ember_material
-	var smoke_origin := model.find_child("smoke_origin", true, false) as Node3D
-	if smoke_origin != null:
-		_smoke = _make_smoke()
-		smoke_origin.add_child(_smoke)
+	for smoke_origin: Node in model.find_children("smoke_origin*", "Node3D", true, false):
+		var smoke: GPUParticles3D = _make_smoke(placed.data.smoke_color)
+		smoke_origin.add_child(smoke)
+		_smokes.append(smoke)
 	_bellows = model.find_child("bellows_pivot", true, false) as Node3D
 	_drill = model.find_child("drill_pivot", true, false) as Node3D
 	if _drill != null:
@@ -411,8 +414,8 @@ func _update_machine_visuals(delta: float) -> void:
 		var flicker: float = 0.85 + 0.1 * sin(_time * 7.3 + _phase) + 0.05 * sin(_time * 17.9 + _phase * 2.0)
 		_ember_material.emission_energy_multiplier = EMBER_ENERGY * _heat * flicker
 		_ember_material.albedo_color = EMBER_DARK.lerp(EMBER_COLOR, _heat * 0.6)
-	if _smoke != null:
-		_smoke.emitting = _heat > 0.5
+	for smoke: GPUParticles3D in _smokes:
+		smoke.emitting = _heat > 0.5
 	if _bellows != null:
 		var squeeze: float = 0.5 + 0.5 * sin(_time * TAU * BELLOWS_RATE + _phase)
 		_bellows.scale.y = 1.0 - BELLOWS_SQUEEZE * squeeze * _heat
@@ -440,49 +443,53 @@ func _update_machine_visuals(delta: float) -> void:
 ## low-poly), de gris carbón, con sombreado de dibujo animado y sin reflejos. Suben separadas, girando
 ## un poco y con algo de deriva (brisa), crecen y se desvanecen al final. Barato: 5 partículas por chimenea y no se dibuja
 ## a más de 60 m. Dónde tocar: cantidad y duración abajo (amount, lifetime); color en `fade`.
-static func _make_smoke() -> GPUParticles3D:
-	if _smoke_process == null:
-		_smoke_process = ParticleProcessMaterial.new()
-		_smoke_process.direction = Vector3.UP
-		_smoke_process.spread = 15.0
-		_smoke_process.initial_velocity_min = 0.5
-		_smoke_process.initial_velocity_max = 0.7
-		_smoke_process.gravity = Vector3(0.12, 0.05, 0.04) # brisa suave: la columna se tuerce un poco
-		_smoke_process.scale_min = 0.8
-		_smoke_process.scale_max = 1.3
-		_smoke_process.particle_flag_rotate_y = true # cada bolita con su giro: no salen todas iguales
-		_smoke_process.angle_min = 0.0
-		_smoke_process.angle_max = 360.0
-		_smoke_process.angular_velocity_min = -45.0
-		_smoke_process.angular_velocity_max = 45.0
+static func _make_smoke(color: Color) -> GPUParticles3D:
+	if not _smoke_processes.has(color):
+		var process := ParticleProcessMaterial.new()
+		_smoke_processes[color] = process
+		process.direction = Vector3.UP
+		process.spread = 15.0
+		process.initial_velocity_min = 0.5
+		process.initial_velocity_max = 0.7
+		process.gravity = Vector3(0.12, 0.05, 0.04) # brisa suave: la columna se tuerce un poco
+		process.scale_min = 0.8
+		process.scale_max = 1.3
+		process.particle_flag_rotate_y = true # cada bolita con su giro: no salen todas iguales
+		process.angle_min = 0.0
+		process.angle_max = 360.0
+		process.angular_velocity_min = -45.0
+		process.angular_velocity_max = 45.0
 		var grow := Curve.new()
 		grow.max_value = 2.0
 		grow.add_point(Vector2(0.0, 0.5))
 		grow.add_point(Vector2(1.0, 1.8))
 		var grow_texture := CurveTexture.new()
 		grow_texture.curve = grow
-		_smoke_process.scale_curve = grow_texture
+		process.scale_curve = grow_texture
 		var fade := Gradient.new()
-		# Casi negro (humo de carbón, César) y casi opaco hasta el 65 % de su vida; luego se aclara un poco
-		# y se desvanece.
+		# Del color de la construcción (casi negro en el horno, César) y casi opaco hasta el 65 % de su vida;
+		# luego se aclara un poco y se desvanece.
+		var mid: Color = color.lightened(0.08)
+		var end: Color = color.lightened(0.2)
 		fade.offsets = PackedFloat32Array([0.0, 0.65, 1.0])
-		fade.colors = PackedColorArray([Color(0.12, 0.11, 0.1, 0.95), Color(0.18, 0.17, 0.16, 0.85), Color(0.28, 0.27, 0.26, 0.0)])
+		fade.colors = PackedColorArray([Color(color, 0.95), Color(mid, 0.85), Color(end, 0.0)])
 		var fade_texture := GradientTexture1D.new()
 		fade_texture.gradient = fade
-		_smoke_process.color_ramp = fade_texture
+		process.color_ramp = fade_texture
 		var puff_material := StandardMaterial3D.new()
 		puff_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		puff_material.vertex_color_use_as_albedo = true
 		puff_material.roughness = 1.0
 		puff_material.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON # dos tonos: luz y sombra, de juguete
 		puff_material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED # sin reflejos del cielo (no burbujas)
-		_smoke_mesh = _make_puff_mesh()
-		_smoke_mesh.surface_set_material(0, puff_material)
+		if _smoke_mesh == null:
+			_smoke_mesh = _make_puff_mesh()
+			_smoke_mesh.surface_set_material(0, puff_material)
 	var particles := GPUParticles3D.new()
 	particles.amount = 5
 	particles.lifetime = 3.0
 	particles.randomness = 0.3
-	particles.process_material = _smoke_process
+	particles.process_material = _smoke_processes[color]
 	particles.draw_pass_1 = _smoke_mesh
 	particles.emitting = false
 	particles.local_coords = false
