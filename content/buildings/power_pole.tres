@@ -13,6 +13,7 @@ id = &"power_pole"
 name_key = "BUILDING_POWER_POLE"
 scene = ExtResource("6_model")
 size = Vector2i(1, 1)
+height = 3
 cost = Dictionary[ExtResource("2_itemscript"), int]({
 ExtResource("3_wood"): 1,
 ExtResource("4_stone"): 1,

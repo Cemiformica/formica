@@ -57,6 +57,14 @@ const DRILL_SPIN: float = 9.0
 const DRILL_BOB: float = 0.05
 const DRILL_BOB_RATE: float = 1.5
 const DUST_INTERVAL: float = 0.6
+## Talador (B3.7, D-092): mordiscos por segundo de la mandíbula y cuánto se cierra cada hoja (radianes);
+## cuánto tantean las antenas (radianes); madera por tronco de las bandejas (lo que da un árbol) y color
+## de las virutas que saltan en cada mordisco.
+const JAW_RATE: float = 2.0
+const JAW_BITE: float = 0.6
+const ANTENNA_SWAY: float = 0.22
+const LOG_WOOD: int = 4
+const CHIPS_COLOR: Color = Color(0.85, 0.68, 0.45)
 ## Capas de colisión de las cintas: la 1 (sólidas, B3.7, César: el jugador ya no las atraviesa; las
 ## sube andando gracias al escalón automático de `Player`) y la 2 (la de siempre de las cintas, por si
 ## algún rayo las busca solo a ellas).
@@ -111,6 +119,14 @@ var _dust_timer: float = 0.0
 ## Solo extractores con modelo: mineral de las mirillas, que sube según lo lleno que esté el almacén.
 var _store_fill: Node3D = null
 var _store_fill_painted: bool = false
+## Solo taladores con modelo: hojas de la mandíbula (giran en Y; el signo dice hacia dónde cierran),
+## antenas que tantean, punto de donde saltan las virutas y troncos de las bandejas, en orden.
+var _jaws: Array[Node3D] = []
+var _jaw_signs: Array[float] = []
+var _antennas: Array[Node3D] = []
+var _chips_origin: Node3D = null
+var _bite_closed: bool = false
+var _store_logs: Array[Node3D] = []
 var _heat: float = 0.0 ## 0 = apagado, 1 = a pleno
 var _working_hold: float = 0.0
 var _last_progress: float = 0.0
@@ -194,7 +210,9 @@ func setup(p_placed: PlacedBuilding, p_island: IslandState) -> void:
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(s.x, height, s.y)
 	if is_pole(placed.data):
-		shape.size = Vector3(0.4, height, 0.4)
+		# Más estrecha que la casilla, pero lo bastante ancha y alta (altura 3: cruceta y aislante
+		# incluidos) para apuntarle sin afinar al empezar o acabar un cable (César).
+		shape.size = Vector3(0.6, height, 0.6)
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
 	collision.position.y = height * 0.5
@@ -237,12 +255,14 @@ func _process(delta: float) -> void:
 		return
 	if _status_material != null:
 		_update_status_lights(delta)
-	if placed.is_machine() or placed.is_extractor():
+	if placed.is_machine() or placed.is_extractor() or placed.is_harvester():
 		_update_machine_visuals(delta)
 	if placed.is_machine():
 		_label.text = _machine_text()
 	elif placed.is_extractor():
 		_label.text = _extractor_text()
+	elif placed.is_harvester():
+		_label.text = _harvester_text()
 	else:
 		_label.text = tr(placed.data.name_key)
 
@@ -259,6 +279,27 @@ func _extractor_text() -> String:
 
 
 ## "Piedra 5 → 40 % → Grava 3"
+## "45 % → Madera 12" (talador).
+func _harvester_text() -> String:
+	var item_name: String = tr("ITEM_WOOD")
+	for stack: ItemStack in placed.output.slots:
+		if stack != null:
+			item_name = tr(stack.item.name_key)
+	var text: String = "%d %% → %s %d" % [int(placed.progress / placed.data.harvest_time * 100.0), item_name, _stored_total()]
+	if placed.data.power < 0.0 and island != null and not island.is_powered(placed.id):
+		text += "  · " + tr("POWER_NO_POWER")
+	return text
+
+
+## Ítems que guarda en su salida, de cualquier tipo.
+func _stored_total() -> int:
+	var total: int = 0
+	for stack: ItemStack in placed.output.slots:
+		if stack != null:
+			total += stack.amount
+	return total
+
+
 func _machine_text() -> String:
 	var recipe: RecipeData = placed.data.recipe
 	var parts: PackedStringArray = []
@@ -392,6 +433,23 @@ func _setup_machine_visuals(model: Node3D) -> void:
 	_store_fill = model.find_child("store_fill_pivot", true, false) as Node3D
 	if _store_fill != null:
 		_store_fill.visible = false # vacío hasta que saque algo
+	for side: String in ["east", "west"]:
+		var jaw := model.find_child("jaw_pivot_" + side, true, false) as Node3D
+		if jaw != null:
+			_jaws.append(jaw)
+			_jaw_signs.append(1.0 if side == "east" else -1.0) # las dos hojas cierran hacia delante
+		var antenna := model.find_child("antenna_pivot_" + side, true, false) as Node3D
+		if antenna != null:
+			_antennas.append(antenna)
+	_chips_origin = model.find_child("chips_origin", true, false) as Node3D
+	var log_index: int = 0
+	while true:
+		var log_node := model.find_child("store_log_%d" % log_index, true, false) as Node3D
+		if log_node == null:
+			break
+		log_node.visible = false # bandejas vacías hasta que tale algo
+		_store_logs.append(log_node)
+		log_index += 1
 
 
 ## Trabaja si su progreso cambió hace poco. El calor sube y baja suave, y de él dependen la brasa
@@ -432,6 +490,26 @@ func _update_machine_visuals(delta: float) -> void:
 			_store_fill_painted = true
 			for mesh: Node in _store_fill.find_children("*", "MeshInstance3D", true, false):
 				(mesh as MeshInstance3D).material_override = _material_for(placed.vein_item)
+	if not _jaws.is_empty():
+		# Muerde JAW_RATE veces por segundo; con el «calor» la mordida crece o se apaga y se queda abierta.
+		var bite: float = 0.5 - 0.5 * cos(_time * TAU * JAW_RATE + _phase)
+		for i: int in _jaws.size():
+			_jaws[i].rotation.y = _jaw_signs[i] * JAW_BITE * bite * _heat
+		# Virutas justo cuando las hojas se cierran del todo.
+		var closed: bool = bite > 0.9
+		if closed and not _bite_closed and _heat > 0.5 and _chips_origin != null:
+			DustPuff.spawn(self, _chips_origin.global_position, CHIPS_COLOR)
+		_bite_closed = closed
+	for i: int in _antennas.size():
+		# Cada antena tantea a su ritmo (adelante y atrás, y a los lados), como una hormiga (César).
+		var p: float = _phase + i * 1.7
+		_antennas[i].rotation.x = ANTENNA_SWAY * _heat * sin(_time * 2.3 + p)
+		_antennas[i].rotation.z = ANTENNA_SWAY * 0.7 * _heat * sin(_time * 1.4 + p * 1.3)
+	if not _store_logs.is_empty():
+		# Un tronco por cada LOG_WOOD de madera guardada (lo que da un árbol).
+		var shown: int = mini(ceili(float(_stored_total()) / LOG_WOOD), _store_logs.size())
+		for i: int in _store_logs.size():
+			_store_logs[i].visible = i < shown
 	if _dust_origin != null and _heat > 0.5:
 		_dust_timer -= delta
 		if _dust_timer <= 0.0:

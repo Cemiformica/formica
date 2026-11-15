@@ -2,7 +2,8 @@ extends Node
 ## Prueba de árboles y talador (B2.7a), solo en datos (solo desarrollo).
 ## Ejecuta con F6 y mira la pestaña Salida: cada comprobación imprime OK o FALLO.
 ##
-## Plano: talador en (0,0) mirando al norte (giro 0) → tala la arboleda de 3×3 en x −1..1, y −3..−1.
+## Plano: talador de 3×1 en (−1,0) (casillas x −1..1) mirando al norte (giro 0) → tala la arboleda de 3×3
+## en x −1..1, y −3..−1.
 ## Placa solar 2×2 en (4,0) unida al talador con un cable. Árbol suelto para talar a mano en (8,8).
 
 var _failures: int = 0
@@ -14,7 +15,8 @@ func _ready() -> void:
 	var crusher: BuildingData = Content.find_building(&"crusher")
 	var wood: ItemData = Content.find_item(&"wood")
 	var seed_item: ItemData = Content.find_item(&"seed")
-	_check("contenido: talador 3×3 y semilla", cutter_data != null and cutter_data.harvest_area == Vector2i(3, 3) and seed_item != null)
+	_check("contenido: talador 3×1, área 3×3, sin reflejo, y semilla", cutter_data != null and cutter_data.size == Vector2i(3, 1)
+			and cutter_data.harvest_area == Vector2i(3, 3) and not cutter_data.can_flip() and seed_item != null)
 
 	Simulation.running = false
 	WorldState.reset()
@@ -37,12 +39,19 @@ func _ready() -> void:
 	_check("90 s: maduro", island.nature[Vector2i(10, 10)].is_mature_tree())
 
 	# 3) El área del talador depende de su giro.
-	var cutter: PlacedBuilding = island.place(cutter_data, Vector2i(0, 0))
+	var cutter: PlacedBuilding = island.place(cutter_data, Vector2i(-1, 0))
 	var cells: Array[Vector2i] = cutter.get_harvest_cells()
-	_check("área sin girar: delante (norte)", cells.size() == 9 and cells.has(Vector2i(-1, -3)) and cells.has(Vector2i(1, -1)) and not cells.has(Vector2i(0, 1)))
+	_check("área sin girar: justo delante de sus 3 casillas (norte)", cells.size() == 9 and cells.has(Vector2i(-1, -3))
+			and cells.has(Vector2i(1, -1)) and not cells.has(Vector2i(0, 0)) and not cells.has(Vector2i(2, -1)))
+	# Girado 90° en (20,0): ocupa x 20, y 0..2 y tala x 21..23, y 0..2 (al este).
 	var turned := PlacedBuilding.new(99, cutter_data, Vector2i(20, 0), 1)
 	var turned_cells: Array[Vector2i] = turned.get_harvest_cells()
-	_check("área girada 90°: al este", turned_cells.has(Vector2i(23, -1)) and turned_cells.has(Vector2i(21, 1)) and not turned_cells.has(Vector2i(20, -2)))
+	_check("área girada 90°: al este", turned_cells.size() == 9 and turned_cells.has(Vector2i(23, 0))
+			and turned_cells.has(Vector2i(21, 2)) and not turned_cells.has(Vector2i(20, 1)) and not turned_cells.has(Vector2i(21, -1)))
+	# Girado 180° en (40,0): ocupa x 40..42, y 0 y tala x 40..42, y 1..3 (al sur).
+	var south := PlacedBuilding.new(98, cutter_data, Vector2i(40, 0), 2)
+	var south_cells: Array[Vector2i] = south.get_harvest_cells()
+	_check("área girada 180°: al sur", south_cells.has(Vector2i(40, 3)) and south_cells.has(Vector2i(42, 1)) and not south_cells.has(Vector2i(41, -1)))
 
 	# 4) Arboleda de 9 árboles maduros delante del talador.
 	for x: int in range(-1, 2):

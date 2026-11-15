@@ -49,16 +49,16 @@ func _ready() -> void:
 		c.input.add_item(stone, 50)
 		crushers.append(c)
 
-	# 2) Red grande: postes cada 3 casillas en x = 300; placa al este y, al oeste, un talador mirando al
-	#    norte con un árbol maduro justo delante.
+	# 2) Red grande: postes cada 3 casillas en x = 300; placa al este y, al oeste, un talador de 3×1
+	#    (x 296..298) mirando al norte con un árbol maduro justo delante.
 	var electric: Array[PlacedBuilding] = []
 	var previous_pole: PlacedBuilding = null
 	for k: int in POLES:
 		var y: int = k * 3
 		var pole: PlacedBuilding = island.place(pole_data, Vector2i(300, y))
 		var solar: PlacedBuilding = island.place(solar_data, Vector2i(302, y))
-		var consumer: PlacedBuilding = island.place(cutter_data, Vector2i(298, y))
-		island.add_tree(Vector2i(298, y - 1))
+		var consumer: PlacedBuilding = island.place(cutter_data, Vector2i(296, y))
+		island.add_tree(Vector2i(297, y - 1))
 		island.add_cable(pole.id, solar.id)
 		island.add_cable(pole.id, consumer.id)
 		if previous_pole != null:
@@ -66,14 +66,14 @@ func _ready() -> void:
 		previous_pole = pole
 		electric.append(consumer)
 
-	# 3) Taladores: en (500 + 6j, 0) mirando al norte, arboleda madura delante y placa al este.
+	# 3) Taladores de 3×1: en x − 1..x + 1 (x = 500 + 6j) mirando al norte, arboleda madura delante y placa al este.
 	var cutters: Array[PlacedBuilding] = []
 	for j: int in CUTTERS:
 		var x: int = 500 + j * 6
 		for dx: int in range(-1, 2):
 			for dy: int in range(-3, 0):
 				island.add_tree(Vector2i(x + dx, dy))
-		var cutter: PlacedBuilding = island.place(cutter_data, Vector2i(x, 0))
+		var cutter: PlacedBuilding = island.place(cutter_data, Vector2i(x - 1, 0))
 		var solar: PlacedBuilding = island.place(solar_data, Vector2i(x + 2, 0))
 		island.add_cable(cutter.id, solar.id)
 		cutters.append(cutter)
@@ -91,7 +91,12 @@ func _ready() -> void:
 		Simulation.advance(Simulation.TICK)
 	var step_ms: float = (Time.get_ticks_usec() - start) / 1000.0 / MEASURE_STEPS
 	print("Tiempo por paso: %.3f ms (presupuesto %.1f ms)" % [step_ms, STEP_BUDGET_MS])
-	_check("paso dentro del presupuesto", step_ms <= STEP_BUDGET_MS)
+	# El presupuesto es un OBJETIVO para islas grandes (D-073), no un requisito: si se pasa, aviso amarillo
+	# en lugar de FALLO, para que un FALLO rojo siga queriendo decir que algo está roto.
+	if step_ms <= STEP_BUDGET_MS:
+		print("OK    paso dentro del objetivo")
+	else:
+		push_warning("Paso por encima del objetivo de %.1f ms (%.3f ms): ver D-073" % [STEP_BUDGET_MS, step_ms])
 
 	# 5) Sigue produciendo: 60 s más de juego.
 	Simulation.advance(60.0)

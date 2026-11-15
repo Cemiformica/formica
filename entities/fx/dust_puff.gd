@@ -2,17 +2,22 @@ class_name DustPuff
 extends GPUParticles3D
 ## Nubecita de polvo de un golpe (B3.7): unas pocas «piedrecitas» facetadas color piedra que salen hacia
 ## arriba y a los lados, encogen y desaparecen. Se borra sola al terminar. Mismo estilo de juguete que el
-## humo del horno (D-082). Uso: `DustPuff.spawn(padre, posición_global)`.
+## humo del horno (D-082). Uso: `DustPuff.spawn(padre, posición_global)`, o con un color propio
+## (`DustPuff.spawn(padre, posición, color)`: virutas de madera del talador).
 
 const DUST_COLOR: Color = Color(0.62, 0.57, 0.48)
 
 static var _process: ParticleProcessMaterial = null
-static var _mesh: ArrayMesh = null
+## Una bolita (con su material) por color, compartida por todas las nubes de ese color.
+static var _meshes: Dictionary[Color, ArrayMesh] = {}
+
+var _color: Color = DUST_COLOR
 
 
 ## Crea una nube en `global_pos`, colgada de `parent` (que debe estar en el árbol).
-static func spawn(parent: Node, global_pos: Vector3) -> void:
+static func spawn(parent: Node, global_pos: Vector3, color: Color = DUST_COLOR) -> void:
 	var puff := DustPuff.new()
+	puff._color = color
 	parent.add_child(puff)
 	puff.global_position = global_pos
 
@@ -36,15 +41,17 @@ func _ready() -> void:
 		var shrink_texture := CurveTexture.new()
 		shrink_texture.curve = shrink
 		_process.scale_curve = shrink_texture
+	if not _meshes.has(_color):
 		var material := StandardMaterial3D.new()
-		material.albedo_color = DUST_COLOR
+		material.albedo_color = _color
 		material.roughness = 1.0
 		material.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
 		material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-		_mesh = BuildingView._make_puff_mesh() # la misma bolita facetada que el humo
-		_mesh.surface_set_material(0, material)
+		var mesh: ArrayMesh = BuildingView._make_puff_mesh() # la misma bolita facetada que el humo
+		mesh.surface_set_material(0, material)
+		_meshes[_color] = mesh
 	process_material = _process
-	draw_pass_1 = _mesh
+	draw_pass_1 = _meshes[_color]
 	amount = 5
 	lifetime = 0.7
 	one_shot = true

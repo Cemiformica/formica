@@ -14,8 +14,10 @@ const START_CHARCOAL: int = 20
 const START_IRON: int = 14
 const START_CELLS: int = 14
 const START_COPPER_INGOTS: int = 10
+## Bobinas de cobre para el talador (2 cada uno, D-092). En el juego se harán en el banco de trabajo.
+const START_COILS: int = 10
 ## Arboleda de 3×3 ya plantada (B2.7b), desde esta esquina noroeste: casillas x 3–5, y −9…−7.
-## Para probar el talador: colócalo en (4, −6), justo al sur de la arboleda, sin girar (mira al norte).
+## Para probar el talador (3×1): colócalo en x 3–5, y −6, justo al sur de la arboleda, mirando al norte.
 const GROVE_ORIGIN: Vector2i = Vector2i(3, -9)
 ## Esquina noroeste de la veta de malaquita de prueba (B3.7).
 const VEIN_ORIGIN: Vector2i = Vector2i(6, -4)
@@ -36,6 +38,7 @@ func _ready() -> void:
 	inventory.add_item(Content.find_item(&"iron_ingot"), START_IRON)
 	inventory.add_item(Content.find_item(&"solar_cell"), START_CELLS)
 	inventory.add_item(Content.find_item(&"copper_ingot"), START_COPPER_INGOTS)
+	inventory.add_item(Content.find_item(&"copper_coil"), START_COILS)
 	print("Inventario inicial: ", inventory.debug_string())
 	# Naturaleza de prueba: una arboleda de 3×3 madura y unos árboles sueltos en distintas fases.
 	var island: IslandState = WorldState.get_island(player.build_controller.island_id)

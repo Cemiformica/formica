@@ -102,6 +102,10 @@ func _step_harvester(island: IslandState, placed: PlacedBuilding) -> void:
 			break
 	if not found or not placed.output_fits(_tree_wood()):
 		return
+	if placed.data.output_capacity > 0:
+		for item: ItemData in _tree_wood():
+			if placed.output.get_total(item) + _tree_wood()[item] > placed.data.output_capacity:
+				return # bandejas llenas (D-092): espera a que la cinta (o E) se lleve la madera
 	placed.progress += TICK
 	if placed.progress + EPSILON >= placed.data.harvest_time:
 		var gained: Dictionary[ItemData, int] = island.chop_tree(target, false)

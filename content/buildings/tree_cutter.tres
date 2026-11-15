@@ -5,10 +5,13 @@
 [ext_resource type="Script" uid="uid://dkooqj2ouj1ft" path="res://core/content/port_data.gd" id="3_portscript"]
 [ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
 [ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
+[ext_resource type="Resource" path="res://content/items/copper_coil.tres" id="6_coil"]
+[ext_resource type="PackedScene" path="res://assets/models/buildings/tree_cutter.glb" id="7_model"]
 
 [sub_resource type="Resource" id="Resource_out"]
 script = ExtResource("3_portscript")
 kind = 1
+cell = Vector2i(1, 0)
 side = 2
 item_filter = ExtResource("4_wood")
 
@@ -16,11 +19,16 @@ item_filter = ExtResource("4_wood")
 script = ExtResource("1_building")
 id = &"tree_cutter"
 name_key = "BUILDING_TREE_CUTTER"
+scene = ExtResource("7_model")
+size = Vector2i(3, 1)
+height = 2
 cost = Dictionary[ExtResource("2_itemscript"), int]({
-ExtResource("4_wood"): 6,
-ExtResource("5_stone"): 2
+ExtResource("4_wood"): 8,
+ExtResource("5_stone"): 4,
+ExtResource("6_coil"): 2
 })
 harvest_area = Vector2i(3, 3)
+output_capacity = 40
 power = -1.0
 power_connections = 1
 ports = Array[ExtResource("3_portscript")]([SubResource("Resource_out")])

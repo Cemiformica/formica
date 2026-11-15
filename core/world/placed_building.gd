@@ -98,17 +98,19 @@ func get_harvest_cells() -> Array[Vector2i]:
 
 
 ## Casillas del área de tala de un tipo de construcción colocado en `p_origin` con `p_rotation`
-## (también la usa el fantasma del modo construcción). Pensado para taladores de 1×1: el área
-## queda centrada a lo ancho y pegada por delante (sin girar, "delante" es el norte, y negativa).
+## (también la usa el fantasma del modo construcción). El área queda centrada a lo ancho de la huella y
+## pegada por delante (sin girar, "delante" es el norte: filas locales negativas). Vale para el talador de
+## 3×1 (área justo delante de sus tres casillas) y para uno de 1×1 (área centrada). Gira igual que los
+## puertos, con `OccupancyGrid.local_to_cell()`.
 static func harvest_cells_for(p_data: BuildingData, p_origin: Vector2i, p_rotation: int) -> Array[Vector2i]:
 	var cells: Array[Vector2i] = []
 	var w: int = p_data.harvest_area.x
 	var h: int = p_data.harvest_area.y
-	var left: int = -int((w - 1) / 2.0)
+	var left: int = floori((p_data.size.x - w) / 2.0)
 	for dx: int in w:
 		for dy: int in h:
 			var local: Vector2i = Vector2i(left + dx, -1 - dy)
-			cells.append(p_origin + GridMath.rotate_offset(local, p_rotation))
+			cells.append(OccupancyGrid.local_to_cell(p_origin, p_data.size, p_rotation, local))
 	return cells
 
 

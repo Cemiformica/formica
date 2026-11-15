@@ -22,7 +22,8 @@ extends Resource
 ## Solo cintas: ítems que caben a la vez en una casilla.
 @export_range(1, 8) var belt_capacity: int = 2
 ## Solo taladores: tamaño del área que tala, justo DELANTE de la construcción (ancho × fondo,
-## sin girar). (0, 0) = no tala. El talador del vertical slice usa 3×3 (D-057, D-069).
+## sin girar), centrada a lo ancho. (0, 0) = no tala. El talador del vertical slice es de 3×1 y tala
+## el 3×3 que tiene delante (D-057, D-069, D-092).
 @export var harvest_area: Vector2i = Vector2i.ZERO
 ## Solo taladores: segundos que tarda en talar un árbol maduro.
 @export var harvest_time: float = 2.0
@@ -31,8 +32,9 @@ extends Resource
 ## Solo extractores: casilla LOCAL (sin girar; 0,0 = noroeste) de la cabeza, que debe ir sobre una
 ## casilla del BORDE de una veta. El resto de la huella (la cola) queda fuera de la veta.
 @export var vein_cell: Vector2i = Vector2i.ZERO
-## Solo extractores: cuántos ítems caben en su almacén (se para al llenarse). 0 = lo que quepa en la
-## salida (una pila entera). El extractor del vertical slice guarda 10 (César: «no demasiado alto»).
+## Extractores y taladores: cuántos ítems caben en su almacén (se para al llenarse). 0 = lo que quepa en
+## la salida (una pila entera). El extractor guarda 10 (César: «no demasiado alto»); el talador, 40 de
+## madera, las 10 plazas de sus bandejas (D-092).
 @export_range(0, 999) var output_capacity: int = 0
 ## Color del humo de sus «smoke_origin…» mientras trabaja (B3.7): casi negro el horno (carbón), blanco
 ## grisáceo la carbonera (vapor y madera, como en las carboneras reales). El humo se aclara al subir.
@@ -51,6 +53,8 @@ extends Resource
 func can_flip() -> bool:
 	if extract_time > 0.0:
 		return false # reflejar cambiaría la cabeza de lado: el giro con R basta
+	if harvest_area != Vector2i.ZERO:
+		return false # el talador trabaja siempre delante y saca por detrás: reflejarlo no tiene sentido
 	var normal: Array[String] = []
 	var mirrored: Array[String] = []
 	for port: PortData in ports:
