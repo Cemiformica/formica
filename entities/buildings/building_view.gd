@@ -69,6 +69,15 @@ const CHIPS_COLOR: Color = Color(0.85, 0.68, 0.45)
 const WHEEL_SPIN: float = 0.8
 const SPLASH_INTERVAL: float = 0.45
 const SPLASH_COLOR: Color = Color(0.78, 0.92, 1.0)
+# Banco de trabajo (D-095): la manivela y el carrete giran mientras fabrica, la bobina crece con el
+# progreso y el flexo del Nexo se enciende (bombilla y un foco cálido de verdad, sin sombras: es barato).
+const CRANK_SPIN: float = 5.0
+const SPOOL_SPIN: float = 7.0
+const COIL_MIN_SCALE: float = 0.47 ## grosor del hilo con el carrete vacío (el núcleo de madera se ve)
+const LAMP_COLOR: Color = Color(1.0, 0.8, 0.52)
+const LAMP_DARK: Color = Color(0.3, 0.3, 0.28)
+const LAMP_BULB_ENERGY: float = 2.5
+const LAMP_LIGHT_ENERGY: float = 1.6
 ## Capas de colisión de las cintas: la 1 (sólidas, B3.7, César: el jugador ya no las atraviesa; las
 ## sube andando gracias al escalón automático de `Player`) y la 2 (la de siempre de las cintas, por si
 ## algún rayo las busca solo a ellas).
@@ -139,6 +148,11 @@ var _wheel: Node3D = null
 var _wheel_sign: float = 1.0
 var _splash_local: Vector3 = Vector3.ZERO
 var _splash_timer: float = 0.0
+var _crank: Node3D = null
+var _spool: Node3D = null
+var _coil_fill: Node3D = null
+var _lamp_material: StandardMaterial3D = null
+var _lamp_light: SpotLight3D = null
 var _model_root: Node3D = null
 var _heat: float = 0.0 ## 0 = apagado, 1 = a pleno
 var _working_hold: float = 0.0
@@ -283,6 +297,8 @@ func _process(delta: float) -> void:
 		_update_status_lights(delta)
 	if placed.is_machine() or placed.is_extractor() or placed.is_harvester():
 		_update_machine_visuals(delta)
+	if _wheel != null:
+		_update_water_wheel(delta)
 	if placed.is_machine():
 		_label.text = _machine_text()
 	elif placed.is_extractor():
@@ -292,8 +308,6 @@ func _process(delta: float) -> void:
 	elif placed.is_storage():
 		_update_storage_visuals()
 		_label.text = _storage_text()
-	if _wheel != null:
-		_update_water_wheel(delta)
 	else:
 		_label.text = tr(placed.data.name_key)
 
@@ -552,6 +566,37 @@ func _setup_machine_visuals(model: Node3D) -> void:
 		log_node.visible = false # bandejas vacías hasta que tale algo
 		_store_logs.append(log_node)
 		log_index += 1
+	_setup_workbench(model)
+
+
+## Banco de trabajo: manivela, carrete, bobina que crece y flexo con luz propia (todo opcional).
+func _setup_workbench(model: Node3D) -> void:
+	_crank = model.find_child("crank_pivot", true, false) as Node3D
+	_spool = model.find_child("spool_pivot", true, false) as Node3D
+	_coil_fill = model.find_child("coil_fill_pivot", true, false) as Node3D
+	var bulb := model.find_child("work_lamp", true, false) as MeshInstance3D
+	if bulb != null:
+		_lamp_material = StandardMaterial3D.new()
+		_lamp_material.albedo_color = LAMP_DARK
+		_lamp_material.emission_enabled = true
+		_lamp_material.emission = LAMP_COLOR
+		_lamp_material.emission_energy_multiplier = 0.0
+		bulb.material_override = _lamp_material
+	var anchor := model.find_child("lamp_light", true, false) as Node3D
+	if anchor != null:
+		_lamp_light = SpotLight3D.new()
+		# Apunta hacia abajo pase lo que pase con el vacío (girar o reflejar la construcción no cambia «abajo»).
+		_lamp_light.transform.basis = anchor.transform.basis.inverse() * Basis(Vector3.RIGHT, -PI * 0.5)
+		_lamp_light.light_color = LAMP_COLOR
+		_lamp_light.light_energy = 0.0
+		_lamp_light.spot_range = 1.8
+		_lamp_light.spot_angle = 50.0
+		_lamp_light.shadow_enabled = false
+		_lamp_light.distance_fade_enabled = true # de lejos no se calcula
+		_lamp_light.distance_fade_begin = 30.0
+		_lamp_light.distance_fade_length = 10.0
+		_lamp_light.visible = false
+		anchor.add_child(_lamp_light)
 
 
 ## Trabaja si su progreso cambió hace poco. El calor sube y baja suave, y de él dependen la brasa
@@ -612,6 +657,20 @@ func _update_machine_visuals(delta: float) -> void:
 		var shown: int = mini(ceili(float(_stored_total()) / LOG_WOOD), _store_logs.size())
 		for i: int in _store_logs.size():
 			_store_logs[i].visible = i < shown
+	if _crank != null:
+		_crank.rotation.x += CRANK_SPIN * _heat * delta
+	if _spool != null:
+		_spool.rotation.x += SPOOL_SPIN * _heat * delta
+	if _coil_fill != null and placed.is_machine():
+		var done: float = clampf(placed.progress / placed.data.recipe.duration, 0.0, 1.0)
+		var thick: float = lerpf(COIL_MIN_SCALE, 1.0, done)
+		_coil_fill.scale = Vector3(1.0, thick, thick)
+	if _lamp_material != null:
+		_lamp_material.emission_energy_multiplier = LAMP_BULB_ENERGY * _heat
+		_lamp_material.albedo_color = LAMP_DARK.lerp(LAMP_COLOR, _heat)
+	if _lamp_light != null:
+		_lamp_light.visible = _heat > 0.01
+		_lamp_light.light_energy = LAMP_LIGHT_ENERGY * _heat
 	if _dust_origin != null and _heat > 0.5:
 		_dust_timer -= delta
 		if _dust_timer <= 0.0:

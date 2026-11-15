@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="BuildingData" format=3]
+
+[ext_resource type="Script" path="res://core/content/building_data.gd" id="1_building"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Resource" path="res://content/items/wood.tres" id="3_wood"]
+[ext_resource type="Resource" path="res://content/items/stone.tres" id="4_stone"]
+[ext_resource type="Resource" path="res://content/recipes/make_coil.tres" id="5_recipe"]
+[ext_resource type="PackedScene" path="res://assets/models/buildings/workbench.glb" id="6_model"]
+
+[resource]
+script = ExtResource("1_building")
+id = &"workbench"
+name_key = "BUILDING_WORKBENCH"
+scene = ExtResource("6_model")
+size = Vector2i(2, 1)
+height = 2
+cost = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("3_wood"): 6,
+ExtResource("4_stone"): 2
+})
+recipe = ExtResource("5_recipe")

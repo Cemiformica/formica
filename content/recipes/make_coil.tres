@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="RecipeData" format=3]
+
+[ext_resource type="Script" path="res://core/content/recipe_data.gd" id="1_recipe"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Resource" path="res://content/items/copper_ingot.tres" id="3_ingot"]
+[ext_resource type="Resource" path="res://content/items/copper_coil.tres" id="4_coil"]
+
+[resource]
+script = ExtResource("1_recipe")
+id = &"make_coil"
+inputs = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("3_ingot"): 2
+})
+outputs = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("4_coil"): 1
+})
+duration = 3.0
