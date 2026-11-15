@@ -300,9 +300,10 @@ def build() -> None:
     # Base, flejes y tapa sobresalen por los lados y por detrás, pero acaban A RAS de la cara del puerto
     # (y = 0,75), para que no hagan escalón con él (César).
     # Las franjas y la tapa sobresalen 3 cm de la carcasa por los lados y por el sur; por el norte el
-    # almacén se mete 2,5 cm para que también sobresalgan ahí sin pasar de la cara del puerto (César).
-    trim_y0, trim_y1 = 0.09, 0.75
-    store_y0, store_y1 = 0.12, 0.725
+    # almacén se mete 1,5 cm para que también sobresalgan ahí. La carcasa llega justo a la trasera del
+    # puerto (y = 0,735) y base, franjas y tapa 1 cm más allá, por dentro del marco: sin hueco (César).
+    trim_y0, trim_y1 = 0.09, 0.76
+    store_y0, store_y1 = 0.12, 0.735
     trim_len, trim_mid = trim_y1 - trim_y0, (trim_y0 + trim_y1) / 2
     finish("store_base", box((0.96, trim_len, 0.08), (0.0, trim_mid, 0.04)), METAL_DEEP, root, mat, 0.01)
     # Más alto que en la v1 (César): el conducto entra por el costado, por debajo de la tapa.
