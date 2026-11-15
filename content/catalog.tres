@@ -20,9 +20,11 @@
 [ext_resource type="Resource" path="res://content/items/slag.tres" id="18_slag"]
 [ext_resource type="Resource" path="res://content/recipes/smelt_copper.tres" id="19_smelt"]
 [ext_resource type="Resource" path="res://content/buildings/furnace.tres" id="20_furnace"]
+[ext_resource type="Resource" path="res://content/items/iron_ingot.tres" id="21_iron"]
+[ext_resource type="Resource" path="res://content/items/solar_cell.tres" id="22_cell"]
 
 [resource]
 script = ExtResource("1_catalog")
-items = Array[ExtResource("2_itemscript")]([ExtResource("4_wood"), ExtResource("5_stone"), ExtResource("6_gravel"), ExtResource("13_seed"), ExtResource("15_ore"), ExtResource("16_charcoal"), ExtResource("17_ingot"), ExtResource("18_slag")])
+items = Array[ExtResource("2_itemscript")]([ExtResource("4_wood"), ExtResource("5_stone"), ExtResource("6_gravel"), ExtResource("13_seed"), ExtResource("15_ore"), ExtResource("16_charcoal"), ExtResource("17_ingot"), ExtResource("18_slag"), ExtResource("21_iron"), ExtResource("22_cell")])
 recipes = Array[ExtResource("3_recipescript")]([ExtResource("7_crush"), ExtResource("19_smelt")])
 buildings = Array[ExtResource("8_buildingscript")]([ExtResource("9_crusher"), ExtResource("10_conveyor"), ExtResource("11_pole"), ExtResource("12_solar"), ExtResource("14_cutter"), ExtResource("20_furnace")])

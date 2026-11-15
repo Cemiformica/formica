@@ -4,14 +4,18 @@
 [ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
 [ext_resource type="Resource" path="res://content/items/wood.tres" id="3_wood"]
 [ext_resource type="Resource" path="res://content/items/stone.tres" id="4_stone"]
+[ext_resource type="Resource" path="res://content/items/copper_ingot.tres" id="5_ingot"]
+[ext_resource type="PackedScene" path="res://assets/models/buildings/power_pole.glb" id="6_model"]
 
 [resource]
 script = ExtResource("1_building")
 id = &"power_pole"
 name_key = "BUILDING_POWER_POLE"
+scene = ExtResource("6_model")
 size = Vector2i(1, 1)
 cost = Dictionary[ExtResource("2_itemscript"), int]({
-ExtResource("3_wood"): 2,
-ExtResource("4_stone"): 1
+ExtResource("3_wood"): 1,
+ExtResource("4_stone"): 1,
+ExtResource("5_ingot"): 1
 })
 power_connections = 4

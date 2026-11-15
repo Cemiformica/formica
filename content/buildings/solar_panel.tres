@@ -2,6 +2,9 @@
 
 [ext_resource type="Script" path="res://core/content/building_data.gd" id="1_building"]
 [ext_resource type="PackedScene" path="res://assets/models/buildings/solar_panel.glb" id="2_model"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="3_itemscript"]
+[ext_resource type="Resource" path="res://content/items/solar_cell.tres" id="4_cell"]
+[ext_resource type="Resource" path="res://content/items/iron_ingot.tres" id="5_iron"]
 
 [resource]
 script = ExtResource("1_building")
@@ -10,5 +13,9 @@ name_key = "BUILDING_SOLAR_PANEL"
 scene = ExtResource("2_model")
 size = Vector2i(2, 2)
 height = 2
+cost = Dictionary[ExtResource("3_itemscript"), int]({
+ExtResource("4_cell"): 7,
+ExtResource("5_iron"): 3
+})
 power = 4.0
 power_connections = 1

@@ -9,6 +9,11 @@ const START_STONE: int = 100
 ## Para probar el horno (B3): mineral y carbón; con E se meten en él (2 mineral + 1 carbón cada 8 s).
 const START_ORE: int = 40
 const START_CHARCOAL: int = 20
+## Materiales del Nexo (D-089: Mira trae 7 células y 7 de hierro) y cobre para los postes. En el sandbox,
+## el doble, para poder probar más de una placa, horno o poste.
+const START_IRON: int = 14
+const START_CELLS: int = 14
+const START_COPPER_INGOTS: int = 10
 ## Arboleda de 3×3 ya plantada (B2.7b), desde esta esquina noroeste: casillas x 3–5, y −9…−7.
 ## Para probar el talador: colócalo en (4, −6), justo al sur de la arboleda, sin girar (mira al norte).
 const GROVE_ORIGIN: Vector2i = Vector2i(3, -9)
@@ -26,6 +31,9 @@ func _ready() -> void:
 	inventory.add_item(Content.find_item(&"stone"), START_STONE)
 	inventory.add_item(Content.find_item(&"copper_ore"), START_ORE)
 	inventory.add_item(Content.find_item(&"charcoal"), START_CHARCOAL)
+	inventory.add_item(Content.find_item(&"iron_ingot"), START_IRON)
+	inventory.add_item(Content.find_item(&"solar_cell"), START_CELLS)
+	inventory.add_item(Content.find_item(&"copper_ingot"), START_COPPER_INGOTS)
 	print("Inventario inicial: ", inventory.debug_string())
 	# Naturaleza de prueba: una arboleda de 3×3 madura y unos árboles sueltos en distintas fases.
 	var island: IslandState = WorldState.get_island(player.build_controller.island_id)
@@ -63,7 +71,7 @@ func _update_label() -> void:
 	var stone: ItemData = Content.find_item(&"stone")
 	var seed_item: ItemData = Content.find_item(&"seed")
 	var materials: String = "%s %d · %s %d · %s %d" % [tr(wood.name_key), inventory.get_total(wood), tr(stone.name_key), inventory.get_total(stone), tr(seed_item.name_key), inventory.get_total(seed_item)]
-	for id: StringName in [&"copper_ore", &"charcoal", &"copper_ingot", &"slag"]:
+	for id: StringName in [&"copper_ore", &"charcoal", &"copper_ingot", &"slag", &"iron_ingot", &"solar_cell"]:
 		var item: ItemData = Content.find_item(id)
 		if inventory.get_total(item) > 0:
 			materials += " · %s %d" % [tr(item.name_key), inventory.get_total(item)]

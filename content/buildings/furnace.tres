@@ -9,6 +9,7 @@
 [ext_resource type="Resource" path="res://content/items/slag.tres" id="7_slag"]
 [ext_resource type="Resource" path="res://content/recipes/smelt_copper.tres" id="8_smelt"]
 [ext_resource type="PackedScene" uid="uid://cnvywy31bhmqg" path="res://assets/models/buildings/furnace.glb" id="9_model"]
+[ext_resource type="Resource" path="res://content/items/iron_ingot.tres" id="10_iron"]
 
 [sub_resource type="Resource" id="Resource_in_north"]
 script = ExtResource("3_portscript")
@@ -42,7 +43,8 @@ size = Vector2i(2, 2)
 height = 3
 cost = Dictionary[ExtResource("2_itemscript"), int]({
 ExtResource("4_wood"): 4,
-ExtResource("5_stone"): 20
+ExtResource("5_stone"): 20,
+ExtResource("10_iron"): 2
 })
 recipe = ExtResource("8_smelt")
 power = -3.0
