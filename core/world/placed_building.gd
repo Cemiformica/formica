@@ -29,6 +29,11 @@ var belt_overflow: float = 0.0
 ## Solo taladores: casillas del área, calculadas una vez (la construcción no se mueve; B2.9).
 var _harvest_cells: Array[Vector2i] = []
 
+## Solo extractores: ítem de la veta que tiene debajo la cabeza (lo pone `IslandState` al colocar o
+## cargar; no se guarda) y el diccionario {ítem: 1} preparado una vez para no crearlo en cada paso.
+var vein_item: ItemData = null
+var vein_output: Dictionary[ItemData, int] = {}
+
 ## Solo generadores: fusible saltado. Una red está cortada si alguno de sus generadores lo tiene (D-068).
 var fuse_tripped: bool = false
 
@@ -46,8 +51,8 @@ func _init(p_id: int, p_data: BuildingData, p_origin: Vector2i, p_rotation: int 
 		var any_item: Array[ItemData] = []
 		input = Inventory.new(maxi(accepted.size(), 1), accepted)
 		output = Inventory.new(maxi(data.recipe.outputs.size(), 1), any_item, false)
-	elif is_harvester():
-		# El talador solo tiene salida: ahí deja la madera hasta que la cinta se la lleva.
+	elif is_harvester() or is_extractor():
+		# Talador y extractor solo tienen salida: ahí dejan lo que sacan hasta que la cinta se lo lleva.
 		var any_item: Array[ItemData] = []
 		output = Inventory.new(1, any_item, false)
 
@@ -60,6 +65,24 @@ func is_machine() -> bool:
 ## ¿Es una cinta?
 func is_belt() -> bool:
 	return data.belt_speed > 0.0
+
+
+## ¿Es un extractor? (saca el ítem de la veta que tiene debajo, B3.7)
+func is_extractor() -> bool:
+	return data.extract_time > 0.0
+
+
+## Solo extractores: fija el ítem de la veta de debajo (null = sin veta: no trabaja).
+func set_vein_item(item: ItemData) -> void:
+	vein_item = item
+	vein_output.clear()
+	if item != null:
+		vein_output[item] = 1
+
+
+## Casilla de la cuadrícula donde queda la cabeza de un extractor colocado así.
+static func head_cell_for(p_data: BuildingData, p_origin: Vector2i, p_rotation: int) -> Vector2i:
+	return OccupancyGrid.local_to_cell(p_origin, p_data.size, p_rotation, p_data.vein_cell)
 
 
 ## ¿Es un talador?
@@ -197,6 +220,14 @@ func _belt_spacing() -> float:
 ## Lo que no quepa se queda donde estaba.
 func quick_exchange(other: Inventory) -> void:
 	if not is_machine():
+		# Talador o extractor: solo se recoge lo que haya en la salida.
+		if output != null:
+			for stack: ItemStack in output.slots.duplicate():
+				if stack == null:
+					continue
+				var moved: int = stack.amount - other.add_item(stack.item, stack.amount)
+				if moved > 0:
+					output.remove_item(stack.item, moved)
 		return
 	for item: ItemData in data.recipe.outputs:
 		var amount: int = output.get_total(item)
@@ -254,6 +285,9 @@ static func from_data(entry: Dictionary) -> PlacedBuilding:
 	elif placed.is_harvester():
 		placed.output.load_data(_as_array(entry.get("out")))
 		placed.progress = clampf(float(entry.get("progress", 0.0)), 0.0, building_data.harvest_time)
+	elif placed.is_extractor():
+		placed.output.load_data(_as_array(entry.get("out")))
+		placed.progress = clampf(float(entry.get("progress", 0.0)), 0.0, building_data.extract_time)
 	placed.fuse_tripped = entry.get("fuse", false) == true
 	if placed.is_belt():
 		for belt_entry: Variant in _as_array(entry.get("belt")):

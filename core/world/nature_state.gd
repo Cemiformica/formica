@@ -13,6 +13,10 @@ enum Stage { STUMP, SPROUT, YOUNG, MATURE }
 
 ## Segundos que dura cada fase hasta pasar a la siguiente.
 const STAGE_TIME: float = 30.0
+## Talar a mano (D-090, César): golpes de E que hacen falta y segundos mínimos entre golpe y golpe.
+## La herramienta necesaria llegará con las herramientas (fase C).
+const CHOP_HITS: int = 4
+const HIT_COOLDOWN: float = 1.0
 
 var kind: Kind = Kind.TREE
 var stage: Stage = Stage.MATURE

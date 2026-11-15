@@ -80,6 +80,27 @@ def get_palette_material():
     return mat
 
 
+def hex_rivet(center, normal, r: float = 0.017, depth: float = 0.02, bm=None):
+    # Remache o tornillo HEXAGONAL (guía de arte: nada de cubitos): prisma de 6 lados con el eje en
+    # `normal`, medio hundido en la superficie. Con `bm`, se añade a esa malla y devuelve sus caras.
+    target = bm if bm is not None else bmesh.new()
+    n = Vector(normal).normalized()
+    rot = Vector((0.0, 0.0, 1.0)).rotation_difference(n).to_matrix()
+    c = Vector(center)
+    low, high = [], []
+    for i in range(6):
+        a = 2.0 * math.pi * i / 6
+        p = Vector((r * math.cos(a), r * math.sin(a), 0.0))
+        low.append(target.verts.new(c + rot @ (p + Vector((0.0, 0.0, -depth / 2)))))
+        high.append(target.verts.new(c + rot @ (p + Vector((0.0, 0.0, depth / 2)))))
+    faces = [target.faces.new(list(reversed(low))), target.faces.new(high)]
+    for i in range(6):
+        j = (i + 1) % 6
+        faces.append(target.faces.new((low[i], low[j], high[j], high[i])))
+    bmesh.ops.recalc_face_normals(target, faces=faces)
+    return faces if bm is not None else target
+
+
 def hex_prism(bm, w: float, h: float, y0: float, y1: float, cz: float) -> list:
     # Prisma hexagonal ALARGADO a lo largo de Y: puntas a ±w en X, lados planos arriba y abajo a ±h.
     # Las esquinas de arriba y abajo se retiran h · tan 30° de las puntas, como en un hexágono regular.
@@ -164,13 +185,11 @@ def build_port(name: str, inward: bool, arrow_color: tuple, mat) -> None:
     for i in range(len(outline)):
         j = (i + 1) % len(outline)
         arrow.append(bm.faces.new((low[i], low[j], high[j], high[i])))
-    # Remaches: cuatro cubitos en las esquinas de la cara exterior (el toque de juguete).
+    # Remaches: cuatro hexagonales en las esquinas de la cara exterior (el toque de juguete).
     rivets = []
     for rx in (-WIDTH / 2 + 0.06, WIDTH / 2 - 0.06):
         for rz in (0.06, HEIGHT - 0.06):
-            made = bmesh.ops.create_cube(bm, size=0.03)
-            bmesh.ops.translate(bm, vec=(rx, OUTER_Y, rz), verts=made["verts"])  # medio hundidos
-            rivets.extend({f for v in made["verts"] for f in v.link_faces})
+            rivets.extend(hex_rivet((rx, OUTER_Y, rz), (0, 1, 0), 0.018, 0.03, bm=bm))  # medio hundidos
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 
     # 3) Colores: túnel y tapón oscuros, flecha de su color, el resto del marco gris.
@@ -206,7 +225,7 @@ def build_tongue(port_obj, mat) -> int:
     # y su misma banda animada (material «belt_band»), para que la cinta parezca seguir dentro de la máquina. Godot la
     # muestra SOLO si el puerto está conectado. Se llama «belt_tongue_input» o «belt_tongue_output».
     # Los números del perfil son los de conveyor_blockout.py: si cambian allí, cambiarlos aquí.
-    band_half, band_top, wall_x, wall_z, lip, bottom = 0.19, 0.125, 0.29, 0.28, 0.04, (0.24, 0.06)
+    band_half, band_top, wall_x, wall_z, lip, bottom = 0.19, 0.125, 0.27, 0.23, 0.06, (0.28, 0.06)
     name = "belt_tongue_" + port_obj.name.split("_")[-1]
     y0, y1 = OUTER_Y - DEPTH + 0.03, OUTER_Y + 0.015   # del tapón del fondo al borde de la casilla
     profile = [(-wall_x - lip, wall_z), (-wall_x, wall_z), (-band_half, band_top - 0.01), (band_half, band_top - 0.01),

@@ -12,6 +12,8 @@ signal building_removed(building: PlacedBuilding)
 signal cables_changed
 ## Se emite cuando cambia lo natural de una casilla: aparece, cambia de fase o desaparece (B2.7).
 signal nature_changed(cell: Vector2i)
+## Se emite al añadir una veta (la vista crea su pieza visible). Las vetas nunca se quitan.
+signal vein_added(origin: Vector2i)
 
 ## Qué casilla ocupa cada construcción. Se reconstruye al cargar a partir de las construcciones.
 var grid: OccupancyGrid = OccupancyGrid.new()
@@ -26,9 +28,11 @@ var _links_dirty: bool = true
 const TREE_WOOD: int = 4
 const STUMP_WOOD: int = 1
 ## Rocas (B2.8, D-057): piedra que dan, cada cuánto aparece una y cuántas puede haber a la vez.
-const ROCK_STONE: int = 2
-const ROCK_SPAWN_TIME: float = 45.0
-const MAX_ROCKS: int = 12
+## Se recogen de una sola E y dan 1 de piedra (César, D-090); por eso aparecen más a menudo y caben
+## más a la vez que antes (antes: 2 de piedra, cada 45 s, como mucho 12).
+const ROCK_STONE: int = 1
+const ROCK_SPAWN_TIME: float = 20.0
+const MAX_ROCKS: int = 16
 
 ## Casillas de la isla donde pueden aparecer rocas. Vacío = no aparecen. Es parte de cómo es la isla
 ## (lo pone su escena), no de la partida, así que no se guarda.
@@ -40,6 +44,11 @@ var _rock_timer: float = 0.0
 
 ## Capa natural (B2.7): casilla → árbol o tocón. Bloquea construir. Se guarda con la isla.
 var nature: Dictionary[Vector2i, NatureState] = {}
+## Vetas (B3.7, D-090): esquina (x e y mínimas) → tipo. Ocupan 3×3 y nunca se agotan ni se quitan.
+## Se guardan con la isla, porque al cargar se crea una isla nueva a partir de los datos.
+var veins: Dictionary[Vector2i, VeinData] = {}
+## Casilla → esquina de la veta que la cubre (para preguntar rápido «¿hay veta aquí?»).
+var _vein_cells: Dictionary[Vector2i, Vector2i] = {}
 
 ## Longitud máxima de un cable (m), entre los centros de las dos construcciones.
 const MAX_CABLE_LENGTH: float = 12.0
@@ -55,14 +64,25 @@ var _networks_dirty: bool = true
 var _next_id: int = 1
 
 
-## ¿Cabe una construcción de este tipo aquí? (casillas libres de construcciones y de naturaleza)
+## ¿Cabe una construcción de este tipo aquí? (casillas libres de construcciones, naturaleza y vetas)
+## Extractores (D-090): la cabeza debe ir sobre una casilla del BORDE de una veta; el resto, fuera.
 func can_place(data: BuildingData, origin: Vector2i, rotation: int = 0) -> bool:
+	return placement_problem(data, origin, rotation) == ""
+
+
+## Por qué no cabe aquí (clave de traducción), o "" si cabe. Lo usa el modo construcción para avisar.
+func placement_problem(data: BuildingData, origin: Vector2i, rotation: int = 0) -> String:
 	if data == null or not grid.can_place(origin, data.size, rotation):
-		return false
+		return "BUILD_NO_ROOM"
+	var head := Vector2i(2147483647, 2147483647) # ninguna casilla
+	if data.extract_time > 0.0:
+		head = PlacedBuilding.head_cell_for(data, origin, rotation)
+		if not is_vein_edge(head):
+			return "BUILD_NEEDS_VEIN"
 	for cell: Vector2i in OccupancyGrid.footprint_cells(origin, data.size, rotation):
-		if nature.has(cell):
-			return false
-	return true
+		if nature.has(cell) or (_vein_cells.has(cell) and cell != head):
+			return "BUILD_NO_ROOM"
+	return ""
 
 
 ## Coloca una construcción. Devuelve la nueva `PlacedBuilding`, o null si no cabe.
@@ -70,6 +90,8 @@ func place(data: BuildingData, origin: Vector2i, rotation: int = 0, flipped: boo
 	if not can_place(data, origin, rotation) or not grid.place(_next_id, origin, data.size, rotation):
 		return null
 	var placed := PlacedBuilding.new(_next_id, data, origin, rotation, flipped)
+	if placed.is_extractor():
+		placed.set_vein_item(vein_at(PlacedBuilding.head_cell_for(data, origin, rotation)).item)
 	buildings[_next_id] = placed
 	_next_id += 1
 	_links_dirty = true
@@ -115,7 +137,11 @@ func to_data() -> Dictionary:
 	var nature_list: Array = []
 	for cell: Vector2i in nature:
 		nature_list.append(nature[cell].to_data(cell))
-	return {"next_id": _next_id, "buildings": list, "cables": cable_list, "nature": nature_list, "rock_timer": _rock_timer}
+	var vein_list: Array = []
+	for vein_origin: Vector2i in veins:
+		vein_list.append({"id": String(veins[vein_origin].id), "x": vein_origin.x, "y": vein_origin.y})
+	return {"next_id": _next_id, "buildings": list, "cables": cable_list, "nature": nature_list, "veins": vein_list,
+			"rock_timer": _rock_timer}
 
 
 ## Datos del guardado → estado. Ignora con aviso lo dañado, lo desconocido y lo que se solape.
@@ -125,6 +151,18 @@ func load_data(data: Dictionary) -> void:
 	_links_dirty = true
 	cables.clear()
 	nature.clear()
+	veins.clear()
+	_vein_cells.clear()
+	# Las vetas primero: son parte del terreno, y las cabezas de los extractores van encima.
+	var vein_list: Variant = data.get("veins", [])
+	if vein_list is Array:
+		for entry: Variant in vein_list:
+			if not entry is Dictionary:
+				push_warning("IslandState: veta dañada ignorada: %s" % str(entry))
+				continue
+			var vein_data: VeinData = Content.find_vein(StringName(str(entry.get("id", ""))))
+			if vein_data == null or not add_vein(vein_data, Vector2i(int(entry.get("x", 0)), int(entry.get("y", 0)))):
+				push_warning("IslandState: veta desconocida o solapada ignorada: %s" % str(entry))
 	_rock_timer = clampf(float(data.get("rock_timer", 0.0)), 0.0, ROCK_SPAWN_TIME)
 	_networks_dirty = true
 	var max_id: int = 0
@@ -140,6 +178,9 @@ func load_data(data: Dictionary) -> void:
 			if placed.id <= 0 or not grid.place(placed.id, placed.origin, placed.data.size, placed.rotation):
 				push_warning("IslandState: construcción %d no válida o solapada, ignorada" % placed.id)
 				continue
+			if placed.is_extractor():
+				var vein: VeinData = vein_at(PlacedBuilding.head_cell_for(placed.data, placed.origin, placed.rotation))
+				placed.set_vein_item(vein.item if vein != null else null) # sin veta debajo: no trabaja
 			buildings[placed.id] = placed
 			max_id = maxi(max_id, placed.id)
 	_next_id = maxi(int(data.get("next_id", 1)), max_id + 1)
@@ -321,7 +362,7 @@ func _rebuild_networks() -> void:
 
 ## Planta un árbol en la fase indicada. Devuelve false si la casilla tiene una construcción o ya hay algo.
 func add_tree(cell: Vector2i, stage: NatureState.Stage = NatureState.Stage.MATURE) -> bool:
-	if nature.has(cell) or grid.get_occupant(cell) != 0:
+	if nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell):
 		return false
 	nature[cell] = NatureState.new(NatureState.Kind.TREE, stage)
 	nature_changed.emit(cell)
@@ -356,14 +397,14 @@ func uproot_stump(cell: Vector2i) -> Dictionary[ItemData, int]:
 
 ## Pone una roca. Devuelve false si la casilla tiene una construcción o ya hay algo.
 func add_rock(cell: Vector2i) -> bool:
-	if nature.has(cell) or grid.get_occupant(cell) != 0:
+	if nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell):
 		return false
 	nature[cell] = NatureState.new(NatureState.Kind.ROCK)
 	nature_changed.emit(cell)
 	return true
 
 
-## Pica una roca: da 2 de piedra y libera la casilla. Diccionario vacío si ahí no hay una roca.
+## Recoge una roca: da `ROCK_STONE` de piedra y libera la casilla. Diccionario vacío si ahí no hay una roca.
 func mine_rock(cell: Vector2i) -> Dictionary[ItemData, int]:
 	var result: Dictionary[ItemData, int] = {}
 	if not nature.has(cell) or not nature[cell].is_rock():
@@ -401,7 +442,48 @@ func step_nature(dt: float) -> void:
 	for x: int in range(bounds.position.x, bounds.end.x):
 		for y: int in range(bounds.position.y, bounds.end.y):
 			var cell := Vector2i(x, y)
-			if not nature.has(cell) and grid.get_occupant(cell) == 0:
+			if not nature.has(cell) and grid.get_occupant(cell) == 0 and not _vein_cells.has(cell):
 				free_cells.append(cell)
 	if not free_cells.is_empty():
 		add_rock(free_cells[rng.randi_range(0, free_cells.size() - 1)])
+
+
+# --- Vetas (B3.7, D-090) ---
+
+## Pone una veta de 3×3 con su esquina en `origin`. Devuelve false si alguna casilla tiene una
+## construcción, algo natural u otra veta.
+func add_vein(data: VeinData, origin: Vector2i) -> bool:
+	if data == null:
+		return false
+	var cells: Array[Vector2i] = vein_cells(origin)
+	for cell: Vector2i in cells:
+		if nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell):
+			return false
+	veins[origin] = data
+	for cell: Vector2i in cells:
+		_vein_cells[cell] = origin
+	vein_added.emit(origin)
+	return true
+
+
+## Veta que cubre esa casilla, o null.
+func vein_at(cell: Vector2i) -> VeinData:
+	if not _vein_cells.has(cell):
+		return null
+	return veins[_vein_cells[cell]]
+
+
+## ¿Es esa casilla del BORDE de una veta? (las 8 que admiten la cabeza de un extractor; la central, no)
+func is_vein_edge(cell: Vector2i) -> bool:
+	if not _vein_cells.has(cell):
+		return false
+	return cell - _vein_cells[cell] != Vector2i(1, 1)
+
+
+## Las 9 casillas de una veta con esquina en `origin`.
+static func vein_cells(origin: Vector2i) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	for x: int in VeinData.SIZE:
+		for y: int in VeinData.SIZE:
+			cells.append(origin + Vector2i(x, y))
+	return cells

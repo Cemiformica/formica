@@ -173,6 +173,10 @@ func _process(_delta: float) -> void:
 	var hit_pos: Vector3 = hit["position"]
 	var s: Vector2i = OccupancyGrid.rotated_size(building.size, rotation_steps)
 	_target_origin = GridMath.world_to_cell(hit_pos) - Vector2i(int((s.x - 1) / 2.0), int((s.y - 1) / 2.0))
+	if building.extract_time > 0.0:
+		# Extractor: la casilla apuntada es la de la CABEZA (la que va sobre la veta).
+		var head_offset: Vector2i = PlacedBuilding.head_cell_for(building, Vector2i.ZERO, rotation_steps)
+		_target_origin = GridMath.world_to_cell(hit_pos) - head_offset
 	_has_target = true
 
 	# Fantasma: el modelo si lo tiene; si no, una caja del tamaño de la huella girada. Verde o rojo.
@@ -225,6 +229,10 @@ func _face_player() -> void:
 		if score > best:
 			best = score
 			rotation_steps = steps
+	var held: BuildingData = get_held()
+	if held != null and held.extract_time > 0.0:
+		# Extractor: al revés, la cola (con el almacén y la salida) hacia ti y la cabeza hacia la veta.
+		rotation_steps = (rotation_steps + 2) % 4
 
 
 ## Cuentagotas: coge la construcción que miras. Si está en la barra, elige su casilla; si no, la lleva
@@ -365,7 +373,12 @@ func _try_place() -> void:
 	if not inventory.has_items(building.cost):
 		place_failed.emit("BUILD_NO_MATERIALS")
 		return
-	var result: PlacedBuilding = WorldState.get_island(island_id).place(building, _target_origin, rotation_steps, flipped and building.can_flip())
+	var island: IslandState = WorldState.get_island(island_id)
+	var problem: String = island.placement_problem(building, _target_origin, rotation_steps)
+	if problem != "":
+		place_failed.emit(problem)
+		return
+	var result: PlacedBuilding = island.place(building, _target_origin, rotation_steps, flipped and building.can_flip())
 	if result == null:
 		place_failed.emit("BUILD_NO_ROOM")
 		return

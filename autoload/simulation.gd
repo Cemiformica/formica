@@ -63,6 +63,9 @@ func _step() -> void:
 			elif placed.is_harvester():
 				if has_power:
 					_step_harvester(island, placed)
+			elif placed.is_extractor():
+				if has_power:
+					_step_extractor(placed)
 			elif placed.is_belt():
 				placed.advance_belt(TICK)
 		# 3) Por cada conexión, pasa como mucho un ítem por paso.
@@ -104,6 +107,19 @@ func _step_harvester(island: IslandState, placed: PlacedBuilding) -> void:
 		var gained: Dictionary[ItemData, int] = island.chop_tree(target, false)
 		for item: ItemData in gained:
 			placed.output.add_item(item, gained[item])
+		placed.progress = 0.0
+
+
+## Extractor (B3.7, D-090): si tiene veta debajo y cabe 1 ítem en la salida, avanza; cada
+## `extract_time` segundos saca 1 ítem de la veta. Las vetas no se agotan.
+func _step_extractor(placed: PlacedBuilding) -> void:
+	if placed.vein_item == null or not placed.output_fits(placed.vein_output):
+		return
+	if placed.data.output_capacity > 0 and placed.output.get_total(placed.vein_item) >= placed.data.output_capacity:
+		return # almacén lleno: espera a que la cinta (o E) lo vacíe
+	placed.progress += TICK
+	if placed.progress + EPSILON >= placed.data.extract_time:
+		placed.output.add_item(placed.vein_item, 1)
 		placed.progress = 0.0
 
 

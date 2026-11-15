@@ -1,7 +1,8 @@
 # Blockout de la cinta transportadora básica (B3.7). Tramo recto de una casilla, a juego con los puertos
 # (César: toda la logística comparte aspecto): artesa gris del Nexo con perfil de MEDIO HEXÁGONO (la mitad
-# de abajo de la boca de los puertos, D-079), remaches, un pie metálico y la banda («belt_band», con su
-# propio material para que Godot la haga avanzar).
+# de abajo de la boca de los puertos, D-079), paredes gruesas con larguero naranja y remaches
+# hexagonales, dos traviesas con pies y la banda («belt_band», con su propio material para que Godot la
+# haga avanzar).
 # La banda es una superficie sin grosor (sin cantos) y su parte recta acaba donde empiezan las curvas.
 # En cada extremo hay dos piezas que Godot alterna: la «vuelta de banda» (belt_end_front / belt_end_back),
 # medio cilindro alrededor de un eje, si ese extremo está SIN conectar (para que se vea girar, César); y un
@@ -27,14 +28,18 @@ ROOT = "conveyor"
 BAND_HALF = 0.19        # banda de 0,38 m (fondo plano de la artesa)
 BAND_TOP = 0.125        # superficie de la banda
 BAND_THICK = 0.01
-WALL_TOP_X = 0.29       # borde interior de la pared, arriba
-WALL_TOP_Z = 0.28
-LIP = 0.04              # grosor de la pared (borde superior plano)
-SHELL_BOTTOM = (0.24, 0.06)   # media anchura y altura del fondo exterior de la artesa
+# v2 (César: «parece frágil, de plástico»): paredes más gruesas y algo más bajas, con un larguero naranja
+# a cada lado, y dos traviesas con pies bajo la artesa en vez de un pie central.
+WALL_TOP_X = 0.27       # borde interior de la pared, arriba
+WALL_TOP_Z = 0.23
+LIP = 0.08              # grosor de la pared (borde superior plano, como un perfil de acero)
+SHELL_BOTTOM = (0.29, 0.06)   # media anchura y altura del fondo exterior de la artesa
+OUTER_KNEE_Z = 0.13     # altura donde la cara exterior deja de ser vertical y se recoge hacia el fondo
 ROLLER_R = 0.06         # radio de la vuelta de banda en los extremos
 TEX_PER_M = 2           # repeticiones de la textura de la banda por metro (cada una: nervio + chevrón)
 
 FRAME, RIVET, FOOT = (5, 3), (5, 5), (5, 4)   # los mismos grises que el puerto estándar
+ACCENT = (4, 2)         # naranja del horno y del extractor: el acento de toda la maquinaria
 
 
 def swatch_uv(row, col):
@@ -64,6 +69,27 @@ def palette_material():
 
 def band_material():
     return bpy.data.materials.get("belt_band") or _image_material("belt_band", BAND_TEXTURE_PATH, 0.9)
+
+
+def hex_rivet(center, normal, r: float = 0.017, depth: float = 0.02, bm=None):
+    # Remache o tornillo HEXAGONAL (guía de arte: nada de cubitos): prisma de 6 lados con el eje en
+    # `normal`, medio hundido en la superficie. Con `bm`, se añade a esa malla y devuelve sus caras.
+    target = bm if bm is not None else bmesh.new()
+    n = Vector(normal).normalized()
+    rot = Vector((0.0, 0.0, 1.0)).rotation_difference(n).to_matrix()
+    c = Vector(center)
+    low, high = [], []
+    for i in range(6):
+        a = 2.0 * math.pi * i / 6
+        p = Vector((r * math.cos(a), r * math.sin(a), 0.0))
+        low.append(target.verts.new(c + rot @ (p + Vector((0.0, 0.0, -depth / 2)))))
+        high.append(target.verts.new(c + rot @ (p + Vector((0.0, 0.0, depth / 2)))))
+    faces = [target.faces.new(list(reversed(low))), target.faces.new(high)]
+    for i in range(6):
+        j = (i + 1) % 6
+        faces.append(target.faces.new((low[i], low[j], high[j], high[i])))
+    bmesh.ops.recalc_face_normals(target, faces=faces)
+    return faces if bm is not None else target
 
 
 def box(size, center):
@@ -183,21 +209,29 @@ def build():
 
     bx, bz = SHELL_BOTTOM
     floor_z = BAND_TOP - BAND_THICK
-    # Paredes (perfil de medio hexágono), de borde a borde.
+    xo = WALL_TOP_X + LIP   # cara exterior de la pared
+    # Paredes gruesas (perfil de medio hexágono por dentro, cara exterior vertical), de borde a borde.
     for side, sx in (("east", 1), ("west", -1)):
-        wall = [(sx * (WALL_TOP_X + LIP), WALL_TOP_Z), (sx * WALL_TOP_X, WALL_TOP_Z), (sx * BAND_HALF, floor_z),
-                (sx * BAND_HALF, bz), (sx * bx, bz)]
+        wall = [(sx * xo, WALL_TOP_Z), (sx * WALL_TOP_X, WALL_TOP_Z), (sx * BAND_HALF, floor_z),
+                (sx * BAND_HALF, bz), (sx * bx, bz), (sx * xo, OUTER_KNEE_Z)]
         if sx < 0:
             wall.reverse()
         make("wall_" + side, prism_x_profile(wall, -0.5, 0.5), root, pal, FRAME, 0.008)
-        # Dos remaches en el borde de arriba de cada pared, medio hundidos (como los del puerto).
+        # Larguero naranja a lo largo de la cara exterior, con dos remaches hexagonales grandes.
+        make("rail_" + side, box((0.03, 1.0, 0.055), (sx * (xo + 0.012), 0.0, 0.175)), root, pal, ACCENT, 0.006)
         for i, y in enumerate((-0.25, 0.25)):
-            make("rivet_%s_%d" % (side, i), box((0.03, 0.03, 0.03), (sx * (WALL_TOP_X + LIP / 2), y, WALL_TOP_Z)),
+            make("rivet_%s_%d" % (side, i), hex_rivet((sx * (xo + 0.027), y, 0.175), (sx, 0, 0), 0.02, 0.02),
                  root, pal, RIVET)
     # Fondo bajo la banda, acortado en los extremos para dejar sitio a las vueltas de banda.
     floor_len = 1.0 - 2 * (2 * ROLLER_R)
     make("floor", box((2 * BAND_HALF, floor_len, floor_z - bz), (0.0, 0.0, (floor_z + bz) / 2)), root, pal, FRAME)
-    make("foot", box((2 * bx - 0.06, 0.14, bz), (0.0, 0.0, bz / 2)), root, pal, FOOT, 0.008)
+    # Dos traviesas bajo la artesa, cerca de los extremos, que asoman a los lados con un pie hexagonal:
+    # en una fila de cintas forman un ritmo de apoyos que da peso.
+    for i, y in enumerate((-0.36, 0.36)):
+        make("sleeper_%d" % i, box((2 * xo + 0.1, 0.1, bz + 0.02), (0.0, y, (bz + 0.02) / 2)), root, pal, FOOT, 0.008)
+        for sx in (-1, 1):
+            make("sleeper_foot_%d_%d" % (i, sx > 0), hex_rivet((sx * (xo + 0.035), y, (bz + 0.02) + 0.012), (0, 0, 1), 0.03, 0.025),
+                 root, pal, RIVET)
     edge = 0.5 - ROLLER_R   # donde acaba la banda recta y empieza la curva (o el tramo de unión)
     make("belt_band", band_strip(-edge, edge), root, band, uv_mode="band")
     make("belt_join_front", band_strip(edge, 0.5), root, band, uv_mode="band")

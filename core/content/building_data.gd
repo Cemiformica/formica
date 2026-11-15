@@ -26,6 +26,14 @@ extends Resource
 @export var harvest_area: Vector2i = Vector2i.ZERO
 ## Solo taladores: segundos que tarda en talar un árbol maduro.
 @export var harvest_time: float = 2.0
+## Solo extractores (B3.7, D-090): segundos que tarda en sacar 1 ítem de la veta. 0 = no es extractor.
+@export var extract_time: float = 0.0
+## Solo extractores: casilla LOCAL (sin girar; 0,0 = noroeste) de la cabeza, que debe ir sobre una
+## casilla del BORDE de una veta. El resto de la huella (la cola) queda fuera de la veta.
+@export var vein_cell: Vector2i = Vector2i.ZERO
+## Solo extractores: cuántos ítems caben en su almacén (se para al llenarse). 0 = lo que quepa en la
+## salida (una pila entera). El extractor del vertical slice guarda 10 (César: «no demasiado alto»).
+@export_range(0, 999) var output_capacity: int = 0
 ## Energía en puntos: positivo = genera, negativo = consume, 0 = no eléctrica (D-068).
 ## Lo que consume cuenta entero mientras esté conectado, trabaje o no.
 @export var power: float = 0.0
@@ -38,6 +46,8 @@ extends Resource
 ## ¿Cambia algo al reflejarla (tecla F)? Solo si algún puerto queda distinto: otra casilla, otro lado
 ## u otro filtro (p. ej., las dos salidas del horno). Si reflejar no cambia nada, F no hace nada.
 func can_flip() -> bool:
+	if extract_time > 0.0:
+		return false # reflejar cambiaría la cabeza de lado: el giro con R basta
 	var normal: Array[String] = []
 	var mirrored: Array[String] = []
 	for port: PortData in ports:

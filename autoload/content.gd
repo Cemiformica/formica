@@ -9,6 +9,7 @@ const CATALOG: Catalog = preload("res://content/catalog.tres")
 var _items_by_id: Dictionary[StringName, ItemData] = {}
 var _recipes_by_id: Dictionary[StringName, RecipeData] = {}
 var _buildings_by_id: Dictionary[StringName, BuildingData] = {}
+var _veins_by_id: Dictionary[StringName, VeinData] = {}
 
 
 func _ready() -> void:
@@ -18,6 +19,8 @@ func _ready() -> void:
 		_register(_recipes_by_id, recipe, recipe.id, "receta")
 	for building: BuildingData in CATALOG.buildings:
 		_register(_buildings_by_id, building, building.id, "edificio")
+	for vein: VeinData in CATALOG.veins:
+		_register(_veins_by_id, vein, vein.id, "veta")
 
 
 ## Ítem con ese id (null si no existe).
@@ -33,6 +36,11 @@ func find_recipe(id: StringName) -> RecipeData:
 ## Edificio con ese id (null si no existe).
 func find_building(id: StringName) -> BuildingData:
 	return _buildings_by_id.get(id, null)
+
+
+## Veta con ese id (null si no existe).
+func find_vein(id: StringName) -> VeinData:
+	return _veins_by_id.get(id, null)
 
 
 ## Añade `resource` a `index` con su id. Avisa (y lo salta) si el id está vacío o repetido.

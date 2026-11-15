@@ -12,6 +12,7 @@ signal focus_changed(interactable: Interactable)
 @export var acceleration: float = 40.0 ## Rapidez para alcanzar la velocidad (m/s²).
 @export var jump_velocity: float = 6.3 ## Impulso vertical del salto (m/s). Con gravedad ×2 da ~1 m de altura.
 @export var gravity_multiplier: float = 2.0 ## Gravedad del personaje respecto a la del mundo: ×2 = salto más firme, menos flotante.
+@export var step_height: float = 0.3 ## Bordes que sube solo al caminar, sin saltar (cintas, losas bajas) (B3.7).
 
 @export_group("Cámara")
 @export var mouse_sensitivity: float = 0.002 ## Radianes girados por cada píxel de ratón.
@@ -85,6 +86,7 @@ func _physics_process(delta: float) -> void:
 	var target_velocity: Vector3 = direction * walk_speed
 	velocity.x = move_toward(velocity.x, target_velocity.x, acceleration * delta)
 	velocity.z = move_toward(velocity.z, target_velocity.z, acceleration * delta)
+	_step_up(delta)
 	move_and_slide()
 
 	if global_position.y < fall_limit_y:
@@ -93,6 +95,24 @@ func _physics_process(delta: float) -> void:
 		reset_physics_interpolation() # salto instantáneo: sin «volar» desde donde caía
 
 	_update_focus()
+
+
+## Escalón automático (B3.7, César): si al andar chocamos con un borde de hasta `step_height` (una cinta,
+## una losa) y por encima hay sitio, subimos de golpe esa altura y la gravedad nos posa encima. La
+## interpolación de la física suaviza la subida en pantalla. Paredes más altas no se suben.
+func _step_up(delta: float) -> void:
+	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
+	if not is_on_floor() or horizontal.length_squared() < 0.01:
+		return
+	var motion: Vector3 = horizontal * delta
+	if not test_move(global_transform, motion):
+		return # nada delante
+	var up: Vector3 = Vector3.UP * step_height
+	if test_move(global_transform, up):
+		return # no hay sitio encima (techo)
+	if test_move(global_transform.translated(up), motion):
+		return # también choca más arriba: es una pared, no un escalón
+	global_position += up
 
 
 ## Avisa (solo cuando cambia) de qué objeto interactuable tenemos delante.

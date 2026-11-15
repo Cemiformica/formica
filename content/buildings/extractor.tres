@@ -1,0 +1,32 @@
+[gd_resource type="Resource" script_class="BuildingData" format=3]
+
+[ext_resource type="Script" path="res://core/content/building_data.gd" id="1_building"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Script" path="res://core/content/port_data.gd" id="3_portscript"]
+[ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
+[ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
+[ext_resource type="Resource" path="res://content/items/iron_ingot.tres" id="6_iron"]
+[ext_resource type="PackedScene" path="res://assets/models/buildings/extractor.glb" id="7_model"]
+
+[sub_resource type="Resource" id="Resource_out"]
+script = ExtResource("3_portscript")
+kind = 1
+
+[resource]
+script = ExtResource("1_building")
+id = &"extractor"
+name_key = "BUILDING_EXTRACTOR"
+scene = ExtResource("7_model")
+size = Vector2i(1, 2)
+height = 1
+cost = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("4_wood"): 6,
+ExtResource("5_stone"): 6,
+ExtResource("6_iron"): 2
+})
+extract_time = 4.0
+output_capacity = 10
+vein_cell = Vector2i(0, 1)
+power = -2.0
+power_connections = 1
+ports = Array[ExtResource("3_portscript")]([SubResource("Resource_out")])

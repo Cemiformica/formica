@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="VeinData" format=3]
+
+[ext_resource type="Script" path="res://core/content/vein_data.gd" id="1_vein"]
+[ext_resource type="Resource" path="res://content/items/copper_ore.tres" id="2_ore"]
+[ext_resource type="PackedScene" path="res://assets/models/buildings/malachite_vein.glb" id="3_model"]
+
+[resource]
+script = ExtResource("1_vein")
+id = &"malachite_vein"
+name_key = "VEIN_MALACHITE"
+item = ExtResource("2_ore")
+scene = ExtResource("3_model")

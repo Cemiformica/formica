@@ -17,6 +17,8 @@ const START_COPPER_INGOTS: int = 10
 ## Arboleda de 3×3 ya plantada (B2.7b), desde esta esquina noroeste: casillas x 3–5, y −9…−7.
 ## Para probar el talador: colócalo en (4, −6), justo al sur de la arboleda, sin girar (mira al norte).
 const GROVE_ORIGIN: Vector2i = Vector2i(3, -9)
+## Esquina noroeste de la veta de malaquita de prueba (B3.7).
+const VEIN_ORIGIN: Vector2i = Vector2i(6, -4)
 
 @onready var player: Player = $Player
 @onready var test_box: Interactable = $TestBox
@@ -44,11 +46,17 @@ func _ready() -> void:
 	island.add_tree(Vector2i(-6, -3), NatureState.Stage.YOUNG)
 	island.add_tree(Vector2i(-8, -3), NatureState.Stage.SPROUT)
 	island.add_tree(Vector2i(-10, -3), NatureState.Stage.STUMP)
-	# Rocas (B2.8): aparecen solas cada 45 s dentro del suelo de 40×40 m; ponemos tres para empezar.
+	# Rocas (B2.8, D-090): aparecen solas cada 20 s dentro del suelo de 40×40 m; ponemos once para empezar.
 	island.bounds = Rect2i(-20, -20, 40, 40)
 	island.add_rock(Vector2i(-3, 1))
 	island.add_rock(Vector2i(-5, 2))
 	island.add_rock(Vector2i(6, 2))
+	for rock_cell: Vector2i in [Vector2i(-2, 4), Vector2i(1, 5), Vector2i(4, 4), Vector2i(-7, 5), Vector2i(-9, 1),
+			Vector2i(9, 4), Vector2i(-1, 8), Vector2i(3, 9)]:
+		island.add_rock(rock_cell)
+	# Veta de malaquita de 3×3 (B3.7): casillas x 6–8, y −4…−2, al este del inicio. E sobre los cristales
+	# del centro: un golpe por segundo; 4 golpes = 1 mineral.
+	island.add_vein(Content.find_vein(&"malachite_vein"), VEIN_ORIGIN)
 
 	var builder: BuildController = player.build_controller
 	player.focus_changed.connect(_on_player_focus_changed)

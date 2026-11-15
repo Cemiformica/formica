@@ -37,3 +37,6 @@ ITEM_SLAG,Escoria,Escòria,Slag
 BUILDING_FURNACE,Horno de fundición,Forn de fosa,Smelting furnace
 ITEM_IRON_INGOT,Lingote de hierro,Lingot de ferro,Iron ingot
 ITEM_SOLAR_CELL,Célula solar,Cèl·lula solar,Solar cell
+VEIN_MALACHITE,Veta de malaquita,Veta de malaquita,Malachite vein
+BUILDING_EXTRACTOR,Extractor,Extractor,Extractor
+BUILD_NEEDS_VEIN,La cabeza debe ir sobre el borde de una veta,El cap ha d'anar sobre la vora d'una veta,The head must sit on the edge of a vein

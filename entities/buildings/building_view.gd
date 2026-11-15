@@ -50,9 +50,18 @@ const STATUS_TRIPPED_COLOR: Color = Color(1.0, 0.18, 0.12)
 const STATUS_DARK: Color = Color(0.12, 0.1, 0.08)
 const STATUS_ENERGY: float = 1.5
 const STATUS_BLINK_RATE: float = 1.5
-## Capa de colisión de las cintas: el jugador camina por encima (no choca), pero los rayos de
-## construir y del cuentagotas sí las encuentran.
-const BELT_COLLISION_LAYER: int = 2
+## Taladro del extractor (B3.7): vueltas por segundo en radianes, cuánto baja (m) y cuántas veces por
+## segundo; y cada cuánto sale una nubecita de polvo de la broca (César) mientras trabaja.
+const DRILL_SPIN: float = 9.0
+const DRILL_BOB: float = 0.05
+const DRILL_BOB_RATE: float = 1.5
+const DUST_INTERVAL: float = 0.6
+## Capas de colisión de las cintas: la 1 (sólidas, B3.7, César: el jugador ya no las atraviesa; las
+## sube andando gracias al escalón automático de `Player`) y la 2 (la de siempre de las cintas, por si
+## algún rayo las busca solo a ellas).
+const BELT_COLLISION_LAYER: int = 1 | 2
+## Alto del choque de la cinta: el borde de arriba de sus paredes (conveyor_blockout.py, WALL_TOP_Z).
+const BELT_COLLISION_HEIGHT: float = 0.23
 
 ## Un material por ítem, compartido por todos los cubitos de todas las cintas.
 static var _item_materials: Dictionary[ItemData, StandardMaterial3D] = {}
@@ -91,6 +100,14 @@ var _insulator: MeshInstance3D = null
 var _ember_material: StandardMaterial3D = null
 var _smoke: GPUParticles3D = null
 var _bellows: Node3D = null
+## Solo extractores con modelo: taladro (gira y sube y baja) y punto de donde sale el polvo.
+var _drill: Node3D = null
+var _drill_rest: Vector3 = Vector3.ZERO
+var _dust_origin: Node3D = null
+var _dust_timer: float = 0.0
+## Solo extractores con modelo: mineral de las mirillas, que sube según lo lleno que esté el almacén.
+var _store_fill: Node3D = null
+var _store_fill_painted: bool = false
 var _heat: float = 0.0 ## 0 = apagado, 1 = a pleno
 var _working_hold: float = 0.0
 var _last_progress: float = 0.0
@@ -217,12 +234,25 @@ func _process(delta: float) -> void:
 		return
 	if _status_material != null:
 		_update_status_lights(delta)
-	if placed.is_machine():
+	if placed.is_machine() or placed.is_extractor():
 		_update_machine_visuals(delta)
 	if placed.is_machine():
 		_label.text = _machine_text()
+	elif placed.is_extractor():
+		_label.text = _extractor_text()
 	else:
 		_label.text = tr(placed.data.name_key)
+
+
+## "40 % → Mineral de cobre 3" (o "Sin veta" si la cabeza no está sobre una).
+func _extractor_text() -> String:
+	if placed.vein_item == null:
+		return tr(placed.data.name_key) + "  · " + tr("BUILD_NEEDS_VEIN")
+	var text: String = "%d %% → %s %d" % [int(placed.progress / placed.data.extract_time * 100.0),
+			tr(placed.vein_item.name_key), placed.output.get_total(placed.vein_item)]
+	if placed.data.power < 0.0 and island != null and not island.is_powered(placed.id):
+		text += "  · " + tr("POWER_NO_POWER")
+	return text
 
 
 ## "Piedra 5 → 40 % → Grava 3"
@@ -244,10 +274,10 @@ func _machine_text() -> String:
 func _setup_belt() -> void:
 	collision_layer = BELT_COLLISION_LAYER
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(1.0, BELT_HEIGHT, 1.0)
+	shape.size = Vector3(1.0, BELT_COLLISION_HEIGHT, 1.0)
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
-	collision.position.y = BELT_HEIGHT * 0.5
+	collision.position.y = BELT_COLLISION_HEIGHT * 0.5
 	add_child(collision)
 
 	# Dirección: hacia donde mira su puerto de salida.
@@ -352,6 +382,13 @@ func _setup_machine_visuals(model: Node3D) -> void:
 		_smoke = _make_smoke()
 		smoke_origin.add_child(_smoke)
 	_bellows = model.find_child("bellows_pivot", true, false) as Node3D
+	_drill = model.find_child("drill_pivot", true, false) as Node3D
+	if _drill != null:
+		_drill_rest = _drill.position
+	_dust_origin = model.find_child("dust_origin", true, false) as Node3D
+	_store_fill = model.find_child("store_fill_pivot", true, false) as Node3D
+	if _store_fill != null:
+		_store_fill.visible = false # vacío hasta que saque algo
 
 
 ## Trabaja si su progreso cambió hace poco. El calor sube y baja suave, y de él dependen la brasa
@@ -379,6 +416,24 @@ func _update_machine_visuals(delta: float) -> void:
 	if _bellows != null:
 		var squeeze: float = 0.5 + 0.5 * sin(_time * TAU * BELLOWS_RATE + _phase)
 		_bellows.scale.y = 1.0 - BELLOWS_SQUEEZE * squeeze * _heat
+	if _drill != null:
+		# Gira (más rápido cuanto más «caliente») y sube y baja un poco, como si picara.
+		_drill.rotation.y += DRILL_SPIN * _heat * delta
+		_drill.position = _drill_rest + Vector3(0.0, -DRILL_BOB * _heat * (0.5 + 0.5 * sin(_time * TAU * DRILL_BOB_RATE + _phase)), 0.0)
+	if _store_fill != null and placed.vein_item != null and placed.data.output_capacity > 0:
+		var ratio: float = clampf(float(placed.output.get_total(placed.vein_item)) / placed.data.output_capacity, 0.0, 1.0)
+		_store_fill.visible = ratio > 0.0
+		_store_fill.scale.y = maxf(ratio, 0.01)
+		if not _store_fill_painted:
+			# Del color del mineral que saca (el mismo material que sus cubitos en las cintas).
+			_store_fill_painted = true
+			for mesh: Node in _store_fill.find_children("*", "MeshInstance3D", true, false):
+				(mesh as MeshInstance3D).material_override = _material_for(placed.vein_item)
+	if _dust_origin != null and _heat > 0.5:
+		_dust_timer -= delta
+		if _dust_timer <= 0.0:
+			_dust_timer = DUST_INTERVAL
+			DustPuff.spawn(self, _dust_origin.global_position)
 
 
 ## Humo de juguete: pocas «piedrecitas» de humo facetadas (icosaedro achatado, como el resto del arte

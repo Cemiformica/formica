@@ -23,6 +23,8 @@ var _island: IslandState = null
 var _views: Dictionary[int, BuildingView] = {}
 ## Casilla → vista de su árbol o tocón.
 var _tree_views: Dictionary[Vector2i, TreeView] = {}
+## Esquina → vista de su veta.
+var _vein_views: Dictionary[Vector2i, VeinView] = {}
 ## Líneas de los cables dibujados.
 var _cable_meshes: Array[MeshInstance3D] = []
 var _cable_material: StandardMaterial3D
@@ -58,18 +60,25 @@ func _rebuild() -> void:
 		_island.building_removed.disconnect(_on_building_removed)
 		_island.cables_changed.disconnect(_redraw_cables)
 		_island.nature_changed.disconnect(_on_nature_changed)
+		_island.vein_added.disconnect(_on_vein_added)
 	for view: BuildingView in _views.values():
 		view.queue_free()
 	_views.clear()
 	for tree: TreeView in _tree_views.values():
 		tree.queue_free()
 	_tree_views.clear()
+	for vein: VeinView in _vein_views.values():
+		vein.queue_free()
+	_vein_views.clear()
 
 	_island = WorldState.get_island(island_id)
 	_island.building_placed.connect(_on_building_placed)
 	_island.building_removed.connect(_on_building_removed)
 	_island.cables_changed.connect(_redraw_cables)
 	_island.nature_changed.connect(_on_nature_changed)
+	_island.vein_added.connect(_on_vein_added)
+	for vein_origin: Vector2i in _island.veins:
+		_on_vein_added(vein_origin)
 	_rebuilding = true
 	for placed: PlacedBuilding in _island.buildings.values():
 		_on_building_placed(placed)
@@ -94,6 +103,16 @@ func _on_building_removed(placed: PlacedBuilding) -> void:
 		_views[placed.id].queue_free()
 		_views.erase(placed.id)
 	_refresh_connections()
+
+
+## Hay una veta nueva: crea su vista.
+func _on_vein_added(vein_origin: Vector2i) -> void:
+	if _vein_views.has(vein_origin):
+		return
+	var view := VeinView.new()
+	view.setup(vein_origin, _island.veins[vein_origin], _island)
+	add_child(view)
+	_vein_views[vein_origin] = view
 
 
 ## Algo natural cambió en `cell`: crea, actualiza o borra su vista.

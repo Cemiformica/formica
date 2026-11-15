@@ -3,9 +3,10 @@ extends Interactable
 ## Árbol, tocón o roca visible (B2.7b, B2.8). El nombre de la clase es de antes de las rocas. Solo MUESTRA su `NatureState` (D-046): la crea, actualiza y borra
 ## `IslandView` cuando la isla avisa con `nature_changed`. La forma cambia con la fase:
 ## tocón bajo, brote pequeño, árbol joven y árbol maduro. Formas provisionales hasta B3.
-## E sobre un árbol maduro: talar a mano (4 de madera + 1 semilla, queda un tocón).
+## E sobre un árbol maduro: un golpe; a los `NatureState.CHOP_HITS` golpes (uno por segundo como mucho)
+## se tala a mano (4 de madera + 1 semilla, queda un tocón) (D-090). Cada golpe levanta polvo y lo agita.
 ## E sobre un tocón: arrancarlo (1 de madera, libera la casilla). Brotes y jóvenes no se tocan.
-## E sobre una roca: picarla (2 de piedra, libera la casilla).
+## E sobre una roca: recogerla de una vez (1 de piedra, libera la casilla).
 
 const TRUNK_COLOR: Color = Color(0.45, 0.3, 0.17)
 const LEAVES_COLOR: Color = Color(0.2, 0.55, 0.22)
@@ -19,6 +20,10 @@ var island: IslandState
 
 var _shape: CylinderShape3D
 var _visual: Node3D = null
+## Golpes dados al árbol y momento del último (no se guardan: si te vas, se pierden).
+var _hits: int = 0
+var _last_hit_ms: int = -100000
+var _shake: float = 0.0
 
 
 ## Prepara la vista. Se llama ANTES de añadirla al árbol.
@@ -92,6 +97,17 @@ func interact(by: Node) -> void:
 		preview = {Content.find_item(&"wood"): IslandState.STUMP_WOOD}
 	if preview.is_empty() or not inventory.can_add_all(preview):
 		return
+	if state.is_mature_tree():
+		var now: int = Time.get_ticks_msec()
+		if now - _last_hit_ms < int(NatureState.HIT_COOLDOWN * 1000.0):
+			return
+		_last_hit_ms = now
+		_hits += 1
+		_shake = 1.0
+		DustPuff.spawn(self, global_position + Vector3(0.0, 0.6, 0.0))
+		if _hits < NatureState.CHOP_HITS:
+			return
+		_hits = 0
 	var gained: Dictionary[ItemData, int] = {}
 	if state.is_rock():
 		gained = island.mine_rock(cell)
@@ -101,6 +117,14 @@ func interact(by: Node) -> void:
 		gained = island.uproot_stump(cell)
 	for item: ItemData in gained:
 		inventory.add_item(item, gained[item])
+
+
+## Sacudida corta del árbol tras un golpe.
+func _process(delta: float) -> void:
+	if _shake <= 0.0 or _visual == null:
+		return
+	_shake = maxf(_shake - delta * 5.0, 0.0)
+	_visual.rotation.z = 0.06 * sin(_shake * PI * 3.0) * _shake
 
 
 func _add_cylinder(radius: float, height: float, center_y: float, color: Color) -> void:

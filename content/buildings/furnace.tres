@@ -43,7 +43,7 @@ size = Vector2i(2, 2)
 height = 3
 cost = Dictionary[ExtResource("2_itemscript"), int]({
 ExtResource("4_wood"): 4,
-ExtResource("5_stone"): 20,
+ExtResource("5_stone"): 14,
 ExtResource("10_iron"): 2
 })
 recipe = ExtResource("8_smelt")

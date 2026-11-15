@@ -105,6 +105,27 @@ def cut_with(obj, bm: bmesh.types.BMesh, color) -> None:
     new_mesh.set_sharp_from_angle(angle=math.radians(30))
 
 
+def hex_rivet(center, normal, r: float = 0.017, depth: float = 0.02, bm=None):
+    # Remache o tornillo HEXAGONAL (guía de arte: nada de cubitos): prisma de 6 lados con el eje en
+    # `normal`, medio hundido en la superficie. Con `bm`, se añade a esa malla y devuelve sus caras.
+    target = bm if bm is not None else bmesh.new()
+    n = Vector(normal).normalized()
+    rot = Vector((0.0, 0.0, 1.0)).rotation_difference(n).to_matrix()
+    c = Vector(center)
+    low, high = [], []
+    for i in range(6):
+        a = 2.0 * math.pi * i / 6
+        p = Vector((r * math.cos(a), r * math.sin(a), 0.0))
+        low.append(target.verts.new(c + rot @ (p + Vector((0.0, 0.0, -depth / 2)))))
+        high.append(target.verts.new(c + rot @ (p + Vector((0.0, 0.0, depth / 2)))))
+    faces = [target.faces.new(list(reversed(low))), target.faces.new(high)]
+    for i in range(6):
+        j = (i + 1) % 6
+        faces.append(target.faces.new((low[i], low[j], high[j], high[i])))
+    bmesh.ops.recalc_face_normals(target, faces=faces)
+    return faces if bm is not None else target
+
+
 def box(size, center) -> bmesh.types.BMesh:
     bm = bmesh.new()
     bmesh.ops.create_cube(bm, size=1.0)
@@ -357,10 +378,10 @@ def add_details(root, mat, body_stone) -> None:
     # Remaches del motor (caja de 0,28 × 0,26 × 0,24 en (0,42, −0,74, 1,0)): cara sur y cara este.
     for dx in (-0.1, 0.1):
         for dz in (-0.08, 0.08):
-            finish("rivet_s_%d_%d" % (dx > 0, dz > 0), box((0.03, 0.02, 0.03), (0.42 + dx, -0.875, 1.0 + dz)), METAL_DARK, root, mat, 0.0)
+            finish("rivet_s_%d_%d" % (dx > 0, dz > 0), hex_rivet((0.42 + dx, -0.87, 1.0 + dz), (0, -1, 0)), METAL_DARK, root, mat, 0.0)
     for dy in (-0.09, 0.09):
         for dz in (-0.08, 0.08):
-            finish("rivet_e_%d_%d" % (dy > 0, dz > 0), box((0.02, 0.03, 0.03), (0.565, -0.74 + dy, 1.0 + dz)), METAL_DARK, root, mat, 0.0)
+            finish("rivet_e_%d_%d" % (dy > 0, dz > 0), hex_rivet((0.56, -0.74 + dy, 1.0 + dz), (1, 0, 0)), METAL_DARK, root, mat, 0.0)
 
     # Chimenea (termina en 2,8 m, radio 0,2): boca oscura, tres patas y tapa de metal.
     finish("chimney_mouth", prism(6, 0.16, 0.16, 2.79, 2.805, angle=HEX), MOUTH, root, mat, 0.0)
