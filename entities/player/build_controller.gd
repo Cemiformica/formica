@@ -122,17 +122,22 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("toggle_build"):
 		_set_active(not active)
+		if active:
+			_face_player()
 		return
 	if not active:
 		return
 	for i: int in BAR_SIZE:
 		if event.is_action_pressed("hotbar_%d" % (i + 1)):
 			_select_slot(i)
+			_face_player()
 			return
 	if event.is_action_pressed("hotbar_next"):
 		_select_slot((selected_slot + 1) % BAR_SIZE)
+		_face_player()
 	elif event.is_action_pressed("hotbar_prev"):
 		_select_slot(posmod(selected_slot - 1, BAR_SIZE))
+		_face_player()
 	elif holding_cable():
 		if event.is_action_pressed("build_place") and Aim.pointer_ready():
 			_cable_click()
@@ -202,6 +207,24 @@ func _select_slot(index: int) -> void:
 	_picked = null
 	_cable_from = 0
 	selection_changed.emit()
+
+
+## Gira el fantasma para que su frente (la cara sur del modelo, la de la vista frontal de Blender) mire
+## hacia el jugador. Así una cinta sale avanzando hacia donde miras y una placa solar te enseña el panel.
+## Se usa al entrar en el modo y al elegir en la barra; el cuentagotas, en cambio, copia el giro.
+func _face_player() -> void:
+	var camera: Camera3D = get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var toward_player: Vector3 = camera.global_basis.z # la cámara mira hacia −Z: +Z apunta al jugador
+	var best: float = -INF
+	for steps: int in 4:
+		var yaw: float = GridMath.rotation_to_yaw(steps)
+		var front := Vector3(sin(yaw), 0.0, cos(yaw)) # la cara sur (+Z) del modelo, girada
+		var score: float = front.dot(toward_player)
+		if score > best:
+			best = score
+			rotation_steps = steps
 
 
 ## Cuentagotas: coge la construcción que miras. Si está en la barra, elige su casilla; si no, la lleva

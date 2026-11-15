@@ -41,6 +41,15 @@ const WORKING_HOLD: float = 0.3
 ## Fuelle: veces por segundo y cuánto se aplasta (0,35 = hasta el 65 % de su altura).
 const BELLOWS_RATE: float = 0.9
 const BELLOWS_SQUEEZE: float = 0.35
+## Luz de estado de los generadores («status_light…», B3.7, colores de César): ámbar sin cable; verde
+## con cable y el fusible armado; si salta, parpadea en rojo (STATUS_BLINK_RATE veces por segundo) para
+## que se vea dónde rearmarlo.
+const STATUS_COLOR: Color = Color(1.0, 0.72, 0.23)
+const STATUS_OK_COLOR: Color = CABLE_LIGHT_COLOR
+const STATUS_TRIPPED_COLOR: Color = Color(1.0, 0.18, 0.12)
+const STATUS_DARK: Color = Color(0.12, 0.1, 0.08)
+const STATUS_ENERGY: float = 1.5
+const STATUS_BLINK_RATE: float = 1.5
 ## Capa de colisión de las cintas: el jugador camina por encima (no choca), pero los rayos de
 ## construir y del cuentagotas sí las encuentran.
 const BELT_COLLISION_LAYER: int = 2
@@ -87,6 +96,11 @@ var _working_hold: float = 0.0
 var _last_progress: float = 0.0
 var _time: float = 0.0
 var _phase: float = 0.0 ## desfase al azar, para que no parpadeen todos los hornos a la vez
+## Solo generadores con modelo: material propio de sus luces de estado (null si no tienen) y su reloj.
+var _status_material: StandardMaterial3D = null
+var _status_time: float = 0.0
+## ¿Tiene algún cable? (lo dice `set_cabled`; también decide el color de la luz de estado)
+var _cabled: bool = false
 
 
 ## Altura de la construcción: la de `BuildingData.height` si la tiene (modelos reales); si no, la de la
@@ -176,6 +190,7 @@ func setup(p_placed: PlacedBuilding, p_island: IslandState) -> void:
 		_insulator = model.find_child("cable_insulator", true, false) as MeshInstance3D
 		_add_port_models()
 		_setup_machine_visuals(model)
+		_setup_status_lights(model)
 	elif is_pole(placed.data):
 		_add_box(Vector3(0.2, height, 0.2), Vector3(0.0, height * 0.5, 0.0), POLE_COLOR)
 	else:
@@ -200,6 +215,8 @@ func _process(delta: float) -> void:
 	if placed.is_belt():
 		_update_belt_items()
 		return
+	if _status_material != null:
+		_update_status_lights(delta)
 	if placed.is_machine():
 		_update_machine_visuals(delta)
 	if placed.is_machine():
@@ -496,9 +513,39 @@ func _show_belt_ends(back_linked: bool, front_linked: bool) -> void:
 		_belt_join_front.visible = front_linked
 
 
+## Luces de estado (generadores): todas comparten un material propio de esta construcción.
+func _setup_status_lights(model: Node3D) -> void:
+	var lights: Array[Node] = model.find_children("status_light*", "MeshInstance3D", true, false)
+	if lights.is_empty():
+		return
+	_status_material = StandardMaterial3D.new()
+	_status_material.emission_enabled = true
+	for light: Node in lights:
+		(light as MeshInstance3D).material_override = _status_material
+	_update_status_lights(0.0)
+
+
+## Ámbar sin cable, verde con cable, rojo parpadeando con el fusible saltado (dato del propio generador).
+func _update_status_lights(delta: float) -> void:
+	var color: Color = STATUS_COLOR
+	var lit: bool = true
+	if placed.fuse_tripped:
+		color = STATUS_TRIPPED_COLOR
+		_status_time += delta
+		lit = fposmod(_status_time * STATUS_BLINK_RATE, 1.0) < 0.5
+	else:
+		_status_time = 0.0
+		if _cabled:
+			color = STATUS_OK_COLOR
+	_status_material.albedo_color = color if lit else STATUS_DARK
+	_status_material.emission = color
+	_status_material.emission_energy_multiplier = STATUS_ENERGY if lit else 0.0
+
+
 ## Ilumina el borne si la construcción tiene algún cable, llegue o no la energía (decisión de César:
 ## sirve para ver de un vistazo qué está bien montado).
 func set_cabled(cabled: bool) -> void:
+	_cabled = cabled
 	if _insulator == null:
 		return
 	if cabled:
