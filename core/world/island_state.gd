@@ -14,6 +14,8 @@ signal cables_changed
 signal nature_changed(cell: Vector2i)
 ## Se emite al añadir una veta (la vista crea su pieza visible). Las vetas nunca se quitan.
 signal vein_added(origin: Vector2i)
+## Cambió el agua de la isla (B3.7, D-094).
+signal water_changed
 
 ## Qué casilla ocupa cada construcción. Se reconstruye al cargar a partir de las construcciones.
 var grid: OccupancyGrid = OccupancyGrid.new()
@@ -47,6 +49,10 @@ var nature: Dictionary[Vector2i, NatureState] = {}
 ## Vetas (B3.7, D-090): esquina (x e y mínimas) → tipo. Ocupan 3×3 y nunca se agotan ni se quitan.
 ## Se guardan con la isla, porque al cargar se crea una isla nueva a partir de los datos.
 var veins: Dictionary[Vector2i, VeinData] = {}
+## Agua (canales y ríos, D-094): casilla → dirección en la que corre (un paso de la cuadrícula). Es
+## terreno: bloquea construir (salvo lo que la necesita, como la rueda hidráulica), plantar y las rocas.
+## Se puede vadear andando. Se guarda con la isla, como las vetas.
+var water: Dictionary[Vector2i, Vector2i] = {}
 ## Casilla → esquina de la veta que la cubre (para preguntar rápido «¿hay veta aquí?»).
 var _vein_cells: Dictionary[Vector2i, Vector2i] = {}
 
@@ -80,7 +86,7 @@ func placement_problem(data: BuildingData, origin: Vector2i, rotation: int = 0) 
 		if not is_vein_edge(head):
 			return "BUILD_NEEDS_VEIN"
 	for cell: Vector2i in OccupancyGrid.footprint_cells(origin, data.size, rotation):
-		if nature.has(cell) or (_vein_cells.has(cell) and cell != head):
+		if nature.has(cell) or (_vein_cells.has(cell) and cell != head) or water.has(cell):
 			return "BUILD_NO_ROOM"
 	return ""
 
@@ -141,8 +147,11 @@ func to_data() -> Dictionary:
 	var vein_list: Array = []
 	for vein_origin: Vector2i in veins:
 		vein_list.append({"id": String(veins[vein_origin].id), "x": vein_origin.x, "y": vein_origin.y})
+	var water_list: Array = []
+	for cell: Vector2i in water:
+		water_list.append([cell.x, cell.y, water[cell].x, water[cell].y])
 	return {"next_id": _next_id, "buildings": list, "cables": cable_list, "nature": nature_list, "veins": vein_list,
-			"rock_timer": _rock_timer}
+			"water": water_list, "rock_timer": _rock_timer}
 
 
 ## Datos del guardado → estado. Ignora con aviso lo dañado, lo desconocido y lo que se solape.
@@ -154,6 +163,16 @@ func load_data(data: Dictionary) -> void:
 	nature.clear()
 	veins.clear()
 	_vein_cells.clear()
+	water.clear()
+	# El agua y las vetas primero: son parte del terreno.
+	var water_list: Variant = data.get("water", [])
+	if water_list is Array:
+		for entry: Variant in water_list:
+			if entry is Array and entry.size() == 4:
+				water[Vector2i(int(entry[0]), int(entry[1]))] = Vector2i(int(entry[2]), int(entry[3]))
+			else:
+				push_warning("IslandState: agua dañada ignorada: %s" % str(entry))
+	water_changed.emit()
 	# Las vetas primero: son parte del terreno, y las cabezas de los extractores van encima.
 	var vein_list: Variant = data.get("veins", [])
 	if vein_list is Array:
@@ -363,7 +382,7 @@ func _rebuild_networks() -> void:
 
 ## Planta un árbol en la fase indicada. Devuelve false si la casilla tiene una construcción o ya hay algo.
 func add_tree(cell: Vector2i, stage: NatureState.Stage = NatureState.Stage.MATURE) -> bool:
-	if nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell):
+	if nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell) or water.has(cell):
 		return false
 	nature[cell] = NatureState.new(NatureState.Kind.TREE, stage)
 	nature_changed.emit(cell)
@@ -398,7 +417,7 @@ func uproot_stump(cell: Vector2i) -> Dictionary[ItemData, int]:
 
 ## Pone una roca. Devuelve false si la casilla tiene una construcción o ya hay algo.
 func add_rock(cell: Vector2i) -> bool:
-	if nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell):
+	if nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell) or water.has(cell):
 		return false
 	nature[cell] = NatureState.new(NatureState.Kind.ROCK)
 	nature_changed.emit(cell)
@@ -443,7 +462,8 @@ func step_nature(dt: float) -> void:
 	for x: int in range(bounds.position.x, bounds.end.x):
 		for y: int in range(bounds.position.y, bounds.end.y):
 			var cell := Vector2i(x, y)
-			if not nature.has(cell) and grid.get_occupant(cell) == 0 and not _vein_cells.has(cell):
+			if not nature.has(cell) and grid.get_occupant(cell) == 0 and not _vein_cells.has(cell) \
+					and not water.has(cell):
 				free_cells.append(cell)
 	if not free_cells.is_empty():
 		add_rock(free_cells[rng.randi_range(0, free_cells.size() - 1)])
@@ -458,13 +478,34 @@ func add_vein(data: VeinData, origin: Vector2i) -> bool:
 		return false
 	var cells: Array[Vector2i] = vein_cells(origin)
 	for cell: Vector2i in cells:
-		if nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell):
+		if nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell) or water.has(cell):
 			return false
 	veins[origin] = data
 	for cell: Vector2i in cells:
 		_vein_cells[cell] = origin
 	vein_added.emit(origin)
 	return true
+
+
+# --- Agua (B3.7, D-094) ---
+
+## Añade agua que corre hacia `flow` (p. ej. Vector2i(0, 1): hacia el sur) en las casillas libres de
+## `cells` (las ocupadas por construcciones, naturaleza o vetas se saltan). Devuelve cuántas añadió.
+func add_water(cells: Array[Vector2i], flow: Vector2i) -> int:
+	var added: int = 0
+	for cell: Vector2i in cells:
+		if water.has(cell) or nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell):
+			continue
+		water[cell] = flow
+		added += 1
+	if added > 0:
+		water_changed.emit()
+	return added
+
+
+## ¿Hay agua en esa casilla?
+func is_water(cell: Vector2i) -> bool:
+	return water.has(cell)
 
 
 ## Veta que cubre esa casilla, o null.

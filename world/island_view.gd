@@ -25,6 +25,8 @@ var _views: Dictionary[int, BuildingView] = {}
 var _tree_views: Dictionary[Vector2i, TreeView] = {}
 ## Esquina → vista de su veta.
 var _vein_views: Dictionary[Vector2i, VeinView] = {}
+## Suelo de la isla con su agua: una sola vista (D-094).
+var _terrain_view: TerrainView = null
 ## Líneas de los cables dibujados.
 var _cable_meshes: Array[MeshInstance3D] = []
 var _cable_material: StandardMaterial3D
@@ -61,6 +63,7 @@ func _rebuild() -> void:
 		_island.cables_changed.disconnect(_redraw_cables)
 		_island.nature_changed.disconnect(_on_nature_changed)
 		_island.vein_added.disconnect(_on_vein_added)
+		_island.water_changed.disconnect(_on_water_changed)
 	for view: BuildingView in _views.values():
 		view.queue_free()
 	_views.clear()
@@ -77,6 +80,8 @@ func _rebuild() -> void:
 	_island.cables_changed.connect(_redraw_cables)
 	_island.nature_changed.connect(_on_nature_changed)
 	_island.vein_added.connect(_on_vein_added)
+	_island.water_changed.connect(_on_water_changed)
+	_on_water_changed()
 	for vein_origin: Vector2i in _island.veins:
 		_on_vein_added(vein_origin)
 	_rebuilding = true
@@ -113,6 +118,21 @@ func _on_vein_added(vein_origin: Vector2i) -> void:
 	view.setup(vein_origin, _island.veins[vein_origin], _island)
 	add_child(view)
 	_vein_views[vein_origin] = view
+
+
+## El agua cambió: el suelo y el agua se rehacen enteros (pasa al empezar o al cargar, no en cada
+## fotograma). Se espera al final del fotograma, porque al empezar la isla aún puede estar poniendo
+## sus límites (`bounds`) y su agua.
+func _on_water_changed() -> void:
+	if _terrain_view == null:
+		_terrain_view = TerrainView.new()
+		add_child(_terrain_view)
+	_refresh_terrain.call_deferred()
+
+
+func _refresh_terrain() -> void:
+	if _terrain_view != null and _island != null:
+		_terrain_view.rebuild(_island)
 
 
 ## Algo natural cambió en `cell`: crea, actualiza o borra su vista.

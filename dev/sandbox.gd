@@ -21,6 +21,10 @@ const START_COILS: int = 10
 const GROVE_ORIGIN: Vector2i = Vector2i(3, -9)
 ## Esquina noroeste de la veta de malaquita de prueba (B3.7).
 const VEIN_ORIGIN: Vector2i = Vector2i(6, -4)
+## Canal de agua de prueba (D-094): una columna de casillas en x = −12, de norte a sur, que corre al sur.
+const CANAL_X: int = -12
+## Estanque de agua quieta (D-094): 3×3 casillas desde esta esquina noroeste (x −18…−16, y 6…8).
+const POND_ORIGIN: Vector2i = Vector2i(-18, 6)
 
 @onready var player: Player = $Player
 @onready var test_box: Interactable = $TestBox
@@ -42,6 +46,18 @@ func _ready() -> void:
 	print("Inventario inicial: ", inventory.debug_string())
 	# Naturaleza de prueba: una arboleda de 3×3 madura y unos árboles sueltos en distintas fases.
 	var island: IslandState = WorldState.get_island(player.build_controller.island_id)
+	# El suelo (TerrainView) sale de los límites de la isla: 40×40 m, como el suelo plano de antes.
+	island.bounds = Rect2i(-20, -20, 40, 40)
+	# Canal y estanque (D-094): primero, porque son terreno. El canal va de punta a punta y se vadea.
+	var canal: Array[Vector2i] = []
+	for y: int in range(-20, 20):
+		canal.append(Vector2i(CANAL_X, y))
+	island.add_water(canal, Vector2i(0, 1))
+	var pond: Array[Vector2i] = []
+	for x: int in 3:
+		for y: int in 3:
+			pond.append(POND_ORIGIN + Vector2i(x, y))
+	island.add_water(pond, Vector2i.ZERO)
 	for x: int in 3:
 		for y: int in 3:
 			island.add_tree(GROVE_ORIGIN + Vector2i(x, y))
@@ -50,7 +66,6 @@ func _ready() -> void:
 	island.add_tree(Vector2i(-8, -3), NatureState.Stage.SPROUT)
 	island.add_tree(Vector2i(-10, -3), NatureState.Stage.STUMP)
 	# Rocas (B2.8, D-090): aparecen solas cada 20 s dentro del suelo de 40×40 m; ponemos once para empezar.
-	island.bounds = Rect2i(-20, -20, 40, 40)
 	island.add_rock(Vector2i(-3, 1))
 	island.add_rock(Vector2i(-5, 2))
 	island.add_rock(Vector2i(6, 2))
