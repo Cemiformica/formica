@@ -1,8 +1,9 @@
 # Placa solar del Nexo (B3.7). La placa portátil del laboratorio de Mira: la única pieza «del futuro» en
 # la isla. Estilo del Nexo (guía de arte §2): grises desaturados, cristal y el ámbar como único acento.
 # Forma: un panel de 7 celdas hexagonales en panal (tecnología de hormiga), inclinado 30° hacia el SUR,
-# sobre un mástil con rótula; base de módulo hexagonal con 4 patas plegables, como un trípode de campo,
-# y un asa en el borde de arriba del panel (Mira la trajo en brazos).
+# sobre un mástil con rótula. Instalación FIJA (D-089: Mira la monta en la isla con células y hierro del
+# Nexo): placa base de hierro atornillada al suelo con 4 pernos y cartelas, mástil, caja de conexiones a
+# media altura (borne y luces) y dos tirantes al norte con sus estacas.
 # Convenciones: norte = +Y, este = +X, origen en el centro de la huella (2×2) a ras de suelo, todo dentro
 # de x, y ∈ [−1, 1]. Sin puertos.
 #
@@ -172,21 +173,41 @@ def build() -> None:
     mat, glow = get_materials()
     root = empty(ROOT, (0, 0, 0), None, "PLAIN_AXES", 0.3)
 
-    # --- Base: módulo hexagonal (caras planas al norte y al sur) sobre 4 patas plegables ---
-    finish("base_module", prism(6, 0.30, 0.27, 0.34, 0.62), METAL, root, mat, 0.02)
-    finish("base_bottom", prism(6, 0.26, 0.30, 0.28, 0.34), METAL_DARK, root, mat, 0.01)
-    finish("base_cap", prism(6, 0.22, 0.20, 0.62, 0.66), METAL_DARK, root, mat, 0.01)
-    # Franja saliente en el módulo: se lee como una pieza ensamblada.
-    finish("base_band", ring(6, 0.285, 0.31, 0.46, 0.49), METAL_DEEP, root, mat, 0.0)
-
-    # Patas: de las esquinas de abajo del módulo a unos pies cerca de las esquinas de la huella, con
-    # una bisagra (articulación) arriba y un pie hexagonal abajo.
+    # --- Anclaje fijo (D-089): placa base de hierro atornillada al suelo con 4 pernos y cartelas ---
+    finish("base_plate", box((0.56, 0.56, 0.04), (0.0, 0.0, 0.02)), METAL_DARK, root, mat, 0.01)
     for i, (sx, sy) in enumerate(((1, 1), (-1, 1), (-1, -1), (1, -1))):
-        top = (sx * 0.17, sy * 0.17, 0.33)
-        foot = (sx * 0.72, sy * 0.72, 0.05)
-        finish("leg_%d" % i, strut(top, foot, 0.05), METAL_DARK, root, mat, 0.008)
-        finish("leg_hinge_%d" % i, box((0.09, 0.09, 0.07), (sx * 0.17, sy * 0.17, 0.32)), METAL_DEEP, root, mat, 0.01)
-        finish("leg_foot_%d" % i, prism(6, 0.07, 0.06, 0.0, 0.05, x=foot[0], y=foot[1]), METAL_DEEP, root, mat, 0.0)
+        finish("anchor_bolt_%d" % i, prism(6, 0.03, 0.03, 0.04, 0.075, x=sx * 0.21, y=sy * 0.21), METAL_DEEP, root, mat, 0.0)
+    # Cartelas: triángulos de refuerzo entre la placa y el mástil, en los cuatro lados.
+    for i, (dx, dy) in enumerate(((1, 0), (0, 1), (-1, 0), (0, -1))):
+        bm = bmesh.new()
+        prof = [(0.06, 0.04), (0.24, 0.04), (0.06, 0.26)]
+        half = 0.012
+        verts = []
+        for side in (-half, half):
+            for (r, z) in prof:
+                # r a lo largo de (dx, dy); side, en perpendicular
+                verts.append(bm.verts.new((dx * r - dy * side, dy * r + dx * side, z)))
+        bm.faces.new(verts[0:3]); bm.faces.new(verts[3:6])
+        for a in range(3):
+            b = (a + 1) % 3
+            bm.faces.new((verts[a], verts[b], verts[b + 3], verts[a + 3]))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        finish("gusset_%d" % i, bm, METAL, root, mat, 0.0)
+
+    # Mástil de hierro desde la placa base hasta la caja de conexiones.
+    finish("post", prism(6, 0.065, 0.06, 0.04, 0.34), METAL, root, mat, 0.01)
+
+    # Caja de conexiones (con el borne y las luces) a media altura, atornillada al mástil.
+    finish("base_module", prism(6, 0.24, 0.22, 0.34, 0.6), METAL, root, mat, 0.02)
+    finish("base_bottom", prism(6, 0.2, 0.24, 0.3, 0.34), METAL_DARK, root, mat, 0.01)
+    finish("base_cap", prism(6, 0.18, 0.16, 0.6, 0.66), METAL_DARK, root, mat, 0.01)
+    finish("base_band", ring(6, 0.228, 0.25, 0.46, 0.49), METAL_DEEP, root, mat, 0.0)
+
+    # Tirantes: dos barras del mástil a dos estacas en el suelo, por el lado norte (contra el viento).
+    for i, sx in enumerate((-1, 1)):
+        stake = (sx * 0.55, 0.62, 0.0)
+        finish("brace_%d" % i, strut((sx * 0.03, 0.05, 0.85), (stake[0], stake[1], 0.06), 0.035), METAL_DARK, root, mat, 0.006)
+        finish("brace_stake_%d" % i, prism(6, 0.045, 0.04, 0.0, 0.08, x=stake[0], y=stake[1]), METAL_DEEP, root, mat, 0.0)
 
     # Mástil y rótula hasta la parte de atrás del panel.
     finish("mast", prism(6, 0.06, 0.05, 0.66, 0.98), METAL_LIGHT, root, mat, 0.01)
@@ -217,22 +238,15 @@ def build() -> None:
     # Soporte del panel: une la rótula con la placa de fondo.
     finish("panel_mount", box((0.16, 0.12, 0.07), (0.0, 0.0, -0.085)), METAL_DEEP, root, mat, 0.01, transform=to_panel)
 
-    # Asa en el borde de arriba (norte) del panel: dos patas y una barra, para llevarla en brazos.
-    y_edge = frame_r * math.cos(math.radians(30)) - 0.04
-    for sx in (-1, 1):
-        finish("handle_post_%d" % (sx > 0), box((0.035, 0.035, 0.12), (sx * 0.16, y_edge, 0.06)), METAL_DARK, root, mat, 0.006,
-               transform=to_panel)
-    finish("handle_bar", box((0.36, 0.035, 0.035), (0.0, y_edge, 0.12)), METAL_LIGHT, root, mat, 0.008, transform=to_panel)
-
     # --- Borne del cable: en un saliente de la cara este del módulo (lejos del panel) ---
-    finish("cable_ledge", box((0.12, 0.14, 0.04), (0.31, 0.0, 0.52)), METAL_DARK, root, mat, 0.008)
-    finish("cable_post", box((0.06, 0.06, 0.08), (0.33, 0.0, 0.58)), METAL, root, mat, 0.008)
-    finish("cable_insulator", prism(6, 0.065, 0.048, 0.6, 0.69, x=0.33, y=0.0), INSULATOR, root, mat, 0.008)
-    empty("cable_anchor", (0.33, 0.0, 0.69), root)
+    finish("cable_ledge", box((0.12, 0.14, 0.04), (0.25, 0.0, 0.52)), METAL_DARK, root, mat, 0.008)
+    finish("cable_post", box((0.06, 0.06, 0.08), (0.27, 0.0, 0.58)), METAL, root, mat, 0.008)
+    finish("cable_insulator", prism(6, 0.065, 0.048, 0.6, 0.69, x=0.27, y=0.0), INSULATOR, root, mat, 0.008)
+    empty("cable_anchor", (0.27, 0.0, 0.69), root)
 
     # --- Luces de estado: en las caras sur y norte del módulo, bajo el panel (César: las dos) ---
     # Godot enciende todo lo que empiece por «status_light_» (los marcos se llaman «status_frame_»).
-    apothem = 0.30 * math.cos(math.radians(30))
+    apothem = 0.235 * math.cos(math.radians(30))
     for side, sy in (("south", -1.0), ("north", 1.0)):
         finish("status_frame_" + side, box((0.16, 0.03, 0.1), (0.0, sy * (apothem + 0.005), 0.4)), METAL_DEEP, root, mat, 0.006)
         finish("status_light_" + side, box((0.11, 0.02, 0.055), (0.0, sy * (apothem + 0.02), 0.4)), AMBER, root, glow, 0.005)
