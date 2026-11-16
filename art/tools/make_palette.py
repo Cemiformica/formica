@@ -1,4 +1,8 @@
 # Genera la textura paleta de Formica: 64×64 px, 8×8 colores de 8 px.
+# Uso: python make_palette.py palette.png vista_previa.png [palette_surface.png]
+# El tercer archivo (opcional) es el mapa de superficie (D-105): para cada cuadrito, R = metálico y
+# G = rugosidad (0 = espejo, 255 = mate). Lo usa el material compartido palette.tres en Godot, así que
+# todos los modelos brillan según el color con el que están pintados.
 from PIL import Image, ImageDraw
 import sys
 ROWS = [
@@ -11,6 +15,27 @@ ROWS = [
     ("ámbar y fuego",     ["fff2b0","ffd76a","ffb83a","ff9420","f06a12","d94410","a82a0c","6e1808"]),
     ("agua y cristal",    ["d8f4fa","9fe3f0","5cc3dd","2f97c0","1f6c94","b8c8d4","8aa3b8","5c7488"]),
 ]
+
+# Acabado de cada familia: (metálico, rugosidad), de 0 a 1. Dónde tocar para ajustar el brillo.
+MATTE = (0.0, 0.8)        # madera, piedra, verdes, arcilla: como hasta ahora
+METAL = (0.35, 0.38)      # grises del Nexo: metal satinado (más metálico oscurece el color)
+COPPER = (0.55, 0.28)     # cobre: metal pulido, el que más brilla, sin perder su naranja
+CRYSTAL = (0.0, 0.15)     # cristal, agua y malaquita: brillo de cristal, sin ser metal
+FIRE = (0.0, 0.5)         # ámbar y fuego (casi siempre emisivo)
+
+
+def surface(row: int, col: int) -> tuple:
+    if row == 5:
+        return METAL
+    if row == 3:
+        return COPPER if col < 4 else CRYSTAL
+    if row == 7:
+        return CRYSTAL
+    if row == 6:
+        return FIRE
+    return MATTE
+
+
 img = Image.new("RGB", (64, 64))
 d = ImageDraw.Draw(img)
 for r, (_, cols) in enumerate(ROWS):
@@ -25,3 +50,12 @@ prev.paste(img.resize((8*S, 8*S), Image.NEAREST), (0, 0))
 for r, (name, _) in enumerate(ROWS):
     pd.text((8*S + 10, r*S + S//2 - 6), f"{r}  {name}", fill="black")
 prev.save(sys.argv[2])
+
+if len(sys.argv) > 3:
+    surf = Image.new("RGB", (64, 64))
+    sd = ImageDraw.Draw(surf)
+    for r in range(8):
+        for c in range(8):
+            metallic, rough = surface(r, c)
+            sd.rectangle([c*8, r*8, c*8+7, r*8+7], fill=(round(metallic * 255), round(rough * 255), 255))
+    surf.save(sys.argv[3])

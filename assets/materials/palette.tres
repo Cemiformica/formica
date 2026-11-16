@@ -1,9 +1,15 @@
 [gd_resource type="StandardMaterial3D" format=3]
 
 [ext_resource type="Texture2D" path="res://assets/textures/palette.png" id="1_palette"]
+[ext_resource type="Texture2D" path="res://assets/textures/palette_surface.png" id="2_surface"]
 
 [resource]
 resource_name = "palette"
 albedo_texture = ExtResource("1_palette")
-roughness = 0.8
+metallic = 1.0
+metallic_texture = ExtResource("2_surface")
+metallic_texture_channel = 0
+roughness = 1.0
+roughness_texture = ExtResource("2_surface")
+roughness_texture_channel = 1
 texture_filter = 0
