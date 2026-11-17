@@ -8,7 +8,7 @@ extends StaticBody3D
 ## Se emite cuando alguien interactúa con este objeto.
 signal interacted(by: Node)
 
-## Clave de traducción del nombre visible (por ejemplo, "PROP_TREE"). Se traduce con tr() al mostrarla.
+## Clave de traducción del nombre visible (por ejemplo, "PROP_OAK"). Se traduce con tr() al mostrarla.
 @export var display_name_key: String = ""
 
 

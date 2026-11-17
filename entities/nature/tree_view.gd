@@ -10,14 +10,19 @@ extends Interactable
 ## levanta polvo y lo agita. Clic sobre un tocón: arrancarlo (1 de madera, libera la casilla). Brotes y
 ## jóvenes no se tocan. Clic sobre una roca: recogerla de una vez (1 de piedra, libera la casilla).
 ## Modelos (B3.7, D-097): `nature.glb` trae cada pieza en una malla con su nombre («tree_a_mature_1»,
-## «rock_2»…). Se cargan una vez y todas las vistas comparten esas mallas. Cada casilla elige siempre la
-## misma especie (3 frondosos por cada pino), variante, giro y tamaño: al rebrotar sale el mismo árbol.
-## Dónde tocar: PINE_EVERY (cuántos pinos), SCALE_MIN/MAX, PHASE_SCALE (ancho y alto de cada fase)
-## y las listas de variantes de MODELS.
+## «rock_2»…). Se cargan una vez y todas las vistas comparten esas mallas. La especie (roble o pino) la
+## guarda el estado del árbol (C1.9); la variante, el giro y el tamaño los elige la casilla, siempre los
+## mismos: al rebrotar sale el mismo árbol. Dónde tocar: SCALE_MIN/MAX, PHASE_SCALE (ancho y alto de cada
+## fase), las listas de variantes de MODELS y NatureState.PINE_EVERY (cuántos pinos salvajes).
 
 const NATURE_SCENE: PackedScene = preload("res://assets/models/props/nature.glb")
-## Uno de cada PINE_EVERY árboles es un pino (especie B); el resto, frondosos (A).
-const PINE_EVERY: int = 4
+## Modelos de cada especie en `nature.glb` (a = frondoso: el roble; b = pino de hexágonos).
+const MODEL_PREFIX: Dictionary[StringName, String] = {NatureState.OAK: "a", NatureState.PINE: "b"}
+## Nombre visible por especie y fase.
+const NAME_KEYS: Dictionary = {
+	NatureState.OAK: {"mature": "PROP_OAK", "young": "PROP_OAK_YOUNG", "sprout": "PROP_OAK_SPROUT", "stump": "PROP_OAK_STUMP"},
+	NatureState.PINE: {"mature": "PROP_PINE", "young": "PROP_PINE_YOUNG", "sprout": "PROP_PINE_SPROUT", "stump": "PROP_PINE_STUMP"},
+}
 const SCALE_MIN: float = 0.9
 const SCALE_MAX: float = 1.1
 ## Tamaño de cada fase sobre el modelo de `nature.glb`: ancho (x) y alto (y). César: árboles adultos más
@@ -76,7 +81,7 @@ func refresh() -> void:
 	_visual = Node3D.new()
 	add_child(_visual)
 	# Giro y tamaño fijos de esta casilla: el mismo árbol (o roca) cada vez que se dibuja.
-	var seed_value: int = _cell_hash()
+	var seed_value: int = NatureState.cell_hash(cell)
 	_visual.rotation.y = deg_to_rad(float(seed_value % 360))
 	var size: float = lerpf(SCALE_MIN, SCALE_MAX, float((seed_value >> 9) % 101) / 100.0)
 	_visual.scale = Vector3.ONE * size
@@ -87,20 +92,16 @@ func refresh() -> void:
 		_shape.height = 0.4
 		(get_child(0) as CollisionShape3D).position.y = 0.2
 		return
-	var species: String = "b" if (seed_value >> 3) % PINE_EVERY == 0 else "a"
+	var species: String = MODEL_PREFIX.get(state.species, "a")
 	var phase: String = "mature"
 	match state.stage:
 		NatureState.Stage.STUMP:
-			display_name_key = "PROP_STUMP"
 			phase = "stump"
 		NatureState.Stage.SPROUT:
-			display_name_key = "PROP_SPROUT"
 			phase = "sprout"
 		NatureState.Stage.YOUNG:
-			display_name_key = "PROP_YOUNG_TREE"
 			phase = "young"
-		_:
-			display_name_key = "PROP_TREE"
+	display_name_key = NAME_KEYS.get(state.species, NAME_KEYS[NatureState.OAK])[phase]
 	var phase_scale: Vector2 = PHASE_SCALE[species][phase]
 	_visual.scale = Vector3(phase_scale.x, phase_scale.y, phase_scale.x) * size
 	var variants: int = MODELS[species][phase]
@@ -122,7 +123,8 @@ func use(_by: Node) -> void:
 	if state.is_rock():
 		preview = {Content.find_item(&"stone"): IslandState.ROCK_STONE}
 	elif state.is_mature_tree():
-		preview = {Content.find_item(&"wood"): IslandState.TREE_WOOD, Content.find_item(&"seed"): 1}
+		preview = {Content.find_item(&"wood"): IslandState.TREE_WOOD,
+				Content.find_item(NatureState.SEED_ITEMS[state.species]): 1}
 	elif state.is_stump():
 		preview = {Content.find_item(&"wood"): IslandState.STUMP_WOOD}
 	if preview.is_empty() or not inventory.can_add_all(preview):
@@ -171,13 +173,6 @@ func _process(delta: float) -> void:
 	_visual.rotation.z = 0.06 * sin(_shake * PI * 3.0) * _shake
 
 
-## Número fijo y bien repartido para esta casilla (no cambia entre partidas ni al recargar).
-func _cell_hash() -> int:
-	var h: int = (cell.x * 73856093) ^ (cell.y * 19349663)
-	h = (h ^ (h >> 13)) * 1274126177
-	return (h ^ (h >> 16)) & 0x7fffffff
-
-
 ## Pone la malla `model_name` de `nature.glb` (si no existe, avisa y no dibuja nada).
 func _add_model(model_name: String) -> void:
 	if _meshes.is_empty():
@@ -189,6 +184,13 @@ func _add_model(model_name: String) -> void:
 	var instance := MeshInstance3D.new()
 	instance.mesh = mesh
 	_visual.add_child(instance)
+
+
+## Malla del modelo de una especie y fase (p. ej., el brote de roble), para el fantasma de plantar (C1.9).
+static func get_model_mesh(species: StringName, phase: String, variant: int = 0) -> Mesh:
+	if _meshes.is_empty():
+		_load_meshes()
+	return _meshes.get("tree_%s_%s_%d" % [MODEL_PREFIX.get(species, "a"), phase, variant], null)
 
 
 ## Saca una vez las mallas de `nature.glb` y las guarda por nombre.

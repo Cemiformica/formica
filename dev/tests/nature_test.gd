@@ -14,22 +14,38 @@ func _ready() -> void:
 	var solar_data: BuildingData = Content.find_building(&"solar_panel")
 	var crusher: BuildingData = Content.find_building(&"crusher")
 	var wood: ItemData = Content.find_item(&"wood")
-	var seed_item: ItemData = Content.find_item(&"seed")
-	_check("contenido: talador 3×1, área 3×3, sin reflejo, y semilla", cutter_data != null and cutter_data.size == Vector2i(3, 1)
-			and cutter_data.harvest_area == Vector2i(3, 3) and not cutter_data.can_flip() and seed_item != null)
+	var seed_item: ItemData = Content.find_item(&"acorn")
+	var pine_cone: ItemData = Content.find_item(&"pine_cone")
+	_check("contenido: talador 3×1, área 3×3, sin reflejo, y semillas", cutter_data != null and cutter_data.size == Vector2i(3, 1)
+			and cutter_data.harvest_area == Vector2i(3, 3) and not cutter_data.can_flip() and seed_item != null and pine_cone != null)
+	_check("contenido: la bellota planta roble y la piña, pino", seed_item.plants_tree == NatureState.OAK
+			and pine_cone.plants_tree == NatureState.PINE)
 
 	Simulation.running = false
 	WorldState.reset()
 	var island: IslandState = WorldState.get_island(&"test_nature")
 
 	# 1) Talar a mano: 4 de madera + 1 semilla, queda un tocón; arrancarlo da 1 y libera la casilla.
-	island.add_tree(Vector2i(8, 8))
+	island.add_tree(Vector2i(8, 8), NatureState.Stage.MATURE, NatureState.OAK)
 	_check("no se construye sobre un árbol", not island.can_place(crusher, Vector2i(8, 8)))
 	var gained: Dictionary[ItemData, int] = island.chop_tree(Vector2i(8, 8), true)
-	_check("a mano: 4 de madera y 1 semilla", gained.get(wood, 0) == 4 and gained.get(seed_item, 0) == 1)
+	_check("a mano: 4 de madera y 1 bellota (roble)", gained.get(wood, 0) == 4 and gained.get(seed_item, 0) == 1)
 	_check("queda un tocón que bloquea", island.nature[Vector2i(8, 8)].is_stump() and not island.can_place(crusher, Vector2i(8, 8)))
 	var root: Dictionary[ItemData, int] = island.uproot_stump(Vector2i(8, 8))
 	_check("arrancar: 1 de madera y casilla libre", root.get(wood, 0) == 1 and island.can_place(crusher, Vector2i(8, 8)))
+
+	# 1b) Especies (C1.9): el pino da piña; plantada, se queda su especie; los salvajes siguen la regla.
+	island.add_tree(Vector2i(12, 8), NatureState.Stage.MATURE, NatureState.PINE)
+	var pine_gain: Dictionary[ItemData, int] = island.chop_tree(Vector2i(12, 8), true)
+	_check("pino a mano: 1 piña y ninguna bellota", pine_gain.get(pine_cone, 0) == 1 and not pine_gain.has(seed_item))
+	_check("el tocón sigue siendo de pino", island.nature[Vector2i(12, 8)].species == NatureState.PINE)
+	_check("plantar: no sobre otro árbol", not island.can_plant(Vector2i(12, 8)) and island.can_plant(Vector2i(14, 8)))
+	var wild_ok: bool = true
+	for x: int in range(30, 50):
+		var wild_cell := Vector2i(x, 30)
+		island.add_tree(wild_cell)
+		wild_ok = wild_ok and island.nature[wild_cell].species == NatureState.wild_species(wild_cell)
+	_check("salvajes: especie según su casilla", wild_ok)
 
 	# 2) Rebrote: el tocón pasa a brote a los 30 s y a maduro a los 90 s.
 	island.add_tree(Vector2i(10, 10), NatureState.Stage.STUMP)
@@ -80,6 +96,16 @@ func _ready() -> void:
 	var original: NatureState = island.nature[Vector2i(0, -2)]
 	var copy: NatureState = restored.nature.get(Vector2i(0, -2), null)
 	_check("cargada: fase y tiempo del árbol", copy != null and copy.stage == original.stage and is_equal_approx(copy.timer, original.timer))
+	var pine_copy: NatureState = restored.nature.get(Vector2i(12, 8), null)
+	_check("cargada: la especie", pine_copy != null and pine_copy.species == NatureState.PINE)
+	# Partida de antes de C1.9 (sin especie): sale con la regla de los salvajes.
+	var old_data: Dictionary = JSON.parse_string(JSON.stringify(island.to_data()))
+	for entry: Dictionary in old_data["nature"]:
+		entry.erase("sp")
+	var old_island := IslandState.new()
+	old_island.load_data(old_data)
+	var old_tree: NatureState = old_island.nature.get(Vector2i(12, 8), null)
+	_check("partida antigua: especie de salvaje", old_tree != null and old_tree.species == NatureState.wild_species(Vector2i(12, 8)))
 
 	WorldState.reset()
 	Simulation.running = true

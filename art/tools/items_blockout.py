@@ -35,8 +35,8 @@ CHARCOAL, CHARCOAL_LIGHT = (5, 7), (5, 6)
 CELL, CELL_LIGHT, CELL_DEEP = (7, 3), (7, 2), (7, 4)
 SEED, SEED_CAP = (0, 4), (0, 6)
 
-ITEMS = ["wood", "stone", "seed", "copper_ore", "charcoal", "copper_ingot", "slag", "copper_coil",
-        "iron_ingot", "solar_cell", "gravel"]
+ITEMS = ["wood", "stone", "acorn", "copper_ore", "charcoal", "copper_ingot", "slag", "copper_coil",
+        "iron_ingot", "solar_cell", "gravel", "pine_cone"]
 
 
 def swatch_uv(row: int, col: int) -> Vector:
@@ -118,6 +118,27 @@ def box(size, center=(0, 0, 0), top_scale=1.0):
     return bm
 
 
+def pine_cone(root, mat, rng):
+    # Piña del pino (C1.9): eje oscuro y escamas en pisos de 6, giradas medio paso en cada piso, más anchas
+    # en el centro; las puntas, más claras. Un poco inclinada, para que se lea en el icono.
+    tilt = Matrix.Rotation(math.radians(15), 4, "Y")
+    finish("cone_core", place(blob((0, 0, 0.005), 0.026, 2.0, rng, 0.03), rotation=tilt), BARK_DARK, root, mat)
+    floors = 6
+    for k in range(floors):
+        t = k / (floors - 1)
+        z = -0.045 + t * 0.095
+        radius = 0.012 + 0.03 * math.sin(math.pi * (0.15 + 0.75 * t))
+        length = 0.014 + 0.012 * math.sin(math.pi * (0.15 + 0.75 * t))
+        for j in range(6):
+            a = math.radians(60 * j + (30 if k % 2 else 0) + rng.uniform(-6, 6))
+            rot = Matrix.Rotation(a, 4, "Z") @ Matrix.Rotation(math.radians(62), 4, "Y")
+            scale = prism(4, 0.011, 0.006, 0.0, length, math.radians(45))
+            center = Vector((radius * 0.55 * math.cos(a), radius * 0.55 * math.sin(a), z))
+            finish("cone_scale_%d_%d" % (k, j), place(scale, tilt @ center, tilt @ rot), BARK if (j + k) % 3 else WOOD_RING, root, mat)
+    stem = place(prism(5, 0.006, 0.005, -0.065, -0.045), rotation=tilt)
+    finish("cone_stem", stem, BARK_DARK, root, mat)
+
+
 def blob(center, radius, squash, rng, jitter=0.12, subdivisions=1):
     bm = bmesh.new()
     bmesh.ops.create_icosphere(bm, subdivisions=subdivisions, radius=radius)
@@ -157,8 +178,8 @@ def stone(root, mat, rng):
     finish("stone_chip", blob((0.06, 0.03, -0.025), 0.035, 0.7, rng), STONE_LIGHT, root, mat)
 
 
-def seed(root, mat, rng):
-    # Semilla tipo bellota con su caperuza y un brote.
+def acorn(root, mat, rng):
+    # Bellota del roble (C1.9; antes «semilla») con su caperuza y un brote.
     finish("seed_body", blob((0, 0, -0.01), 0.04, 1.25, rng, 0.04), SEED, root, mat)
     finish("seed_cap", place(prism(6, 0.042, 0.03, 0.0, 0.025), (0, 0, 0.025)), SEED_CAP, root, mat, 0.004)
     leaf = place(prism(4, 0.005, 0.016, 0.0, 0.04), (0.0, 0.0, 0.05), Matrix.Rotation(math.radians(25), 4, "X"))
@@ -265,11 +286,16 @@ def solar_cell(root, mat, rng):
 
 
 def gravel(root, mat, rng):
-    for k in range(5):
-        a = k * 1.3
-        c = (math.cos(a) * 0.045 * (k > 0), math.sin(a) * 0.045 * (k > 0), 0.0)
-        finish("gravel_%d" % k, blob(c, rng.uniform(0.022, 0.03), 0.75, rng), (STONE, STONE_LIGHT, STONE_DARK)[k % 3], root, mat)
-
+    # Grava (C1.9, César): un montoncito de piedrecitas pequeñas sobre una base, para que se lea como
+    # gravilla y no como unas piedras sueltas.
+    finish("gravel_base", blob((0, 0, -0.012), 0.06, 0.35, rng, 0.05), STONE_DARK, root, mat)
+    radius, height = 0.065, 0.045
+    for k in range(30):
+        r = radius * rng.uniform(0.0, 1.0) ** 0.6
+        a = rng.uniform(0.0, math.tau)
+        z = -0.012 + height * (1.0 - r / radius) * rng.uniform(0.75, 1.0)
+        color = (STONE, STONE_LIGHT, STONE_DARK, STONE)[k % 4]
+        finish("gravel_%d" % k, blob((r * math.cos(a), r * math.sin(a), z), rng.uniform(0.009, 0.014), 0.8, rng, 0.2), color, root, mat)
 
 # --- Construir ---
 

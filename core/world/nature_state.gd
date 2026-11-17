@@ -8,6 +8,14 @@ extends RefCounted
 ## Solo el tocón se puede arrancar (libera la casilla).
 
 enum Kind { TREE, ROCK }
+## Especies de árbol (C1.9, César): cada una da su semilla y se dibuja con su modelo.
+const OAK: StringName = &"oak"
+const PINE: StringName = &"pine"
+## Semilla que da cada especie al talarla a mano (y que la planta).
+const SEED_ITEMS: Dictionary[StringName, StringName] = {OAK: &"acorn", PINE: &"pine_cone"}
+## Árboles salvajes: uno de cada PINE_EVERY es pino, según su casilla (la misma regla que antes, así las
+## partidas antiguas, que no guardaban la especie, conservan sus árboles).
+const PINE_EVERY: int = 4
 ## El orden importa: cada fase pasa a la siguiente.
 enum Stage { STUMP, SPROUT, YOUNG, MATURE }
 
@@ -19,14 +27,30 @@ const CHOP_HITS: int = 4
 const HIT_COOLDOWN: float = 1.0
 
 var kind: Kind = Kind.TREE
+## Especie del árbol (`OAK` o `PINE`); vacía en las rocas.
+var species: StringName = &""
 var stage: Stage = Stage.MATURE
 ## Segundos que lleva en la fase actual.
 var timer: float = 0.0
 
 
-func _init(p_kind: Kind = Kind.TREE, p_stage: Stage = Stage.MATURE) -> void:
+func _init(p_kind: Kind = Kind.TREE, p_stage: Stage = Stage.MATURE, p_species: StringName = OAK) -> void:
 	kind = p_kind
 	stage = p_stage
+	species = p_species if p_kind == Kind.TREE else &""
+
+
+## Número fijo y bien repartido para una casilla (no cambia entre partidas). Lo usan la especie de los
+## árboles salvajes y la vista (variante, giro y tamaño).
+static func cell_hash(cell: Vector2i) -> int:
+	var h: int = (cell.x * 73856093) ^ (cell.y * 19349663)
+	h = (h ^ (h >> 13)) * 1274126177
+	return (h ^ (h >> 16)) & 0x7fffffff
+
+
+## Especie de un árbol salvaje en esta casilla.
+static func wild_species(cell: Vector2i) -> StringName:
+	return PINE if (cell_hash(cell) >> 3) % PINE_EVERY == 0 else OAK
 
 
 ## ¿Es un árbol maduro (se puede talar)?
@@ -57,4 +81,7 @@ func grow(dt: float) -> bool:
 
 
 func to_data(cell: Vector2i) -> Dictionary:
-	return {"x": cell.x, "y": cell.y, "k": kind, "s": stage, "t": timer}
+	var data: Dictionary = {"x": cell.x, "y": cell.y, "k": kind, "s": stage, "t": timer}
+	if kind == Kind.TREE:
+		data["sp"] = String(species)
+	return data

@@ -2,7 +2,6 @@ keys,es,ca,en
 ITEM_WOOD,Madera,Fusta,Wood
 ITEM_STONE,Piedra,Pedra,Stone
 ITEM_GRAVEL,Grava,Grava,Gravel
-PROP_TREE,Árbol,Arbre,Tree
 PROP_ROCK,Roca,Roca,Rock
 SAVE_DONE,Partida guardada,Partida desada,Game saved
 SAVE_ERROR,No se pudo guardar la partida,No s'ha pogut desar la partida,Could not save the game
@@ -25,11 +24,7 @@ CABLE_ALREADY,Ya están conectados,Ja estan connectats,Already connected
 CABLE_FULL,No le quedan conexiones libres,No li queden connexions lliures,No free connections left
 CABLE_TOO_FAR,Demasiado lejos,Massa lluny,Too far
 POWER_NO_POWER,Sin energía,Sense energia,No power
-ITEM_SEED,Semilla,Llavor,Seed
 BUILDING_TREE_CUTTER,Talador,Talador,Tree cutter
-PROP_STUMP,Tocón,Soca,Stump
-PROP_SPROUT,Brote,Brot,Sprout
-PROP_YOUNG_TREE,Árbol joven,Arbre jove,Young tree
 ITEM_COPPER_ORE,Mineral de cobre,Mineral de coure,Copper ore
 ITEM_CHARCOAL,Carbón vegetal,Carbó vegetal,Charcoal
 ITEM_COPPER_INGOT,Lingote de cobre,Lingot de coure,Copper ingot
@@ -96,3 +91,13 @@ BUILD_HINT_CABLE_START,Empezar cable,Començar cable,Start cable
 BUILD_HINT_CABLE_END,Conectar,Connectar,Connect
 BUILD_HINT_CANCEL,Cancelar,Cancel·lar,Cancel
 BUILD_HINT_HELD,En la mano: %s,A la mà: %s,Holding: %s
+ITEM_ACORN,Bellota,Gla,Acorn
+ITEM_PINE_CONE,Piña,Pinya,Pine cone
+PROP_OAK,Roble,Roure,Oak
+PROP_OAK_YOUNG,Roble joven,Roure jove,Young oak
+PROP_OAK_SPROUT,Brote de roble,Brot de roure,Oak sprout
+PROP_OAK_STUMP,Tocón de roble,Soca de roure,Oak stump
+PROP_PINE,Pino,Pi,Pine
+PROP_PINE_YOUNG,Pino joven,Pi jove,Young pine
+PROP_PINE_SPROUT,Brote de pino,Brot de pi,Pine sprout
+PROP_PINE_STUMP,Tocón de pino,Soca de pi,Pine stump

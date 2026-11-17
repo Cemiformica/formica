@@ -38,6 +38,8 @@ var spawn_transform: Transform3D
 var focused_interactable: Interactable = null
 ## Casilla de la barra elegida (C1.6): lo que hay en ella es lo que Mira lleva en la mano.
 var held_slot: int = 0
+## Plantar semillas con el clic izquierdo, con la semilla en la mano (C1.9).
+var planter: PlantController
 ## El clic izquierdo de trabajar (talar, picar…) empezó con el ratón ya capturado. Así, el clic que solo
 ## recaptura el ratón no da un golpe.
 var _using: bool = false
@@ -54,6 +56,9 @@ func _ready() -> void:
 	# Primera persona: Mira oculta (sin sombra). Sigue animándose por dentro, lista para la tercera persona.
 	mira.visible = false
 	WorldState.player_inventory.changed.connect(_update_held_item)
+	planter = PlantController.new()
+	planter.player = self
+	add_child(planter)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -71,9 +76,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	# E interactúa con lo que miramos, salvo en el modo construcción: construir es un modo aparte (C1.6, César).
 	if event.is_action_pressed("interact") and is_instance_valid(focused_interactable) and not build_controller.active:
 		focused_interactable.interact(self)
-	# Clic izquierdo: trabajar lo que miramos (C1.8). Mantenerlo sigue golpeando (ver `_physics_process`).
+	# Clic izquierdo: usar lo que se lleva en la mano (César). Con una semilla, plantar (C1.9); si no,
+	# trabajar lo que miramos (C1.8), y mantenerlo sigue golpeando (ver `_physics_process`).
 	if event.is_action_pressed("use_tool"):
-		_using = pointer_was_ready and not build_controller.active
+		var ready_to_use: bool = pointer_was_ready and not build_controller.active
+		if ready_to_use and planter.held_seed() != null:
+			planter.try_plant()
+			_using = false
+		else:
+			_using = ready_to_use
 	elif event.is_action_released("use_tool"):
 		_using = false
 

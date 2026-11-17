@@ -26,7 +26,7 @@ var buildings: Dictionary[int, PlacedBuilding] = {}
 ## Se recalculan solo cuando algo cambia (colocar, quitar, cargar), no en cada paso.
 var _links: Array[Dictionary] = []
 var _links_dirty: bool = true
-## Madera y semillas que dan los árboles (B2.7, D-057). Más adelante podrían ir en un Resource por especie.
+## Madera que dan los árboles (B2.7, D-057); la semilla depende de la especie (NatureState.SEED_ITEMS).
 const TREE_WOOD: int = 4
 const STUMP_WOOD: int = 1
 ## Rocas (B2.8, D-057): piedra que dan, cada cuánto aparece una y cuántas puede haber a la vez.
@@ -226,7 +226,11 @@ func load_data(data: Dictionary) -> void:
 					push_warning("IslandState: roca en casilla ocupada ignorada: %s" % str(entry))
 				continue
 			var stage: int = clampi(int(entry.get("s", NatureState.Stage.MATURE)), 0, NatureState.Stage.MATURE)
-			if add_tree(cell, stage as NatureState.Stage):
+			# Especie (C1.9); las partidas de antes no la guardaban y salen con la regla de los salvajes.
+			var species := StringName(str(entry.get("sp", "")))
+			if not NatureState.SEED_ITEMS.has(species):
+				species = &""
+			if add_tree(cell, stage as NatureState.Stage, species):
 				nature[cell].timer = clampf(float(entry.get("t", 0.0)), 0.0, NatureState.STAGE_TIME)
 			else:
 				push_warning("IslandState: árbol en casilla ocupada ignorado: %s" % str(entry))
@@ -390,17 +394,26 @@ func _rebuild_networks() -> void:
 
 # --- Naturaleza (B2.7, D-057, D-069) ---
 
-## Planta un árbol en la fase indicada. Devuelve false si la casilla tiene una construcción o ya hay algo.
-func add_tree(cell: Vector2i, stage: NatureState.Stage = NatureState.Stage.MATURE) -> bool:
-	if nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell) or water.has(cell):
+## ¿Se puede plantar aquí? (no hay construcción, ni naturaleza, ni veta, ni agua)
+func can_plant(cell: Vector2i) -> bool:
+	return not nature.has(cell) and grid.get_occupant(cell) == 0 and not _vein_cells.has(cell) and not water.has(cell)
+
+
+## Planta un árbol en la fase indicada. `species` vacía = árbol salvaje (la especie la decide su casilla).
+## Devuelve false si la casilla tiene una construcción o ya hay algo.
+func add_tree(cell: Vector2i, stage: NatureState.Stage = NatureState.Stage.MATURE, species: StringName = &"") -> bool:
+	if not can_plant(cell):
 		return false
-	nature[cell] = NatureState.new(NatureState.Kind.TREE, stage)
+	if species == &"":
+		species = NatureState.wild_species(cell)
+	nature[cell] = NatureState.new(NatureState.Kind.TREE, stage, species)
 	nature_changed.emit(cell)
 	return true
 
 
 ## Tala un árbol maduro: queda un tocón (que rebrotará solo). Devuelve lo que da: 4 de madera y,
-## a mano, 1 semilla; el talador no da semilla. Diccionario vacío si ahí no hay un árbol maduro.
+## a mano, 1 semilla de su especie (bellota o piña, C1.9); el talador no da semilla. Diccionario vacío si
+## ahí no hay un árbol maduro.
 func chop_tree(cell: Vector2i, with_seed: bool) -> Dictionary[ItemData, int]:
 	var result: Dictionary[ItemData, int] = {}
 	if not nature.has(cell) or not nature[cell].is_mature_tree():
@@ -409,7 +422,9 @@ func chop_tree(cell: Vector2i, with_seed: bool) -> Dictionary[ItemData, int]:
 	nature[cell].timer = 0.0
 	result[Content.find_item(&"wood")] = TREE_WOOD
 	if with_seed:
-		result[Content.find_item(&"seed")] = 1
+		var seed_item: ItemData = Content.find_item(NatureState.SEED_ITEMS[nature[cell].species])
+		if seed_item != null:
+			result[seed_item] = 1
 	nature_changed.emit(cell)
 	return result
 

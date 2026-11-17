@@ -14,3 +14,5 @@ extends Resource
 @export var icon: Texture2D
 ## Color de reserva de la casilla si el ítem no tiene icono.
 @export var color: Color = Color(0.5, 0.5, 0.5)
+## Semillas (C1.9): especie de árbol que planta (`NatureState.OAK`, `NatureState.PINE`); vacío si no planta.
+@export var plants_tree: StringName = &""

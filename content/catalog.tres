@@ -12,7 +12,8 @@
 [ext_resource type="Resource" path="res://content/buildings/conveyor.tres" id="10_conveyor"]
 [ext_resource type="Resource" path="res://content/buildings/power_pole.tres" id="11_pole"]
 [ext_resource type="Resource" path="res://content/buildings/solar_panel.tres" id="12_solar"]
-[ext_resource type="Resource" path="res://content/items/seed.tres" id="13_seed"]
+[ext_resource type="Resource" path="res://content/items/acorn.tres" id="13_seed"]
+[ext_resource type="Resource" path="res://content/items/pine_cone.tres" id="90_pinecone"]
 [ext_resource type="Resource" path="res://content/buildings/tree_cutter.tres" id="14_cutter"]
 [ext_resource type="Resource" path="res://content/items/copper_ore.tres" id="15_ore"]
 [ext_resource type="Resource" path="res://content/items/charcoal.tres" id="16_charcoal"]
@@ -36,7 +37,7 @@
 
 [resource]
 script = ExtResource("1_catalog")
-items = Array[ExtResource("2_itemscript")]([ExtResource("4_wood"), ExtResource("5_stone"), ExtResource("6_gravel"), ExtResource("13_seed"), ExtResource("15_ore"), ExtResource("16_charcoal"), ExtResource("17_ingot"), ExtResource("18_slag"), ExtResource("21_iron"), ExtResource("22_cell"), ExtResource("28_coil")])
+items = Array[ExtResource("2_itemscript")]([ExtResource("4_wood"), ExtResource("5_stone"), ExtResource("6_gravel"), ExtResource("13_seed"), ExtResource("90_pinecone"), ExtResource("15_ore"), ExtResource("16_charcoal"), ExtResource("17_ingot"), ExtResource("18_slag"), ExtResource("21_iron"), ExtResource("22_cell"), ExtResource("28_coil")])
 recipes = Array[ExtResource("3_recipescript")]([ExtResource("7_crush"), ExtResource("19_smelt"), ExtResource("26_charcoal_recipe"), ExtResource("32_coil_recipe")])
 buildings = Array[ExtResource("8_buildingscript")]([ExtResource("9_crusher"), ExtResource("10_conveyor"), ExtResource("11_pole"), ExtResource("12_solar"), ExtResource("14_cutter"), ExtResource("20_furnace"), ExtResource("25_extractor"), ExtResource("27_kiln"), ExtResource("29_chest"), ExtResource("30_logistic"), ExtResource("31_wheel"), ExtResource("33_workbench")])
 veins = Array[ExtResource("23_veinscript")]([ExtResource("24_malachite")])
