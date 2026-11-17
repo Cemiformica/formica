@@ -6,7 +6,7 @@
 [ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
 [ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
 [ext_resource type="Resource" path="res://content/items/copper_coil.tres" id="6_coil"]
-[ext_resource type="PackedScene" path="res://assets/models/buildings/tree_cutter.glb" id="7_model"]
+[ext_resource type="PackedScene" uid="uid://csch8g7lhyykf" path="res://assets/models/buildings/tree_cutter.glb" id="7_model"]
 
 [sub_resource type="Resource" id="Resource_out"]
 script = ExtResource("3_portscript")

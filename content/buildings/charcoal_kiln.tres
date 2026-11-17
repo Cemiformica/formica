@@ -1,13 +1,13 @@
-[gd_resource type="Resource" script_class="BuildingData" format=3]
+[gd_resource type="Resource" script_class="BuildingData" format=3 uid="uid://dxr3pdv84eijk"]
 
-[ext_resource type="Script" path="res://core/content/building_data.gd" id="1_building"]
-[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
-[ext_resource type="Script" path="res://core/content/port_data.gd" id="3_portscript"]
+[ext_resource type="Script" uid="uid://dtbuu1lcqqvkm" path="res://core/content/building_data.gd" id="1_building"]
+[ext_resource type="Script" uid="uid://dhv4e1pjshngy" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Script" uid="uid://dkooqj2ouj1ft" path="res://core/content/port_data.gd" id="3_portscript"]
 [ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
 [ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
 [ext_resource type="Resource" path="res://content/items/charcoal.tres" id="6_charcoal"]
 [ext_resource type="Resource" path="res://content/recipes/make_charcoal.tres" id="7_recipe"]
-[ext_resource type="PackedScene" path="res://assets/models/buildings/charcoal_kiln.glb" id="8_model"]
+[ext_resource type="PackedScene" uid="uid://wtv2dso76oxn" path="res://assets/models/buildings/charcoal_kiln.glb" id="8_model"]
 
 [sub_resource type="Resource" id="Resource_in"]
 script = ExtResource("3_portscript")

@@ -5,7 +5,7 @@
 [ext_resource type="Script" uid="uid://dkooqj2ouj1ft" path="res://core/content/port_data.gd" id="3_portscript"]
 [ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
 [ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
-[ext_resource type="PackedScene" path="res://assets/models/buildings/conveyor.glb" id="6_model"]
+[ext_resource type="PackedScene" uid="uid://clugvblmu8ag1" path="res://assets/models/buildings/conveyor.glb" id="6_model"]
 
 [sub_resource type="Resource" id="Resource_in"]
 script = ExtResource("3_portscript")
