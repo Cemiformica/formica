@@ -16,6 +16,8 @@ extends Node3D
 ## En la mano derecha lleva lo que tenga seleccionado (hold_item): un BoneAttachment3D sigue al hueso
 ## RightHand y de él cuelga el objeto, apoyado en los dedos curvados. Mientras los ítems no tengan modelo,
 ## es una cajita de su color. Con algo en la mano, MiraHoldPose le levanta el brazo para enseñarlo.
+## En primera persona, el jugador pone a Mira en «solo sombras» (set_shadow_only): no se dibuja, pero su
+## sombra sí (también la de lo que lleva en la mano).
 ## Dónde tocar: WALK_REFERENCE_SPEED (si los pies patinan), HELD_OFFSET (dónde queda el objeto en la mano),
 ## las constantes SKIRT_* y ANTENNA_* (rigidez, freno, grosor) y LEG_RADIUS.
 
@@ -53,6 +55,8 @@ var move_speed: float = 0.0            # velocidad horizontal medida y suavizada
 var held_anchor: Node3D                # de aquí cuelga lo que lleva en la mano derecha
 var hold_pose: MiraHoldPose            # levanta el brazo derecho cuando lleva algo
 var held_item: ItemData
+## true: Mira no se dibuja, solo proyecta su sombra (primera persona).
+var shadow_only: bool = false
 
 var _last_position: Vector3
 
@@ -84,14 +88,18 @@ func _ready() -> void:
 	animations = find_child("AnimationPlayer") as AnimationPlayer
 	_setup_animation_tree()
 	_setup_hand()
-	_last_position = global_position
+	set_shadow_only(shadow_only)
+	_last_position = get_global_transform_interpolated().origin
 
 
 func _process(delta: float) -> void:
 	if delta <= 0.0:
 		return
-	var step: Vector3 = global_position - _last_position
-	_last_position = global_position
+	# Posición suavizada: si Mira va dentro de un cuerpo con física (el jugador), la física avanza a 60 pasos
+	# por segundo y la pantalla a más; con la posición sin suavizar, la velocidad medida daría saltos.
+	var position_now: Vector3 = get_global_transform_interpolated().origin
+	var step: Vector3 = position_now - _last_position
+	_last_position = position_now
 	var measured: float = Vector2(step.x, step.z).length() / delta
 	if measured > MAX_MEASURED_SPEED:
 		measured = move_speed
@@ -118,7 +126,23 @@ func hold_item(item: ItemData) -> void:
 	mesh.name = "HeldItem"
 	mesh.mesh = box
 	mesh.material_override = material
+	mesh.cast_shadow = _shadow_setting()
 	held_anchor.add_child(mesh)
+
+
+## Con `enabled`, todo lo que se ve de Mira (también lo que coja después) solo proyecta sombra.
+func set_shadow_only(enabled: bool) -> void:
+	shadow_only = enabled
+	if not is_node_ready():
+		return
+	for geometry: Node in find_children("*", "GeometryInstance3D", true, false):
+		(geometry as GeometryInstance3D).cast_shadow = _shadow_setting()
+
+
+func _shadow_setting() -> GeometryInstance3D.ShadowCastingSetting:
+	if shadow_only:
+		return GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+	return GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 
 
 ## Enciende o apaga las animaciones (apagadas, se puede posar el esqueleto a mano).

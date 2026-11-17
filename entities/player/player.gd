@@ -3,6 +3,9 @@ extends CharacterBody3D
 ## Jugador de la fase B (D-064): solo primera persona. Andar, saltar, mirar con el ratón e interactuar.
 ## No guarda el inventario: el del jugador es `WorldState.player_inventory` (D-046).
 ## Construir lo hace su hijo `BuildController` (B2.4b).
+## El cuerpo es Mira (B4.6), girada 180° porque su frente es +Z y el del jugador −Z. En primera persona está
+## oculta del todo, también su sombra: una sombra sin cuerpo despista (César). Con la tercera persona se
+## volverá a ver; y en la fase C se valorará el cuerpo visible en primera persona (mira.set_shadow_only).
 
 ## Se emite cuando cambia el objeto interactuable al que miramos (null si ya no miramos ninguno).
 signal focus_changed(interactable: Interactable)
@@ -25,6 +28,7 @@ signal focus_changed(interactable: Interactable)
 @onready var camera: Camera3D = $Head/Camera3D
 @onready var interact_ray: RayCast3D = $Head/InteractRay
 @onready var build_controller: BuildController = $BuildController
+@onready var mira: Mira = $Mira
 
 ## Posición y orientación iniciales, para reaparecer si caemos.
 var spawn_transform: Transform3D
@@ -40,6 +44,8 @@ func _ready() -> void:
 	# Interpolación de la física (B3): la cámara va suelta y se coloca en cada fotograma (ver _process).
 	camera.top_level = true
 	camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	# Primera persona: Mira oculta (sin sombra). Sigue animándose por dentro, lista para la tercera persona.
+	mira.visible = false
 
 
 func _unhandled_input(event: InputEvent) -> void:

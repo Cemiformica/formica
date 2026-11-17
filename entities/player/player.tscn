@@ -12,12 +12,9 @@
 [ext_resource type="Resource" path="res://content/buildings/workbench.tres" id="12_workbench"]
 [ext_resource type="Resource" path="res://content/buildings/water_wheel.tres" id="13_wheel"]
 [ext_resource type="Resource" path="res://content/buildings/logistic_box.tres" id="14_logistic"]
+[ext_resource type="PackedScene" path="res://entities/mira/mira.tscn" id="15_mira"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
-radius = 0.4
-height = 1.8
-
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_player"]
 radius = 0.4
 height = 1.8
 
@@ -28,9 +25,8 @@ script = ExtResource("1_player")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 shape = SubResource("CapsuleShape3D_player")
 
-[node name="Body" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-mesh = SubResource("CapsuleMesh_player")
+[node name="Mira" parent="." instance=ExtResource("15_mira")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
 
 [node name="Head" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
