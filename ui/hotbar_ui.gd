@@ -4,6 +4,8 @@ extends CanvasLayer
 ## En el modo construcción enseña la barra de construcción en su lugar (nombre de cada construcción), para
 ## que construir se sienta como un modo aparte. Fuera del modo, 1–0 y la rueda eligen casilla; lo elegido
 ## es lo que Mira llevará en la mano (C1.6). Con una ventana abierta, sus casillas se manejan con clics.
+## En el modo construcción, encima de la barra, una línea de ayuda con las teclas útiles según lo que se
+## lleva (C1.8): "[Clic] Colocar · [R] Girar · [F] Reflejar · [B] Salir"…
 
 ## Se emite al elegir otra casilla de la barra normal.
 signal selection_changed(index: int)
@@ -18,6 +20,7 @@ var _builder: BuildController = null
 var _cells: Array[PanelContainer] = []
 var _slots: Array[SlotUI] = []
 var _build_labels: Array[Label] = []
+var _hint_label: Label
 
 
 func _ready() -> void:
@@ -29,10 +32,23 @@ func _ready() -> void:
 	bottom.add_theme_constant_override("margin_bottom", 14)
 	bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bottom)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 6)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bottom.add_child(column)
+	_hint_label = Label.new()
+	_hint_label.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED # el texto ya va traducido
+	_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint_label.add_theme_font_size_override("font_size", 15)
+	_hint_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	_hint_label.add_theme_constant_override("outline_size", 5)
+	_hint_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hint_label.visible = false
+	column.add_child(_hint_label)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 4)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bottom.add_child(row)
+	column.add_child(row)
 	for i: int in WorldState.HOTBAR_SLOTS:
 		var cell := PanelContainer.new()
 		row.add_child(cell)
@@ -82,6 +98,43 @@ func _unhandled_input(event: InputEvent) -> void:
 		_select((selected_slot + 1) % WorldState.HOTBAR_SLOTS)
 	elif event.is_action_pressed("hotbar_prev"):
 		_select(posmod(selected_slot - 1, WorldState.HOTBAR_SLOTS))
+
+
+## La ayuda de teclas se rehace cada fotograma: depende de lo que se lleva y de si hay un cable a medias.
+func _process(_delta: float) -> void:
+	var building: bool = _builder != null and _builder.active and not WindowManager.is_open()
+	_hint_label.visible = building
+	if building:
+		_hint_label.text = _build_hint()
+
+
+## "[Clic] Colocar · [R] Girar · [F] Reflejar · [Clic central] Copiar · [B] Salir" (o lo del cable).
+func _build_hint() -> String:
+	var parts: PackedStringArray = []
+	if _builder.holding_cable():
+		if _builder.cable_started():
+			parts.append(_key_hint(&"build_place", "BUILD_HINT_CABLE_END"))
+			parts.append(_key_hint(&"ui_cancel", "BUILD_HINT_CANCEL"))
+		else:
+			parts.append(_key_hint(&"build_place", "BUILD_HINT_CABLE_START"))
+	else:
+		var held: BuildingData = _builder.get_held()
+		if held != null:
+			if _builder.is_held_picked():
+				parts.append(tr("BUILD_HINT_HELD") % tr(held.name_key))
+			parts.append(_key_hint(&"build_place", "BUILD_HINT_PLACE"))
+			parts.append(_key_hint(&"build_rotate", "BUILD_HINT_ROTATE"))
+			if held.output_turns:
+				parts.append(_key_hint(&"build_flip", "BUILD_HINT_TURN"))
+			elif held.can_flip():
+				parts.append(_key_hint(&"build_flip", "BUILD_HINT_FLIP"))
+	parts.append(_key_hint(&"pick_building", "BUILD_HINT_PICK"))
+	parts.append(_key_hint(&"toggle_build", "BUILD_HINT_EXIT"))
+	return "  ·  ".join(parts)
+
+
+func _key_hint(action: StringName, text_key: String) -> String:
+	return "[%s] %s" % [InputLabels.action_text(action), tr(text_key)]
 
 
 func _select(index: int) -> void:

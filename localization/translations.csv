@@ -75,3 +75,24 @@ WINDOW_RESET_FUSE,Rearmar fusible,Rearmar el fusible,Reset fuse
 WINDOW_CRAFT,Fabricar,Fabricar,Craft
 WINDOW_AMOUNT,Cantidad,Quantitat,Amount
 WINDOW_NEEDS,Necesita,Necessita,Needs
+POWER_ON,Con energía,Amb energia,Powered
+POWER_GENERATES,Genera energía,Genera energia,Generates power
+POWER_NOT_NEEDED,No necesita energía,No necessita energia,No power needed
+HINT_OPEN,Abrir,Obrir,Open
+HINT_CHOP,Talar,Talar,Chop
+HINT_UPROOT,Arrancar,Arrencar,Uproot
+HINT_PICK_UP,Recoger,Recollir,Pick up
+HINT_MINE,Picar,Picar,Mine
+INPUT_MOUSE_LEFT,Clic,Clic,Click
+INPUT_MOUSE_RIGHT,Clic derecho,Clic dret,Right click
+INPUT_MOUSE_MIDDLE,Clic central,Clic central,Middle click
+BUILD_HINT_PLACE,Colocar,Col·locar,Place
+BUILD_HINT_ROTATE,Girar,Girar,Rotate
+BUILD_HINT_FLIP,Reflejar,Reflectir,Mirror
+BUILD_HINT_TURN,Cambiar salida,Canviar sortida,Change output
+BUILD_HINT_PICK,Copiar,Copiar,Copy
+BUILD_HINT_EXIT,Salir,Sortir,Exit
+BUILD_HINT_CABLE_START,Empezar cable,Començar cable,Start cable
+BUILD_HINT_CABLE_END,Conectar,Connectar,Connect
+BUILD_HINT_CANCEL,Cancelar,Cancel·lar,Cancel
+BUILD_HINT_HELD,En la mano: %s,A la mà: %s,Holding: %s

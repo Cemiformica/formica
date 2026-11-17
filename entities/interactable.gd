@@ -1,6 +1,8 @@
 class_name Interactable
 extends StaticBody3D
-## Objeto del mundo con el que el jugador puede interactuar mirándolo y pulsando `interact` (E).
+## Objeto del mundo con el que el jugador puede interactuar mirándolo. Dos acciones (C1.8, César):
+## `interact` (E) abre inventarios o acciona cosas (puertas, portales…), y `use` (clic izquierdo, con lo que
+## se lleve en la mano) trabaja el objeto: talar, picar, recoger. Cada objeto hace solo las suyas.
 ## Traído del prototipo (D-054). Quien lo use se conecta a la señal `interacted`.
 
 ## Se emite cuando alguien interactúa con este objeto.
@@ -15,7 +17,24 @@ func interact(by: Node) -> void:
 	interacted.emit(by)
 
 
+## Llamado por el jugador en cada paso de física mientras mantiene el clic izquierdo mirando este objeto.
+## Cada objeto decide cuánto espera entre golpes. Por defecto no hace nada.
+func use(_by: Node) -> void:
+	pass
+
+
+## Qué hace la E sobre este objeto (clave de traducción, p. ej. "HINT_OPEN"); vacío si nada. Lo enseña el
+## letrero de arriba (`FocusPanel`, C1.8).
+func get_interact_hint_key() -> String:
+	return ""
+
+
+## Qué hace el clic izquierdo sobre este objeto ("HINT_CHOP"…); vacío si nada.
+func get_use_hint_key() -> String:
+	return ""
+
+
 ## Llamado por el jugador cuando empieza (true) o deja (false) de mirar este objeto a alcance de E.
-## No hace nada; quien quiera reaccionar (p. ej., `BuildingView` con su texto) lo sobrescribe.
+## No hace nada; quien quiera reaccionar lo sobrescribe.
 func set_focused(_focused: bool) -> void:
 	pass

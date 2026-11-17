@@ -13,6 +13,10 @@ const GRAPHICS_OPTIONS: Array[StringName] = [&"fullscreen", &"vsync", &"msaa", &
 const AUDIO_OPTIONS: Array[StringName] = [&"music_volume", &"sfx_volume"]
 ## Volumen en pasos de 10 %: 0 = silencio, 10 = 100 %.
 const VOLUME_STEPS: int = 10
+## Ganancia base de cada bus (mezcla, C1.8): con la barra al máximo el bus suena a esta fracción. César
+## tenía que bajar música y efectos al 20–30 %; así el 70 % de música y el 100 % de efectos que vienen por
+## defecto suenan como entonces, y la barra conserva todo su recorrido.
+const BUS_GAIN: Dictionary[StringName, float] = {&"Music": 0.35, &"SFX": 0.3}
 ## MSAA por índice: No · 2x · 4x · 8x.
 const MSAA_LEVELS: Array[Viewport.MSAA] = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X, Viewport.MSAA_8X]
 ## Sombras por índice (Baja · Media · Alta): tamaño del mapa del sol, filtro y distancia máxima en metros.
@@ -76,12 +80,13 @@ func apply() -> void:
 
 ## Volumen de un bus en décimas (0–10). A 0 se silencia del todo.
 func _apply_volume(bus_name: StringName, steps: int) -> void:
+	var gain: float = BUS_GAIN.get(bus_name, 1.0)
 	var index: int = AudioServer.get_bus_index(bus_name)
 	if index < 0:
 		push_warning("Settings: no existe el bus de audio %s" % bus_name)
 		return
 	AudioServer.set_bus_mute(index, steps <= 0)
-	AudioServer.set_bus_volume_db(index, linear_to_db(maxf(float(steps) / VOLUME_STEPS, 0.001)))
+	AudioServer.set_bus_volume_db(index, linear_to_db(maxf(float(steps) / VOLUME_STEPS * gain, 0.001)))
 
 
 func _on_node_added(node: Node) -> void:

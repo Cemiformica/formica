@@ -407,9 +407,9 @@ if __name__ == "__main__":
     folder = sys.argv[1] if len(sys.argv) > 1 else "."
     os.makedirs(folder, exist_ok=True)
     # Elegidas por César (B5.4): M1 (zumbido, pistón y golpe; el golpe cae a los 0,2 s, como el rebote de
-    # BuildingView.PLACE_GROW_TIME) y la música de 16 s. Las demás versiones siguen arriba por si acaso.
+    # BuildingView.PLACE_GROW_TIME). Las demás versiones siguen arriba por si acaso. La música ya no sale de
+    # aquí, sino de make_music.py (C1.8); music_test_v2() queda solo como referencia.
     write_wav(os.path.join(folder, "build_place.wav"), materialize_m1())
-    write_wav(os.path.join(folder, "music_test.wav"), music_test_v2())
     if "--v2" in sys.argv:
         write_previews(folder)
     print("Sonidos escritos en", folder)

@@ -110,7 +110,6 @@ var placed: PlacedBuilding
 ## Isla a la que pertenece (para preguntar por su red eléctrica).
 var island: IslandState
 
-var _label: Label3D = null
 ## Solo cintas: dirección de avance (hacia la salida) y cubitos de los ítems.
 var _belt_forward: Vector3 = Vector3.ZERO
 var _belt_cubes: Array[MeshInstance3D] = []
@@ -293,15 +292,6 @@ func setup(p_placed: PlacedBuilding, p_island: IslandState) -> void:
 		_add_box(Vector3(s.x - 0.1, height, s.y - 0.1), Vector3(0.0, height * 0.5, 0.0), color)
 		_add_port_markers()
 
-	_label = Label3D.new()
-	_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_label.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED # el texto ya va traducido
-	_label.font_size = 40
-	_label.outline_size = 8
-	_label.position.y = height + 0.5
-	_label.visible = false # solo al mirarla (set_focused)
-	add_child(_label)
-
 
 func _process(delta: float) -> void:
 	if placed == null:
@@ -317,18 +307,6 @@ func _process(delta: float) -> void:
 		_update_water_wheel(delta)
 	if placed.is_storage():
 		_update_storage_visuals()
-	if not _label.visible:
-		return # el texto solo se calcula si se ve
-	if placed.is_machine():
-		_label.text = _machine_text()
-	elif placed.is_extractor():
-		_label.text = _extractor_text()
-	elif placed.is_harvester():
-		_label.text = _harvester_text()
-	elif placed.is_storage():
-		_label.text = _storage_text()
-	else:
-		_label.text = tr(placed.data.name_key)
 
 
 ## Efecto al colocar (B5.4, César), a juego con el sonido: mientras suena el zumbido la construcción crece
@@ -392,36 +370,6 @@ func set_window_open(open: bool) -> void:
 		_lid_tween.tween_property(_lid, "rotation:x", deg_to_rad(-80.0) if open else 0.0, 0.35)
 
 
-## El texto flotante solo se ve mientras el jugador mira esta construcción (B5).
-func set_focused(focused: bool) -> void:
-	if _label != null:
-		_label.visible = focused
-
-
-## "40 % → Mineral de cobre 3" (o "Sin veta" si la cabeza no está sobre una).
-func _extractor_text() -> String:
-	if placed.vein_item == null:
-		return tr(placed.data.name_key) + "  · " + tr("BUILD_NEEDS_VEIN")
-	var text: String = "%d %% → %s %d" % [int(placed.progress / placed.data.extract_time * 100.0),
-			tr(placed.vein_item.name_key), placed.output.get_total(placed.vein_item)]
-	if placed.data.power < 0.0 and island != null and not island.is_powered(placed.id):
-		text += "  · " + tr("POWER_NO_POWER")
-	return text
-
-
-## "Piedra 5 → 40 % → Grava 3"
-## "45 % → Madera 12" (talador).
-func _harvester_text() -> String:
-	var item_name: String = tr("ITEM_WOOD")
-	for stack: ItemStack in placed.output.slots:
-		if stack != null:
-			item_name = tr(stack.item.name_key)
-	var text: String = "%d %% → %s %d" % [int(placed.progress / placed.data.harvest_time * 100.0), item_name, _stored_total()]
-	if placed.data.power < 0.0 and island != null and not island.is_powered(placed.id):
-		text += "  · " + tr("POWER_NO_POWER")
-	return text
-
-
 ## Rueda hidráulica: busca la rueda y decide hacia dónde gira. Girando en +X (local), las paletas de abajo
 ## van hacia el norte del modelo; si el agua corre al revés, gira al revés. Salpica del lado por el que
 ## las paletas salen del agua (el de aguas abajo).
@@ -445,21 +393,6 @@ func _update_water_wheel(delta: float) -> void:
 	if _splash_timer <= 0.0 and _model_root != null:
 		_splash_timer = SPLASH_INTERVAL
 		DustPuff.spawn(self, _model_root.to_global(_splash_local), SPLASH_COLOR)
-
-
-## "Caja logística · Escoria 12 · Madera 3" (hasta 3 ítems; si hay más, "…").
-func _storage_text() -> String:
-	var totals: Dictionary[ItemData, int] = {}
-	for stack: ItemStack in placed.output.slots:
-		if stack != null:
-			totals[stack.item] = totals.get(stack.item, 0) + stack.amount
-	var parts: PackedStringArray = [tr(placed.data.name_key)]
-	for item: ItemData in totals:
-		if parts.size() > 3:
-			parts.append("…")
-			break
-		parts.append("%s %d" % [tr(item.name_key), totals[item]])
-	return " · ".join(parts)
 
 
 ## ¿Le cabe algo más? (alguna casilla vacía o alguna pila sin llenar)
@@ -498,20 +431,6 @@ func _stored_total() -> int:
 		if stack != null:
 			total += stack.amount
 	return total
-
-
-func _machine_text() -> String:
-	var recipe: RecipeData = placed.data.recipe
-	var parts: PackedStringArray = []
-	for item: ItemData in recipe.inputs:
-		parts.append("%s %d" % [tr(item.name_key), placed.input.get_total(item)])
-	parts.append("%d %%" % int(placed.progress / recipe.duration * 100.0))
-	for item: ItemData in recipe.outputs:
-		parts.append("%s %d" % [tr(item.name_key), placed.output.get_total(item)])
-	var text: String = " → ".join(parts)
-	if placed.data.power < 0.0 and island != null and not island.is_powered(placed.id):
-		text += "  · " + tr("POWER_NO_POWER")
-	return text
 
 
 ## Cinta: losa baja, flecha hacia la salida y un cubito por cada hueco de ítem.
@@ -596,13 +515,20 @@ static func _material_for(item: ItemData) -> StandardMaterial3D:
 	return _item_materials[item]
 
 
-## E: avisa (señal `interacted`). Sobre un generador rearma el fusible de su red; sobre una máquina,
-## hace el intercambio rápido provisional con el inventario del jugador.
+## E: abre la ventana de la construcción (C1.3). El nombre y el estado los enseña el letrero de arriba
+## (`FocusPanel`, C1.8), que sustituye a los textos flotantes; el detalle está en la ventana.
 func interact(by: Node) -> void:
 	super(by)
 	# E abre la ventana de la construcción (C1.3); el fusible se rearma desde ella.
 	if by.has_method("open_building"):
 		by.open_building(self)
+
+
+## Qué hace la E aquí, para el letrero de arriba. Las cintas no tienen ventana.
+func get_interact_hint_key() -> String:
+	if placed == null or placed.is_belt():
+		return ""
+	return "HINT_OPEN"
 
 
 ## Busca en el modelo las piezas que muestran el estado de la máquina y las prepara (todas son opcionales).

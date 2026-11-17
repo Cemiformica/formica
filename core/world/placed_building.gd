@@ -248,33 +248,6 @@ func _belt_spacing() -> float:
 	return 1.0 / data.belt_capacity
 
 
-## Intercambio rápido con E (PROVISIONAL, B2.4c, hasta la ventana de máquina de la fase C):
-## recoge la salida en `other` y mete en la entrada todo lo que la máquina acepta de `other`.
-## Lo que no quepa se queda donde estaba.
-func quick_exchange(other: Inventory) -> void:
-	if not is_machine():
-		# Talador, extractor o almacén: solo se recoge lo que haya en la salida (almacén: PROVISIONAL,
-		# hasta la ventana de almacén).
-		if output != null:
-			for stack: ItemStack in output.slots.duplicate():
-				if stack == null:
-					continue
-				var moved: int = stack.amount - other.add_item(stack.item, stack.amount)
-				if moved > 0:
-					output.remove_item(stack.item, moved)
-		return
-	for item: ItemData in data.recipe.outputs:
-		var amount: int = output.get_total(item)
-		var moved: int = amount - other.add_item(item, amount)
-		if moved > 0:
-			output.remove_item(item, moved)
-	for item: ItemData in data.recipe.inputs:
-		var amount: int = other.get_total(item)
-		var moved: int = amount - input.add_item(item, amount)
-		if moved > 0:
-			other.remove_item(item, moved)
-
-
 ## Estado → datos simples para el guardado (JSON). El tipo se guarda por id ("crusher").
 func to_data() -> Dictionary:
 	var result: Dictionary = {

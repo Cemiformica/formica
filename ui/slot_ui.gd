@@ -2,7 +2,7 @@ class_name SlotUI
 extends PanelContainer
 ## Casilla visual de un inventario (C1.2; del prototipo, D-036): del jugador, de una máquina o de un arcón.
 ## Muestra el ítem y la cantidad. Se maneja con clics, como en Minecraft (César): ver `_gui_input`.
-## Mientras no haya iconos (C1.7), se pinta con el color del ítem y su nombre abreviado.
+## Muestra el icono del ítem (C1.7); si un ítem no lo tiene, su color y su nombre abreviado.
 
 const SLOT_SIZE: Vector2 = Vector2(60, 60)
 
@@ -10,6 +10,7 @@ var inventory: Inventory ## Inventario al que pertenece la casilla.
 var index: int = 0 ## Posición dentro de ese inventario.
 
 var _swatch: ColorRect
+var _icon: TextureRect
 var _name_label: Label
 var _amount_label: Label
 
@@ -31,6 +32,8 @@ func _ready() -> void:
 	_swatch = ColorRect.new()
 	_swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_swatch)
+	_icon = make_icon_rect()
+	add_child(_icon)
 	_name_label = _make_label(HORIZONTAL_ALIGNMENT_CENTER, VERTICAL_ALIGNMENT_CENTER)
 	_amount_label = _make_label(HORIZONTAL_ALIGNMENT_RIGHT, VERTICAL_ALIGNMENT_BOTTOM)
 	if inventory != null:
@@ -69,17 +72,29 @@ func refresh() -> void:
 		stack = inventory.slots[index]
 	if stack == null:
 		_swatch.color = Color(0, 0, 0, 0)
+		_icon.texture = null
 		_name_label.text = ""
 		_amount_label.text = ""
 		tooltip_text = ""
 		return
-	_swatch.color = stack.item.color
-	_name_label.text = short_name(stack.item)
+	var icon: Texture2D = stack.item.icon
+	_icon.texture = icon
+	_swatch.color = Color(0, 0, 0, 0) if icon != null else stack.item.color
+	_name_label.text = "" if icon != null else short_name(stack.item)
 	_amount_label.text = str(stack.amount)
 	tooltip_text = tr(stack.item.name_key)
 
 
-## Nombre abreviado provisional (3 letras) mientras no haya iconos.
+## Rectángulo que pinta un icono de ítem ocupando su hueco sin deformarse (casillas y pila en la mano).
+static func make_icon_rect() -> TextureRect:
+	var rect := TextureRect.new()
+	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return rect
+
+
+## Nombre abreviado (3 letras), de reserva para ítems sin icono.
 static func short_name(item: ItemData) -> String:
 	return TranslationServer.translate(item.name_key).substr(0, 3).to_upper()
 

@@ -72,13 +72,6 @@ func _ready() -> void:
 	_check("cargada: contenido de A", ra != null and ra.output.get_total(stone) == a.output.get_total(stone))
 	_check("cargada: mismas conexiones", restored.get_links().size() == island.get_links().size())
 
-	# 6) Arcón: E (provisional) recoge lo que guarda.
-	var chest: PlacedBuilding = island.place(chest_data, Vector2i(20, 0))
-	chest.output.add_item(wood, 5)
-	var hands := Inventory.new(4)
-	chest.quick_exchange(hands)
-	_check("arcón: E recoge lo guardado", hands.get_total(wood) == 5 and chest.output.get_total(wood) == 0)
-
 	WorldState.reset()
 	Simulation.running = true
 	if _failures == 0:

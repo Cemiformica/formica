@@ -38,6 +38,9 @@ var spawn_transform: Transform3D
 var focused_interactable: Interactable = null
 ## Casilla de la barra elegida (C1.6): lo que hay en ella es lo que Mira lleva en la mano.
 var held_slot: int = 0
+## El clic izquierdo de trabajar (talar, picar…) empezó con el ratón ya capturado. Así, el clic que solo
+## recaptura el ratón no da un golpe.
+var _using: bool = false
 
 
 func _ready() -> void:
@@ -57,6 +60,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if WindowManager.is_open():
 		return
 
+	# Si el ratón estaba suelto, este clic solo lo recaptura: no debe dar un golpe (se mira antes de recapturar).
+	var pointer_was_ready: bool = Aim.pointer_ready()
 	# Esc libera el ratón; un clic lo vuelve a capturar.
 	if event.is_action_pressed("ui_cancel"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -66,6 +71,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	# E interactúa con lo que miramos, salvo en el modo construcción: construir es un modo aparte (C1.6, César).
 	if event.is_action_pressed("interact") and is_instance_valid(focused_interactable) and not build_controller.active:
 		focused_interactable.interact(self)
+	# Clic izquierdo: trabajar lo que miramos (C1.8). Mantenerlo sigue golpeando (ver `_physics_process`).
+	if event.is_action_pressed("use_tool"):
+		_using = pointer_was_ready and not build_controller.active
+	elif event.is_action_released("use_tool"):
+		_using = false
 
 	# Mirar con el ratón (solo con el ratón capturado).
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -106,6 +116,10 @@ func _physics_process(delta: float) -> void:
 		reset_physics_interpolation() # salto instantáneo: sin «volar» desde donde caía
 
 	_update_focus()
+	if _using and (WindowManager.is_open() or build_controller.active):
+		_using = false
+	if _using and is_instance_valid(focused_interactable):
+		focused_interactable.use(self)
 
 
 ## Elige la casilla de la barra (C1.6; lo llama la barra de abajo). Mira lleva en la mano lo que haya en ella.

@@ -1,6 +1,6 @@
 extends Node3D
-## Escena de pruebas de B2 (solo desarrollo). Da materiales de prueba, muestra la barra de construcción
-## en una línea de texto, la red eléctrica de lo que miras en otra, e imprime en Salida lo que pasa.
+## Escena de pruebas de B2 (solo desarrollo). Da materiales de prueba, muestra la red eléctrica de lo que
+## miras en una línea de texto, e imprime en Salida lo que pasa.
 ## (Los textos de esta escena son de desarrollo y no se traducen, salvo los nombres.)
 
 ## Materiales iniciales (trituradora: 6 madera + 4 piedra; cinta: 1 + 1).
@@ -26,12 +26,9 @@ const VEIN_ORIGIN: Vector2i = Vector2i(6, -4)
 const CANAL_X: int = -12
 ## Estanque de agua quieta (D-094): 3×3 casillas desde esta esquina noroeste (x −18…−16, y 6…8).
 const POND_ORIGIN: Vector2i = Vector2i(-18, 6)
-## Música de prueba (B5.4): bucle de 8 s generado por art/tools/make_sounds.py, por el bus «Music».
-const TEST_MUSIC: AudioStreamWAV = preload("res://assets/audio/music_test.wav")
 
 @onready var player: Player = $Player
 @onready var test_box: Interactable = $TestBox
-@onready var build_bar_label: Label = $HUD/BuildBarLabel
 @onready var network_label: Label = $HUD/NetworkLabel
 @onready var toast_label: Label = $HUD/ToastLabel
 
@@ -93,9 +90,6 @@ func _ready() -> void:
 	builder.placed.connect(_on_building_placed)
 	builder.place_failed.connect(_on_place_failed)
 	builder.cable_changed.connect(_on_cable_changed)
-	builder.mode_changed.connect(_update_label.unbind(1))
-	builder.selection_changed.connect(_update_label)
-	inventory.changed.connect(_update_label)
 	SaveSystem.notification_requested.connect(_show_toast)
 	add_child(SettingsPanel.new()) # F10: opciones gráficas y volúmenes (B5.3, B5.4)
 	add_child(InventoryWindow.new()) # Tab: mochila (C1.2)
@@ -109,9 +103,11 @@ func _ready() -> void:
 	_workbench_window = WorkbenchWindow.new() # E sobre el banco (C1.5)
 	add_child(_workbench_window)
 	player.building_opened.connect(_on_building_opened)
-	_start_music()
+	var focus_panel := FocusPanel.new() # letrero de arriba con lo que miras (C1.8)
+	add_child(focus_panel)
+	focus_panel.set_player(player)
+	add_child(MusicPlayer.new()) # tres temas por turnos, con silencios entre ellos (C1.8)
 	toast_label.modulate.a = 0.0
-	_update_label()
 
 
 ## F5 guarda y F9 carga (B5.2, D-040). Van aquí, en el sandbox, porque en el juego irán en el menú de pausa.
@@ -124,20 +120,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		var result: String = SaveSystem.load_game()
 		if result == "LOAD_DONE" or result == "LOAD_BACKUP":
 			player.restore_from_world()
-			_update_label()
-
-
-## Música en bucle: el bucle se marca aquí (de la muestra 0 al final) en vez de en la importación.
-func _start_music() -> void:
-	var music: AudioStreamWAV = TEST_MUSIC.duplicate()
-	music.loop_mode = AudioStreamWAV.LOOP_FORWARD
-	music.loop_begin = 0
-	music.loop_end = roundi(music.get_length() * music.mix_rate)
-	var player_node := AudioStreamPlayer.new()
-	player_node.stream = music
-	player_node.bus = &"Music"
-	add_child(player_node)
-	player_node.play()
 
 
 ## E sobre una construcción: el banco tiene su ventana; lo demás, la de máquina.
@@ -157,16 +139,6 @@ func _show_toast(text_key: String) -> void:
 	_toast_tween = create_tween()
 	_toast_tween.tween_interval(1.5)
 	_toast_tween.tween_property(toast_label, "modulate:a", 0.0, 0.5)
-
-
-## La barra de abajo ya enseña la barra normal y la de construcción (C1.2). Este texto solo avisa de lo que
-## llevas con el cuentagotas si no está en la barra.
-func _update_label() -> void:
-	var builder: BuildController = player.build_controller
-	var held: BuildingData = builder.get_held()
-	build_bar_label.text = ""
-	if builder.active and held != null and not builder.build_bar.has(held):
-		build_bar_label.text = "En la mano: " + tr(held.name_key)
 
 
 func _on_player_focus_changed(target: Interactable) -> void:

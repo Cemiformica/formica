@@ -21,7 +21,9 @@ var _held_index: int = -1
 ## Inventario de la ventana abierta (máquina, arcón…) al que va Mayús + clic desde el del jugador.
 var other_inventory: Inventory = null
 
-var _held_view: ColorRect
+var _held_view: Control
+var _held_swatch: ColorRect
+var _held_icon: TextureRect
 var _held_label: Label
 
 
@@ -30,13 +32,24 @@ func _ready() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 50
 	add_child(layer)
-	_held_view = ColorRect.new()
+	_held_view = Control.new()
 	_held_view.size = SlotUI.SLOT_SIZE * 0.8
 	_held_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_held_view.visible = false
 	layer.add_child(_held_view)
+	# Icono del ítem; el cuadrito de color solo para ítems sin icono.
+	_held_swatch = ColorRect.new()
+	_held_swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_held_swatch.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_held_view.add_child(_held_swatch)
+	_held_icon = SlotUI.make_icon_rect()
+	_held_icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_held_view.add_child(_held_icon)
 	_held_label = Label.new()
 	_held_label.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	_held_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_held_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	_held_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_held_label.add_theme_color_override("font_outline_color", Color.BLACK)
 	_held_label.add_theme_constant_override("outline_size", 4)
 	_held_view.add_child(_held_label)
@@ -142,8 +155,14 @@ func _set_held(stack: ItemStack, source: Inventory, index: int) -> void:
 	held = stack
 	_held_view.visible = held != null
 	if held != null:
-		_held_view.color = held.item.color
-		_held_label.text = "%s %d" % [SlotUI.short_name(held.item), held.amount]
+		var icon: Texture2D = held.item.icon
+		_held_icon.texture = icon
+		_held_swatch.visible = icon == null
+		_held_swatch.color = held.item.color
+		if icon != null:
+			_held_label.text = str(held.amount)
+		else:
+			_held_label.text = "%s %d" % [SlotUI.short_name(held.item), held.amount]
 
 
 ## Devuelve lo que haya en la mano: a su casilla de origen si cabe, y si no, al inventario del jugador.

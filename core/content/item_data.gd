@@ -9,7 +9,8 @@ extends Resource
 @export var name_key: String = ""
 ## Cantidad máxima por casilla de inventario.
 @export_range(1, 999) var max_stack: int = 50
-## Icono. Mientras no haya arte, las casillas usan `color` y el nombre abreviado.
+## Icono de las casillas: foto del modelo, sacada en Blender (art/tools/render_item_icons.py, C1.7).
+## Si falta, las casillas usan `color` y el nombre abreviado.
 @export var icon: Texture2D
-## Color provisional de la casilla (sustituto del icono).
+## Color de reserva de la casilla si el ítem no tiene icono.
 @export var color: Color = Color(0.5, 0.5, 0.5)

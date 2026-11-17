@@ -1,10 +1,12 @@
 [gd_resource type="Resource" script_class="ItemData" format=3]
 
 [ext_resource type="Script" path="res://core/content/item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://cqq23kbjheprb" path="res://assets/textures/icons/gravel.png" id="2_icon"]
 
 [resource]
 script = ExtResource("1_item")
 id = &"gravel"
 name_key = "ITEM_GRAVEL"
 max_stack = 50
+icon = ExtResource("2_icon")
 color = Color(0.78, 0.74, 0.62, 1)

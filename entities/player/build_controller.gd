@@ -120,6 +120,16 @@ func get_held() -> BuildingData:
 	return null
 
 
+## ¿Construcción cogida con el cuentagotas que no está en la barra? (la ayuda de teclas dice su nombre)
+func is_held_picked() -> bool:
+	return active and _picked != null
+
+
+## ¿Hay un cable a medio tender (primer clic dado)?
+func cable_started() -> bool:
+	return holding_cable() and _cable_from != 0
+
+
 ## ¿Llevamos el cable en la mano?
 func holding_cable() -> bool:
 	return active and _picked == null and selected_slot < build_bar.size() and build_bar[selected_slot] is CableTool

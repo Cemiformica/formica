@@ -73,21 +73,6 @@ text = "+"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="BuildBarLabel" type="Label" parent="HUD" unique_id=1786469942]
-auto_translate_mode = 2
-anchors_preset = 12
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_top = -126.0
-offset_bottom = -94.0
-grow_horizontal = 2
-grow_vertical = 0
-theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
-theme_override_constants/outline_size = 6
-horizontal_alignment = 1
-vertical_alignment = 1
-
 [node name="NetworkLabel" type="Label" parent="HUD" unique_id=229705662]
 auto_translate_mode = 2
 anchors_preset = 12
@@ -107,8 +92,8 @@ vertical_alignment = 1
 auto_translate_mode = 2
 anchors_preset = 10
 anchor_right = 1.0
-offset_top = 40.0
-offset_bottom = 72.0
+offset_top = 150.0
+offset_bottom = 182.0
 grow_horizontal = 2
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 6

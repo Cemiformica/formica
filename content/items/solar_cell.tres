@@ -1,9 +1,11 @@
 [gd_resource type="Resource" script_class="ItemData" format=3]
 
 [ext_resource type="Script" path="res://core/content/item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://bwjv41hdqo5gv" path="res://assets/textures/icons/solar_cell.png" id="2_icon"]
 
 [resource]
 script = ExtResource("1_item")
 id = &"solar_cell"
 name_key = "ITEM_SOLAR_CELL"
+icon = ExtResource("2_icon")
 color = Color(0.12, 0.42, 0.58, 1)

@@ -1,9 +1,11 @@
 [gd_resource type="Resource" script_class="ItemData" format=3]
 
 [ext_resource type="Script" path="res://core/content/item_data.gd" id="1_item"]
+[ext_resource type="Texture2D" uid="uid://eoljmeutg8lw" path="res://assets/textures/icons/copper_ore.png" id="2_icon"]
 
 [resource]
 script = ExtResource("1_item")
 id = &"copper_ore"
 name_key = "ITEM_COPPER_ORE"
+icon = ExtResource("2_icon")
 color = Color(0.25, 0.75, 0.54, 1)
