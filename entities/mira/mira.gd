@@ -21,6 +21,7 @@ const ANTENNA_STIFFNESS: float = 1.5
 const ANTENNA_DRAG: float = 0.3
 const ANTENNA_RADIUS: float = 0.01
 const LEG_RADIUS: float = 0.045        # grosor de las cápsulas (m); con la tela, menos que el hueco en reposo (~7 cm)
+const ANIMATION_BLEND: float = 0.2     # segundos de mezcla al cambiar de animación
 const LEG_BONES: Dictionary = {        # hueso de la pierna → hueso hijo (marca su longitud)
 	"LeftUpperLeg": "LeftLowerLeg", "LeftLowerLeg": "LeftFoot",
 	"RightUpperLeg": "RightLowerLeg", "RightLowerLeg": "RightFoot",
@@ -28,6 +29,7 @@ const LEG_BONES: Dictionary = {        # hueso de la pierna → hueso hijo (marc
 
 var skeleton: Skeleton3D
 var springs: SpringBoneSimulator3D
+var animations: AnimationPlayer        # las del .glb: "idle" y "walk" (mira_anims.py), en bucle
 
 
 func _ready() -> void:
@@ -39,6 +41,7 @@ func _ready() -> void:
 	springs.name = "Springs"
 	skeleton.add_child(springs)
 	_add_leg_colliders()
+	animations = find_child("AnimationPlayer") as AnimationPlayer
 	# Cadenas: [hueso raíz, hueso final, rigidez, freno, grosor, choca con las piernas]
 	var chains: Array = []
 	for side: String in SKIRT_SIDES:
@@ -51,6 +54,15 @@ func _ready() -> void:
 	springs.setting_count = chains.size()
 	for index: int in chains.size():
 		_setup_chain(index, chains[index])
+	play_idle()
+
+
+func play_idle() -> void:
+	animations.play("idle", ANIMATION_BLEND)
+
+
+func play_walk() -> void:
+	animations.play("walk", ANIMATION_BLEND)
 
 
 func _setup_chain(index: int, chain: Array) -> void:
