@@ -126,7 +126,7 @@ func holding_cable() -> bool:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if Aim.ui_open:
+	if WindowManager.is_open():
 		return
 	if event.is_action_pressed("pick_building"):
 		_pick_building()

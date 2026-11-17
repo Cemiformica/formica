@@ -83,6 +83,11 @@ func is_machine() -> bool:
 	return data.recipe != null
 
 
+## ¿Es un banco de trabajo? (fabrica a mano desde su ventana, C1.5)
+func is_workbench() -> bool:
+	return not data.crafting_recipes.is_empty()
+
+
 ## ¿Es una cinta?
 func is_belt() -> bool:
 	return data.belt_speed > 0.0

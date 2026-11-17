@@ -3,11 +3,9 @@ extends RefCounted
 ## Utilidades de apuntado compartidas por construir, desmontar e interactuar.
 ## El rayo sale de la cámara activa por un punto de la pantalla: el centro, o el cursor con cámara libre.
 ## Traído del prototipo tal cual (D-054). En B2 solo se usa la primera persona; el modo cursor queda
-## listo para cuando vuelva la cámara libre (D-064). `ui_open` se sustituirá por un gestor de ventanas (D-048).
+## listo para cuando vuelva la cámara libre (D-064). Las ventanas abiertas las lleva `WindowManager` (C1.1).
 
 
-## Hay una ventana de interfaz abierta (inventario, máquina...): el juego no recibe clics ni movimiento.
-static var ui_open: bool = false
 ## Modo cursor (cámara libre): el rayo sale del cursor en vez del centro de la pantalla.
 static var cursor_mode: bool = false
 ## Mientras se gira la cámara libre, el cursor queda fijo en esta posición.
@@ -24,7 +22,7 @@ static func aim_screen_point(viewport: Viewport) -> Vector2:
 
 ## ¿Se pueden usar los clics para construir o desmontar? (ratón capturado, o cámara libre).
 static func pointer_ready() -> bool:
-	if ui_open:
+	if WindowManager.is_open():
 		return false
 	return cursor_mode or Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 

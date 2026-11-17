@@ -7,8 +7,15 @@ extends Node
 ## Se emite después de cargar una partida o empezar una nueva: quien muestre el estado debe releerlo.
 signal state_replaced
 
-## Inventario del jugador. Al cargar se rellena el MISMO objeto, así que las referencias siguen valiendo.
-var player_inventory: Inventory = Inventory.new(12)
+## Casillas de la barra (las 10 primeras del inventario del jugador) y de cada módulo de la mochila, que va
+## después (C1, César): se empieza con 1 módulo; cada mejora añade otro.
+const HOTBAR_SLOTS: int = 10
+const BACKPACK_MODULE_SLOTS: int = 10
+const START_BACKPACK_MODULES: int = 1
+
+## Inventario del jugador: casillas 0–9, la barra; desde la 10, la mochila. Al cargar se rellena el MISMO
+## objeto, así que las referencias siguen valiendo.
+var player_inventory: Inventory = Inventory.new(HOTBAR_SLOTS + START_BACKPACK_MODULES * BACKPACK_MODULE_SLOTS)
 ## Isla (o zona) donde está el jugador. Vacío = todavía ninguna.
 var current_island: StringName = &""
 ## Posición y giro horizontal del jugador dentro de esa isla.

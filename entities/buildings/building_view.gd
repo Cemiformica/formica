@@ -172,6 +172,10 @@ var _status_material: StandardMaterial3D = null
 var _status_time: float = 0.0
 ## ¿Tiene algún cable? (lo dice `set_cabled`; también decide el color de la luz de estado)
 var _cabled: bool = false
+## ¿Tiene el jugador abierta la ventana de esta construcción? (C1.5) El banco se anima y el arcón abre la tapa.
+var window_open: bool = false
+var _lid: Node3D = null
+var _lid_tween: Tween = null
 ## Piezas que rebotan al colocar y su escala original (B5.4).
 var _pop_nodes: Array[Node3D] = []
 var _pop_scales: Array[Vector3] = []
@@ -307,7 +311,7 @@ func _process(delta: float) -> void:
 		return
 	if _status_material != null:
 		_update_status_lights(delta)
-	if placed.is_machine() or placed.is_extractor() or placed.is_harvester():
+	if placed.is_machine() or placed.is_extractor() or placed.is_harvester() or placed.is_workbench():
 		_update_machine_visuals(delta)
 	if _wheel != null:
 		_update_water_wheel(delta)
@@ -375,6 +379,17 @@ func _set_pop(t: float) -> void:
 	for i: int in _pop_nodes.size():
 		if is_instance_valid(_pop_nodes[i]):
 			_pop_nodes[i].scale = _pop_scales[i] * Vector3(wide, stretch, wide)
+
+
+## La ventana de esta construcción se abre o se cierra (C1.5): el arcón levanta o baja la tapa (unos 80°,
+## desde la bisagra de atrás); el banco se anima mientras está abierta (ver `_update_machine_visuals`).
+func set_window_open(open: bool) -> void:
+	window_open = open
+	if _lid != null:
+		if _lid_tween != null:
+			_lid_tween.kill()
+		_lid_tween = create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		_lid_tween.tween_property(_lid, "rotation:x", deg_to_rad(-80.0) if open else 0.0, 0.35)
 
 
 ## El texto flotante solo se ve mientras el jugador mira esta construcción (B5).
@@ -585,12 +600,9 @@ static func _material_for(item: ItemData) -> StandardMaterial3D:
 ## hace el intercambio rápido provisional con el inventario del jugador.
 func interact(by: Node) -> void:
 	super(by)
-	if placed.data.power > 0.0 and island != null:
-		var network: PowerNetwork = island.get_network(placed.id)
-		if network != null:
-			network.reset_fuse() # si sigue sobrecargada, volverá a saltar en el siguiente paso
-		return
-	placed.quick_exchange(WorldState.player_inventory)
+	# E abre la ventana de la construcción (C1.3); el fusible se rearma desde ella.
+	if by.has_method("open_building"):
+		by.open_building(self)
 
 
 ## Busca en el modelo las piezas que muestran el estado de la máquina y las prepara (todas son opcionales).
@@ -642,6 +654,7 @@ func _setup_machine_visuals(model: Node3D) -> void:
 
 ## Banco de trabajo: manivela, carrete, bobina que crece y flexo con luz propia (todo opcional).
 func _setup_workbench(model: Node3D) -> void:
+	_lid = model.find_child("lid_pivot", true, false) as Node3D # arcón
 	_crank = model.find_child("crank_pivot", true, false) as Node3D
 	_spool = model.find_child("spool_pivot", true, false) as Node3D
 	_coil_fill = model.find_child("coil_fill_pivot", true, false) as Node3D
@@ -673,7 +686,9 @@ func _setup_workbench(model: Node3D) -> void:
 ## Trabaja si su progreso cambió hace poco. El calor sube y baja suave, y de él dependen la brasa
 ## (con parpadeo), el humo y el fuelle.
 func _update_machine_visuals(delta: float) -> void:
-	if placed.progress != _last_progress:
+	if placed.is_workbench() and window_open:
+		_working_hold = WORKING_HOLD # el banco trabaja mientras su ventana está abierta (César)
+	elif placed.progress != _last_progress:
 		_last_progress = placed.progress
 		_working_hold = WORKING_HOLD
 	else:
@@ -732,8 +747,10 @@ func _update_machine_visuals(delta: float) -> void:
 		_crank.rotation.x += CRANK_SPIN * _heat * delta
 	if _spool != null:
 		_spool.rotation.x += SPOOL_SPIN * _heat * delta
-	if _coil_fill != null and placed.is_machine():
-		var done: float = clampf(placed.progress / placed.data.recipe.duration, 0.0, 1.0)
+	if _coil_fill != null and (placed.is_machine() or placed.is_workbench()):
+		var done: float = 0.5 + 0.5 * sin(_time * 1.3) # el banco devana sin parar mientras está abierto
+		if placed.is_machine():
+			done = clampf(placed.progress / placed.data.recipe.duration, 0.0, 1.0)
 		var thick: float = lerpf(COIL_MIN_SCALE, 1.0, done)
 		_coil_fill.scale = Vector3(1.0, thick, thick)
 	if _lamp_material != null:

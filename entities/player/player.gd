@@ -9,6 +9,8 @@ extends CharacterBody3D
 
 ## Se emite cuando cambia el objeto interactuable al que miramos (null si ya no miramos ninguno).
 signal focus_changed(interactable: Interactable)
+## Se emite al pulsar E sobre una construcción: la interfaz abre su ventana (C1.3).
+signal building_opened(view: BuildingView)
 
 @export_group("Movimiento")
 @export var walk_speed: float = 5.0 ## Velocidad al caminar (m/s).
@@ -34,6 +36,8 @@ signal focus_changed(interactable: Interactable)
 var spawn_transform: Transform3D
 ## Objeto interactuable que estamos mirando (null si ninguno).
 var focused_interactable: Interactable = null
+## Casilla de la barra elegida (C1.6): lo que hay en ella es lo que Mira lleva en la mano.
+var held_slot: int = 0
 
 
 func _ready() -> void:
@@ -46,10 +50,11 @@ func _ready() -> void:
 	camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	# Primera persona: Mira oculta (sin sombra). Sigue animándose por dentro, lista para la tercera persona.
 	mira.visible = false
+	WorldState.player_inventory.changed.connect(_update_held_item)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if Aim.ui_open:
+	if WindowManager.is_open():
 		return
 
 	# Esc libera el ratón; un clic lo vuelve a capturar.
@@ -58,8 +63,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton and event.pressed:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
-	# E interactúa con lo que miramos.
-	if event.is_action_pressed("interact") and is_instance_valid(focused_interactable):
+	# E interactúa con lo que miramos, salvo en el modo construcción: construir es un modo aparte (C1.6, César).
+	if event.is_action_pressed("interact") and is_instance_valid(focused_interactable) and not build_controller.active:
 		focused_interactable.interact(self)
 
 	# Mirar con el ratón (solo con el ratón capturado).
@@ -81,12 +86,12 @@ func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity += get_gravity() * gravity_multiplier * delta
 
-	if Input.is_action_just_pressed("jump") and is_on_floor() and not Aim.ui_open:
+	if Input.is_action_just_pressed("jump") and is_on_floor() and not WindowManager.is_open():
 		velocity.y = jump_velocity
 
 	# Dirección según WASD, relativa a hacia dónde mira el cuerpo.
 	var input_dir: Vector2 = Vector2.ZERO
-	if not Aim.ui_open:
+	if not WindowManager.is_open():
 		input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var direction: Vector3 = (transform.basis * Vector3(input_dir.x, 0.0, input_dir.y)).normalized()
 	var target_velocity: Vector3 = direction * walk_speed
@@ -101,6 +106,25 @@ func _physics_process(delta: float) -> void:
 		reset_physics_interpolation() # salto instantáneo: sin «volar» desde donde caía
 
 	_update_focus()
+
+
+## Elige la casilla de la barra (C1.6; lo llama la barra de abajo). Mira lleva en la mano lo que haya en ella.
+func set_held_slot(index: int) -> void:
+	held_slot = index
+	_update_held_item()
+
+
+## Pone en la mano de Mira lo de la casilla elegida (o nada). Se repite cuando cambia el inventario.
+func _update_held_item() -> void:
+	var stack: ItemStack = WorldState.player_inventory.slots[held_slot]
+	var item: ItemData = stack.item if stack != null else null
+	if mira.held_item != item:
+		mira.hold_item(item)
+
+
+## Lo llama una construcción al pulsar E sobre ella (C1.3).
+func open_building(view: BuildingView) -> void:
+	building_opened.emit(view)
 
 
 ## Anota en `WorldState` dónde está el jugador, justo antes de guardar la partida (B5.2).

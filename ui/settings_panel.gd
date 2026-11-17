@@ -1,7 +1,7 @@
 class_name SettingsPanel
 extends CanvasLayer
 ## Panel provisional de opciones gráficas y volúmenes (B5.3, B5.4). Se abre y cierra con F10 (`toggle_settings`) o se cierra
-## con Esc. Cada cambio se aplica y se guarda al momento (autoload `Settings`). En la fase C irá dentro del
+## con Esc, como ventana de `WindowManager` (C1.1). Cada cambio se aplica y se guarda al momento (autoload `Settings`). En la fase C irá dentro del
 ## menú de pausa. Para añadir una opción: una línea en `_build()` con `_add_row()`.
 
 var _panel: PanelContainer
@@ -14,25 +14,17 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build()
 	_panel.visible = false
+	WindowManager.window_opened.connect(_on_window_opened)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_settings"):
-		_set_open(not _panel.visible)
-		get_viewport().set_input_as_handled()
-	elif _panel.visible and event.is_action_pressed("ui_cancel"):
-		_set_open(false)
+		WindowManager.toggle(_panel)
 		get_viewport().set_input_as_handled()
 
 
-func _set_open(open: bool) -> void:
-	# Otra ventana (provisional) ya abierta: no abrimos encima.
-	if open and Aim.ui_open:
-		return
-	_panel.visible = open
-	Aim.ui_open = open
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if open else Input.MOUSE_MODE_CAPTURED
-	if open:
+func _on_window_opened(window: Control) -> void:
+	if window == _panel:
 		_refresh()
 
 

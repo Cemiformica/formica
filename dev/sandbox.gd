@@ -35,6 +35,10 @@ const TEST_MUSIC: AudioStreamWAV = preload("res://assets/audio/music_test.wav")
 @onready var network_label: Label = $HUD/NetworkLabel
 @onready var toast_label: Label = $HUD/ToastLabel
 
+## Ventanas de las construcciones (C1.3, C1.5).
+var _machine_window: MachineWindow
+var _workbench_window: WorkbenchWindow
+
 ## Animación del aviso de arriba («Partida guardada»…), para cortarla si llega otro aviso.
 var _toast_tween: Tween = null
 
@@ -94,6 +98,17 @@ func _ready() -> void:
 	inventory.changed.connect(_update_label)
 	SaveSystem.notification_requested.connect(_show_toast)
 	add_child(SettingsPanel.new()) # F10: opciones gráficas y volúmenes (B5.3, B5.4)
+	add_child(InventoryWindow.new()) # Tab: mochila (C1.2)
+	var hotbar := HotbarUI.new() # barra de abajo, siempre a la vista (C1.2)
+	add_child(hotbar)
+	hotbar.set_builder(player.build_controller)
+	hotbar.selection_changed.connect(player.set_held_slot)
+	player.set_held_slot(hotbar.selected_slot)
+	_machine_window = MachineWindow.new() # E sobre una construcción (C1.3)
+	add_child(_machine_window)
+	_workbench_window = WorkbenchWindow.new() # E sobre el banco (C1.5)
+	add_child(_workbench_window)
+	player.building_opened.connect(_on_building_opened)
 	_start_music()
 	toast_label.modulate.a = 0.0
 	_update_label()
@@ -125,6 +140,14 @@ func _start_music() -> void:
 	player_node.play()
 
 
+## E sobre una construcción: el banco tiene su ventana; lo demás, la de máquina.
+func _on_building_opened(view: BuildingView) -> void:
+	if view.placed.is_workbench():
+		_workbench_window.open_for(view)
+	else:
+		_machine_window.open_for(view)
+
+
 ## Muestra un aviso traducido arriba durante 1,5 s y lo desvanece en 0,5 s.
 func _show_toast(text_key: String) -> void:
 	toast_label.text = tr(text_key)
@@ -136,36 +159,14 @@ func _show_toast(text_key: String) -> void:
 	_toast_tween.tween_property(toast_label, "modulate:a", 0.0, 0.5)
 
 
-## Fuera del modo: "B: construir · Madera 100 · Piedra 100".
-## Dentro: "[1 Trituradora]   2 Cinta   3 —  …" (la casilla elegida entre corchetes).
+## La barra de abajo ya enseña la barra normal y la de construcción (C1.2). Este texto solo avisa de lo que
+## llevas con el cuentagotas si no está en la barra.
 func _update_label() -> void:
 	var builder: BuildController = player.build_controller
-	var inventory: Inventory = WorldState.player_inventory
-	var wood: ItemData = Content.find_item(&"wood")
-	var stone: ItemData = Content.find_item(&"stone")
-	var seed_item: ItemData = Content.find_item(&"seed")
-	var materials: String = "%s %d · %s %d · %s %d" % [tr(wood.name_key), inventory.get_total(wood), tr(stone.name_key), inventory.get_total(stone), tr(seed_item.name_key), inventory.get_total(seed_item)]
-	for id: StringName in [&"copper_ore", &"charcoal", &"copper_ingot", &"slag", &"iron_ingot", &"solar_cell", &"copper_coil"]:
-		var item: ItemData = Content.find_item(id)
-		if inventory.get_total(item) > 0:
-			materials += " · %s %d" % [tr(item.name_key), inventory.get_total(item)]
-	if not builder.active:
-		build_bar_label.text = "B: construir · " + materials
-		return
-	var parts: PackedStringArray = []
-	for i: int in BuildController.BAR_SIZE:
-		var key: int = (i + 1) % 10 # la décima casilla va con el 0
-		var text: String = "%d —" % key
-		if i < builder.build_bar.size() and builder.build_bar[i] != null:
-			text = "%d %s" % [key, tr(str(builder.build_bar[i].get("name_key")))]
-		if i == builder.selected_slot:
-			text = "[" + text + "]"
-		parts.append(text)
 	var held: BuildingData = builder.get_held()
-	var held_text: String = ""
-	if held != null and not builder.build_bar.has(held):
-		held_text = "    · En la mano: " + tr(held.name_key) # cogido con el cuentagotas, fuera de la barra
-	build_bar_label.text = "   ".join(parts) + held_text + "    · " + materials
+	build_bar_label.text = ""
+	if builder.active and held != null and not builder.build_bar.has(held):
+		build_bar_label.text = "En la mano: " + tr(held.name_key)
 
 
 func _on_player_focus_changed(target: Interactable) -> void:

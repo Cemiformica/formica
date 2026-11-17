@@ -153,6 +153,108 @@ func transfer_to(from_index: int, target: Inventory, to_index: int) -> void:
 		target.changed.emit()
 
 
+## Primera casilla vacía (y que admita `item`, si se da) entre `from` y `to` (sin incluir `to`; -1 = hasta el
+## final). Devuelve -1 si no hay ninguna.
+func find_empty(from: int = 0, to: int = -1, item: ItemData = null) -> int:
+	var end: int = slots.size() if to < 0 else mini(to, slots.size())
+	for i: int in range(maxi(from, 0), end):
+		if slots[i] == null and (item == null or can_insert(i, item)):
+			return i
+	return -1
+
+
+## Parte la pila de `index` (C1.2): la mitad, redondeando hacia abajo, pasa a la primera casilla vacía entre
+## `from` y `to`. Devuelve false si la pila tiene menos de 2 o no hay hueco.
+func split_half(index: int, from: int = 0, to: int = -1) -> bool:
+	var stack: ItemStack = slots[index]
+	if stack == null or stack.amount < 2:
+		return false
+	var empty: int = find_empty(from, to, stack.item)
+	if empty < 0:
+		return false
+	var half: int = stack.amount / 2
+	stack.amount -= half
+	slots[empty] = ItemStack.new(stack.item, half)
+	changed.emit()
+	return true
+
+
+## Mueve rápido la pila de `index` a `target`, entre las casillas `from` y `to` (C1.2, Mayús + clic):
+## primero junta con pilas del mismo ítem y después ocupa casillas vacías. Lo que no quepa se queda donde
+## estaba. `target` puede ser este mismo inventario (p. ej., de la barra a la mochila).
+func quick_move(index: int, target: Inventory, from: int = 0, to: int = -1) -> void:
+	var stack: ItemStack = slots[index]
+	if stack == null:
+		return
+	var end: int = target.slots.size() if to < 0 else mini(to, target.slots.size())
+	# 1) Juntar con pilas del mismo ítem.
+	for i: int in range(maxi(from, 0), end):
+		if stack.amount == 0:
+			break
+		var dest: ItemStack = target.slots[i]
+		if (target == self and i == index) or dest == null or dest.item != stack.item:
+			continue
+		var moved: int = mini(stack.amount, dest.space_left())
+		dest.amount += moved
+		stack.amount -= moved
+	# 2) Ocupar casillas vacías (la pila entera de golpe, si cabe en una).
+	if stack.amount > 0:
+		var empty: int = target.find_empty(from, to, stack.item)
+		if empty >= 0:
+			target.slots[empty] = stack
+			slots[index] = null
+	if stack.amount == 0:
+		slots[index] = null
+	changed.emit()
+	if target != self:
+		target.changed.emit()
+
+
+## Coge la pila de `index` para llevarla en la mano (C1.2): entera, o con `half` la mitad redondeando hacia
+## arriba (clic derecho). Devuelve null si la casilla estaba vacía.
+func take_stack(index: int, half: bool = false) -> ItemStack:
+	var stack: ItemStack = slots[index]
+	if stack == null:
+		return null
+	if not half or stack.amount == 1:
+		slots[index] = null
+		changed.emit()
+		return stack
+	var taken: int = ceili(stack.amount / 2.0)
+	stack.amount -= taken
+	changed.emit()
+	return ItemStack.new(stack.item, taken)
+
+
+## Deja en la casilla `index` la pila que se lleva en la mano (C1.2). Si está vacía, la pone; si tiene el
+## mismo ítem, junta lo que quepa; si tiene otro ítem y `allow_swap`, las intercambia. Con `max_amount` (1 con
+## clic derecho) deja como mucho esa cantidad y nunca intercambia. Devuelve lo que queda en la mano (null si
+## nada): el resto, la pila intercambiada o la misma pila si la casilla no la admite.
+func put_stack(index: int, stack: ItemStack, max_amount: int = -1, allow_swap: bool = true) -> ItemStack:
+	if stack == null:
+		return null
+	if not can_insert(index, stack.item):
+		return stack
+	var dest: ItemStack = slots[index]
+	var amount: int = stack.amount if max_amount < 0 else mini(max_amount, stack.amount)
+	if dest == null:
+		var placed: int = mini(amount, stack.item.max_stack)
+		slots[index] = ItemStack.new(stack.item, placed)
+		stack.amount -= placed
+	elif dest.item == stack.item:
+		var moved: int = mini(amount, dest.space_left())
+		dest.amount += moved
+		stack.amount -= moved
+	elif allow_swap and max_amount < 0:
+		slots[index] = stack
+		changed.emit()
+		return dest
+	else:
+		return stack
+	changed.emit()
+	return null if stack.amount == 0 else stack
+
+
 ## Total de unidades de `item` sumando todas las casillas.
 func get_total(item: ItemData) -> int:
 	var total: int = 0

@@ -64,3 +64,14 @@ SETTINGS_HIGH,Alta,Alta,High
 SETTINGS_CLOSE_HINT,F10: cerrar,F10: tancar,F10: close
 SETTINGS_MUSIC_VOLUME,Volumen de la música,Volum de la música,Music volume
 SETTINGS_SFX_VOLUME,Volumen de los efectos,Volum dels efectes,Effects volume
+INVENTORY_BACKPACK,Mochila,Motxilla,Backpack
+INVENTORY_HOTBAR,Barra,Barra,Hotbar
+WINDOW_INPUT,Entrada,Entrada,Input
+WINDOW_OUTPUT,Salida,Sortida,Output
+WINDOW_STORAGE,Contenido,Contingut,Contents
+WINDOW_NETWORK,Red: genera %d · consume %d,Xarxa: genera %d · consumeix %d,Network: makes %d · uses %d
+WINDOW_FUSE_TRIPPED,¡Fusible saltado! Quita carga y rearma,Fusible saltat! Treu càrrega i rearma,Fuse blown! Remove load and reset
+WINDOW_RESET_FUSE,Rearmar fusible,Rearmar el fusible,Reset fuse
+WINDOW_CRAFT,Fabricar,Fabricar,Craft
+WINDOW_AMOUNT,Cantidad,Quantitat,Amount
+WINDOW_NEEDS,Necesita,Necessita,Needs

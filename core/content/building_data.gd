@@ -17,6 +17,9 @@ extends Resource
 @export var cost: Dictionary[ItemData, int] = {}
 ## Receta fija si es una máquina (vacío = no es máquina: caja, cinta, generador…).
 @export var recipe: RecipeData
+## Banco de trabajo (C1.5): recetas que se fabrican a mano desde su ventana, al instante y de 1 en 1 con
+## selector de cantidad (D-067). Con recetas aquí, la construcción no es una máquina (sin `recipe`).
+@export var crafting_recipes: Array[RecipeData] = []
 ## Solo cintas: velocidad en casillas por segundo. 0 = no es una cinta.
 @export var belt_speed: float = 0.0
 ## Solo cintas: ítems que caben a la vez en una casilla.
