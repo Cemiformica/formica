@@ -6,11 +6,17 @@
 #      (más antenas, mascarilla, abdomen y mochila), usando los empties del blockout
 #      como pivotes;
 #   2. une todas las piezas en una sola malla "mira_mesh" con un grupo de vértices por
-#      hueso (peso 1);
+#      hueso (peso 1). La excepción es el faldón de la bata (vacío "skirt", D-106): se
+#      reparte con pesos suaves entre 8 varillas de 2 huesos para que se doble sin rendijas;
+#      en Godot las mueve SpringBoneSimulator3D. Lo que va con el pecho (bata, tórax,
+#      solapas, botones) también se dobla suave en la cintura, de la cadera al pecho pasando
+#      por la columna, para que la costura con el faldón no se abra al inclinarse;
 #   3. borra los empties y deja la malla con su modificador Armature.
 #
 # Uso: exec(open(bpy.path.abspath("//../tools/mira_rig.py")).read())
 # Para cambiar la forma de Mira: regenerar con mira_blockout.py y volver a ejecutar este.
+
+import math
 
 import bpy
 from mathutils import Vector
@@ -29,6 +35,73 @@ EMPTY_TO_BONE = {
     "thigh_l": "LeftUpperLeg", "shin_l": "LeftLowerLeg", "foot_l": "LeftFoot",
     "thigh_r": "RightUpperLeg", "shin_r": "RightLowerLeg", "foot_r": "RightFoot",
 }
+
+
+SKIRT_EMPTY = "skirt"
+SKIRT_SIDES = (("Left", "l"), ("Right", "r"))
+SKIRT_BLEND = 0.06       # zona de mezcla (m) entre cintura/cadera y entre los dos huesos de cada varilla
+
+
+WAIST_LOW = 0.62         # por debajo, lo del pecho va con la cadera (casa con la cintura del faldón)
+WAIST_HIGH = 0.80        # por encima, va con el pecho (las asas de la mochila y las mangas empiezan más arriba)
+
+
+def waist_weights(z: float) -> dict:
+    """Pesos de un vértice del pecho en la cintura: cadera → columna → pecho."""
+    t = min(1.0, max(0.0, (z - WAIST_LOW) / (WAIST_HIGH - WAIST_LOW)))
+    if t < 0.5:
+        weights = {"Hips": 1.0 - 2.0 * t, "Spine": 2.0 * t}
+    else:
+        weights = {"Spine": 2.0 - 2.0 * t, "Chest": 2.0 * t - 1.0}
+    return {name: w for name, w in weights.items() if w > 1e-4}
+
+
+def skirt_bone(side: str, index: int, lower: bool) -> str:
+    return "Skirt%s%d%s" % (side, index, "Lower" if lower else "Upper")
+
+
+def skirt_angle(point: Vector) -> float:
+    # Ángulo (°) desde el frente alrededor del faldón, el mismo para los vacíos y para los vértices.
+    return math.degrees(math.atan2(abs(point.x), -point.y))
+
+
+def skirt_ribs() -> list:
+    """Varillas del faldón: [(lado, índice, ángulo, cintura, rodilla, bajo)], ordenadas por ángulo."""
+    ribs = []
+    for side, s in SKIRT_SIDES:
+        index = 1
+        while ("skirt_%s%d_0" % (s, index)) in bpy.data.objects:
+            joints = [pivot("skirt_%s%d_%d" % (s, index, k)) for k in range(3)]
+            ribs.append((side, index, skirt_angle(joints[0])) + tuple(joints))
+            index += 1
+    return sorted(ribs, key=lambda rib: rib[2])
+
+
+def skirt_weights(co: Vector, ribs: list, z_cut: float, z_knee: float) -> dict:
+    """Pesos de un vértice del faldón: mezcla entre las dos varillas vecinas (por ángulo) y entre la
+    cadera, el hueso de arriba y el de abajo (por altura)."""
+    side = "Left" if co.x >= 0.0 else "Right"
+    own = [rib for rib in ribs if rib[0] == side]
+    angle = skirt_angle(co)
+    if angle <= own[0][2]:
+        around = [(own[0][1], 1.0)]
+    elif angle >= own[-1][2]:
+        around = [(own[-1][1], 1.0)]
+    else:
+        i = next(i for i in range(len(own) - 1) if own[i][2] <= angle <= own[i + 1][2])
+        t = (angle - own[i][2]) / (own[i + 1][2] - own[i][2])
+        around = [(own[i][1], 1.0 - t), (own[i + 1][1], t)]
+    hips = min(1.0, max(0.0, (co.z - (z_cut - SKIRT_BLEND)) / SKIRT_BLEND))
+    low = min(1.0, max(0.0, (z_knee + SKIRT_BLEND / 2 - co.z) / SKIRT_BLEND))
+    low = low * low * (3.0 - 2.0 * low)
+    weights = {"Hips": hips} if hips > 0.0 else {}
+    for index, w in around:
+        for lower, share in ((False, 1.0 - low), (True, low)):
+            value = (1.0 - hips) * w * share
+            if value > 1e-4:
+                name = skirt_bone(side, index, lower)
+                weights[name] = weights.get(name, 0.0) + value
+    return weights
 
 
 def pivot(name: str) -> Vector:
@@ -50,6 +123,9 @@ def bone_specs() -> list:
         ("Backpack", pivot("backpack"), pivot("backpack") + Vector((0, 0, 0.25)), "Chest"),
         ("Abdomen", pivot("abdomen"), pivot("abdomen") + Vector((0, 0.35, -0.05)), "Hips"),
     ]
+    for side, index, _, waist, knee, hem in skirt_ribs():
+        upper = skirt_bone(side, index, False)
+        specs += [(upper, waist, knee, "Hips"), (skirt_bone(side, index, True), knee, hem, upper)]
     for side, s in (("Left", "l"), ("Right", "r")):
         sign = 1.0 if s == "l" else -1.0
         upper, fore, hand = pivot("upper_arm_" + s), pivot("forearm_" + s), pivot("hand_" + s)
@@ -89,6 +165,15 @@ def build_armature() -> bpy.types.Object:
     return rig
 
 
+def in_skirt(obj: bpy.types.Object) -> bool:
+    node = obj.parent
+    while node is not None:
+        if node.name == SKIRT_EMPTY:
+            return True
+        node = node.parent
+    return False
+
+
 def owner_bone(obj: bpy.types.Object) -> str:
     """Hueso de la pieza: el del empty más cercano hacia arriba."""
     node = obj.parent
@@ -99,15 +184,23 @@ def owner_bone(obj: bpy.types.Object) -> str:
     return EMPTY_TO_BONE[node.name]
 
 
-def prepare_piece(obj: bpy.types.Object) -> None:
-    """Hornea la transformación, asigna su hueso y asegura el atributo 'shade'."""
-    bone = owner_bone(obj)
+def prepare_piece(obj: bpy.types.Object, skirt: tuple) -> None:
+    """Hornea la transformación, asigna sus pesos y asegura el atributo 'shade'."""
+    soft = in_skirt(obj)
+    bone = None if soft else owner_bone(obj)
     world = obj.matrix_world.copy()
     obj.parent = None
     obj.data.transform(world)
     obj.matrix_world.identity()
-    group = obj.vertex_groups.new(name=bone)
-    group.add(range(len(obj.data.vertices)), 1.0, "REPLACE")
+    if soft or bone == "Chest":
+        for vertex in obj.data.vertices:
+            weights = skirt_weights(vertex.co, *skirt) if soft else waist_weights(vertex.co.z)
+            for name, weight in weights.items():
+                group = obj.vertex_groups.get(name) or obj.vertex_groups.new(name=name)
+                group.add([vertex.index], weight, "REPLACE")
+    else:
+        group = obj.vertex_groups.new(name=bone)
+        group.add(range(len(obj.data.vertices)), 1.0, "REPLACE")
     # Al unir, las piezas sin 'shade' quedarían negras: se rellenan de blanco (sin sombreado)
     if "shade" not in obj.data.color_attributes:
         shade = obj.data.color_attributes.new("shade", "BYTE_COLOR", "CORNER")
@@ -133,9 +226,11 @@ def build() -> None:
     if RIG_NAME in bpy.data.objects or "mira" not in bpy.data.objects:
         raise RuntimeError("Ejecuta antes mira_blockout.py: este script trabaja sobre las piezas sueltas.")
     rig = build_armature()
+    ribs = skirt_ribs()
+    skirt = (ribs, pivot(SKIRT_EMPTY).z, ribs[0][4].z)
     pieces = [o for o in bpy.data.objects if o.type == "MESH"]
     for piece in pieces:
-        prepare_piece(piece)
+        prepare_piece(piece, skirt)
     mesh = join_pieces(pieces)
     mesh.parent = rig
     modifier = mesh.modifiers.new("Armature", "ARMATURE")

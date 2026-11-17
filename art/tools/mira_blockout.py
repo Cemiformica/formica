@@ -684,6 +684,15 @@ def open_shell(rings, steps: int = 8, thickness: float = 0.012) -> bmesh.types.B
     return bm
 
 
+# Faldón con «varillas» (D-106): por debajo de la cintura la bata es una pieza aparte, colgada del vacío
+# «skirt», que mira_rig.py reparte con pesos suaves entre 8 cadenas de 2 huesos (4 por lado, como las
+# varillas de un paraguas). En Godot las mueve SpringBoneSimulator3D, con colisión en las piernas.
+COAT_CUT = 0.60                         # cintura: arriba la bata va con el pecho; abajo, el faldón
+SKIRT_KNEE = 0.47                       # unión entre los dos huesos de cada varilla
+SKIRT_RINGS = 7                         # rodajas del faldón (de abajo a la cintura), para que pueda doblarse
+SKIRT_ANGLES = (32.0, 70.0, 110.0, 148.0)   # varillas de cada lado (° desde el frente)
+
+
 # Abdomen: centro y radios. La raja de la bata se calcula a partir de él.
 ABD_C = Vector((0.0, 0.37, 0.62))
 ABD_R = (0.22, 0.26, 0.21)
@@ -779,7 +788,20 @@ def build_body(root, mats):
            chest, gloss, smooth=True)
     finish("pelvis", sphere((0.0, 0.0, 0.565), (0.15, 0.112, 0.09), 12, 8), SKIN, hips, gloss, smooth=True)
     rings = coat_rings()
-    finish("coat", open_shell(rings), COAT, chest, base)
+    cut = (COAT_CUT,) + coat_dims(COAT_CUT) + (coat_slit(COAT_CUT),)
+    upper = [cut] + [r for r in rings if r[0] > COAT_CUT + 1e-4]
+    z_hem = rings[0][0]
+    zs = [z_hem + (COAT_CUT - z_hem) * k / (SKIRT_RINGS - 1) for k in range(SKIRT_RINGS)]
+    zs += [r[0] for r in rings if r[0] < COAT_CUT and min(abs(r[0] - z) for z in zs) > 0.01]
+    lower = [(z,) + coat_dims(z) + (coat_slit(z),) for z in sorted(zs)]
+    finish("coat", open_shell(upper), COAT, chest, base)
+    skirt = empty("skirt", (0.0, 0.0, COAT_CUT), hips)
+    finish("coat_skirt", open_shell(lower), COAT, skirt, base)
+    # Articulaciones de las varillas (cintura, rodilla y bajo), sobre la tela: las lee mira_rig.py.
+    for side, sgn in (("l", 1.0), ("r", -1.0)):
+        for i, a in enumerate(SKIRT_ANGLES):
+            for k, z in enumerate((COAT_CUT, SKIRT_KNEE, z_hem)):
+                empty("skirt_%s%d_%d" % (side, i + 1, k), coat_point(z, sgn * a)[0], skirt)
     # Cuello y solapas en UNA sola pieza, como un chaleco (César): la bata se abre en V y lo que se ve es
     # la tela doblada hacia fuera. La solapa nace en punta a media altura, se ensancha siguiendo la V
     # hasta el hombro y continúa como cuello plano, tumbado sobre los hombros, rodeando la nuca.
@@ -831,7 +853,7 @@ def build_body(root, mats):
     z0, rx, ry, gf, gb = rings[0]
     hem = [(z0, rx + 0.006, ry + 0.006, gf, gb + 1.0), (z0 + 0.04,) + tuple(v + 0.0055 for v in coat_dims(z0 + 0.04)[:2])
            + (gf, coat_slit(z0 + 0.04) + 1.0)]
-    finish("coat_hem", open_shell(hem, thickness=0.014), DUST, hips, base)
+    finish("coat_hem", open_shell(hem, thickness=0.014), DUST, skirt, base)
     # Remiendo grande en el faldón (su derecha): un trozo de tela que sigue la curva de la bata, cosido
     # con puntadas. Es parte de la ropa, no una pieza encima.
     pw, ph, pz, pa = 0.115, 0.105, 0.52, -60.0
@@ -851,7 +873,7 @@ def build_body(root, mats):
     bmesh.ops.recalc_face_normals(patch, faces=patch.faces)
     bmesh.ops.solidify(patch, geom=list(patch.faces), thickness=0.003)
     bmesh.ops.recalc_face_normals(patch, faces=patch.faces)
-    finish("coat_patch", patch, COAT_PATCH, hips, base)
+    finish("coat_patch", patch, COAT_PATCH, skirt, base)
     stitches = []
     for i in range(4):
         t = -0.5 + (i + 0.5) / 4
@@ -860,13 +882,13 @@ def build_body(root, mats):
                                    ((pw / 2 - 0.01, t * ph), (pw / 2 + 0.011, t * ph)),
                                    ((-pw / 2 + 0.01, t * ph), (-pw / 2 - 0.011, t * ph))):
             stitches.append(bar(cloth(u0, v0, 0.005), cloth(u1, v1, 0.0035), 0.0028, 0.0028, 4))
-    finish("coat_patch_stitches", merge(*stitches), STITCH, hips, base)
+    finish("coat_patch_stitches", merge(*stitches), STITCH, skirt, base)
     # Botones hexagonales de cobre en el borde de la bata (su derecha).
     for i, z in enumerate((0.44, 0.53, 0.62, 0.71)):
         bp, bn = coat_point(z, -(coat_dims(z)[2] + 7.0))
         button = disc(0.015, 0.007)
         orient(button, bp + bn * 0.006, bn)
-        finish("coat_button_%d" % i, button, COPPER, chest, gloss)
+        finish("coat_button_%d" % i, button, COPPER, skirt if z < COAT_CUT else chest, gloss)
     tools = os.path.dirname(os.path.abspath(__file__))
     if tools not in sys.path:
         sys.path.append(tools)
