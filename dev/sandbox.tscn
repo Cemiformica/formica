@@ -4,7 +4,6 @@
 [ext_resource type="PackedScene" path="res://entities/player/player.tscn" id="2_player"]
 [ext_resource type="Script" uid="uid://cc0vt62h30fot" path="res://entities/interactable.gd" id="3_interactable"]
 [ext_resource type="Script" uid="uid://doxb55pwda30a" path="res://world/island_view.gd" id="4_islandview"]
-[ext_resource type="PackedScene" uid="uid://o5rdmpuswgyg" path="res://assets/models/characters/mira.glb" id="5_dgsgu"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.26, 0.5, 0.85, 1)
@@ -104,4 +103,15 @@ theme_override_constants/outline_size = 6
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="mira" parent="." unique_id=1153931134 instance=ExtResource("5_dgsgu")]
+[node name="ToastLabel" type="Label" parent="HUD" unique_id=1475093382]
+auto_translate_mode = 2
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 40.0
+offset_bottom = 72.0
+grow_horizontal = 2
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 6
+theme_override_font_sizes/font_size = 22
+horizontal_alignment = 1
+vertical_alignment = 1

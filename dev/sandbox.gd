@@ -31,6 +31,10 @@ const POND_ORIGIN: Vector2i = Vector2i(-18, 6)
 @onready var test_box: Interactable = $TestBox
 @onready var build_bar_label: Label = $HUD/BuildBarLabel
 @onready var network_label: Label = $HUD/NetworkLabel
+@onready var toast_label: Label = $HUD/ToastLabel
+
+## Animación del aviso de arriba («Partida guardada»…), para cortarla si llega otro aviso.
+var _toast_tween: Tween = null
 
 
 func _ready() -> void:
@@ -86,7 +90,33 @@ func _ready() -> void:
 	builder.mode_changed.connect(_update_label.unbind(1))
 	builder.selection_changed.connect(_update_label)
 	inventory.changed.connect(_update_label)
+	SaveSystem.notification_requested.connect(_show_toast)
+	toast_label.modulate.a = 0.0
 	_update_label()
+
+
+## F5 guarda y F9 carga (B5.2, D-040). Van aquí, en el sandbox, porque en el juego irán en el menú de pausa.
+## La partida está en %APPDATA%\Godot\app_userdata\formica\savegame.json (la misma desde el editor y el .exe).
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("save_game"):
+		player.store_to_world()
+		SaveSystem.save_game()
+	elif event.is_action_pressed("load_game"):
+		var result: String = SaveSystem.load_game()
+		if result == "LOAD_DONE" or result == "LOAD_BACKUP":
+			player.restore_from_world()
+			_update_label()
+
+
+## Muestra un aviso traducido arriba durante 1,5 s y lo desvanece en 0,5 s.
+func _show_toast(text_key: String) -> void:
+	toast_label.text = tr(text_key)
+	if _toast_tween != null:
+		_toast_tween.kill()
+	toast_label.modulate.a = 1.0
+	_toast_tween = create_tween()
+	_toast_tween.tween_interval(1.5)
+	_toast_tween.tween_property(toast_label, "modulate:a", 0.0, 0.5)
 
 
 ## Fuera del modo: "B: construir · Madera 100 · Piedra 100".

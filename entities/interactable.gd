@@ -13,3 +13,9 @@ signal interacted(by: Node)
 ## Llamado por el jugador al pulsar `interact` mientras mira este objeto.
 func interact(by: Node) -> void:
 	interacted.emit(by)
+
+
+## Llamado por el jugador cuando empieza (true) o deja (false) de mirar este objeto a alcance de E.
+## No hace nada; quien quiera reaccionar (p. ej., `BuildingView` con su texto) lo sobrescribe.
+func set_focused(_focused: bool) -> void:
+	pass

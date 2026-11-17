@@ -3,7 +3,8 @@ extends Interactable
 ## Pieza visible de una construcción colocada (B2.4c). Solo MUESTRA los datos de su `PlacedBuilding`
 ## (D-046): la crea y la borra `IslandView`. Si el `BuildingData` tiene `scene`, la usa girada y
 ## reflejada; si no, una caja provisional con un cubito por puerto (azul = entrada, naranja = salida).
-## Encima, un texto flotante con el contenido y el progreso de la máquina, leído en cada fotograma.
+## Encima, un texto flotante con el contenido y el progreso de la máquina, leído en cada fotograma. Solo se
+## ve en la construcción que miras a alcance de E (B5, César); es provisional hasta las ventanas de B6.
 ## Las cintas son una losa baja con una flecha, y sus ítems se ven como cubitos del color de cada ítem.
 ## Los postes son un palo alto; los generadores, una losa azulada (B2.6b). E sobre un generador
 ## rearma el fusible de su red; sobre una máquina, hace el intercambio rápido provisional.
@@ -284,6 +285,7 @@ func setup(p_placed: PlacedBuilding, p_island: IslandState) -> void:
 	_label.font_size = 40
 	_label.outline_size = 8
 	_label.position.y = height + 0.5
+	_label.visible = false # solo al mirarla (set_focused)
 	add_child(_label)
 
 
@@ -299,6 +301,10 @@ func _process(delta: float) -> void:
 		_update_machine_visuals(delta)
 	if _wheel != null:
 		_update_water_wheel(delta)
+	if placed.is_storage():
+		_update_storage_visuals()
+	if not _label.visible:
+		return # el texto solo se calcula si se ve
 	if placed.is_machine():
 		_label.text = _machine_text()
 	elif placed.is_extractor():
@@ -306,10 +312,15 @@ func _process(delta: float) -> void:
 	elif placed.is_harvester():
 		_label.text = _harvester_text()
 	elif placed.is_storage():
-		_update_storage_visuals()
 		_label.text = _storage_text()
 	else:
 		_label.text = tr(placed.data.name_key)
+
+
+## El texto flotante solo se ve mientras el jugador mira esta construcción (B5).
+func set_focused(focused: bool) -> void:
+	if _label != null:
+		_label.visible = focused
 
 
 ## "40 % → Mineral de cobre 3" (o "Sin veta" si la cabeza no está sobre una).

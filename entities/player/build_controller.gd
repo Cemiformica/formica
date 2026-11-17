@@ -97,6 +97,8 @@ func _ready() -> void:
 	_cable_preview = MeshInstance3D.new()
 	_cable_preview.visible = false
 	add_child(_cable_preview)
+	# Al cargar una partida, un cable a medias apuntaría a una construcción que ya no es la misma (B5.2).
+	WorldState.state_replaced.connect(func() -> void: _cable_from = 0)
 	visible = false
 
 

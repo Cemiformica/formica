@@ -63,6 +63,11 @@ func load_data(data: Dictionary) -> void:
 	player_rotation_y = float(player.get("rot_y", 0.0))
 	var inventory_data: Variant = player.get("inventory", [])
 	player_inventory.load_data(inventory_data if inventory_data is Array else [])
+	# Los límites de cada isla son parte de cómo es la isla (los pone su escena), no de la partida, y no se
+	# guardan (D-070): se conservan al cargar. Sin ellos no habría suelo ni aparecerían rocas (B5.2).
+	var old_bounds: Dictionary[StringName, Rect2i] = {}
+	for id: StringName in islands:
+		old_bounds[id] = islands[id].bounds
 	islands.clear()
 	var islands_data: Variant = data.get("islands", {})
 	if islands_data is Dictionary:
@@ -70,5 +75,6 @@ func load_data(data: Dictionary) -> void:
 			if islands_data[id] is Dictionary:
 				var island := IslandState.new()
 				island.load_data(islands_data[id])
+				island.bounds = old_bounds.get(StringName(str(id)), Rect2i())
 				islands[StringName(str(id))] = island
 	state_replaced.emit()

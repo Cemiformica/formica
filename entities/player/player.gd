@@ -103,6 +103,21 @@ func _physics_process(delta: float) -> void:
 	_update_focus()
 
 
+## Anota en `WorldState` dónde está el jugador, justo antes de guardar la partida (B5.2).
+func store_to_world() -> void:
+	WorldState.current_island = build_controller.island_id
+	WorldState.player_position = global_position
+	WorldState.player_rotation_y = rotation.y
+
+
+## Coloca al jugador donde dice `WorldState`, justo después de cargar una partida (B5.2).
+func restore_from_world() -> void:
+	global_position = WorldState.player_position
+	rotation.y = WorldState.player_rotation_y
+	velocity = Vector3.ZERO
+	reset_physics_interpolation() # salto instantáneo: sin «volar» desde donde estaba
+
+
 ## Escalón automático (B3.7, César): si al andar chocamos con un borde de hasta `step_height` (una cinta,
 ## una losa) y por encima hay sitio, subimos de golpe esa altura y la gravedad nos posa encima. La
 ## interpolación de la física suaviza la subida en pantalla. Paredes más altas no se suben.
@@ -131,5 +146,9 @@ func _update_focus() -> void:
 	if interact_ray.is_colliding():
 		new_focus = interact_ray.get_collider() as Interactable # null si no es Interactable
 	if new_focus != focused_interactable:
+		if is_instance_valid(focused_interactable):
+			focused_interactable.set_focused(false)
 		focused_interactable = new_focus
+		if focused_interactable != null:
+			focused_interactable.set_focused(true)
 		focus_changed.emit(focused_interactable)
