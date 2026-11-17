@@ -91,6 +91,7 @@ func _ready() -> void:
 	builder.selection_changed.connect(_update_label)
 	inventory.changed.connect(_update_label)
 	SaveSystem.notification_requested.connect(_show_toast)
+	add_child(SettingsPanel.new()) # F10: opciones gráficas (B5.3)
 	toast_label.modulate.a = 0.0
 	_update_label()
 
