@@ -1,5 +1,5 @@
 extends Node
-## Autoload `Settings` (B5.3): opciones gráficas del jugador. Se guardan en `user://settings.cfg`, aparte de la
+## Autoload `Settings` (B5.3, B5.4): opciones gráficas y volúmenes del jugador. Se guardan en `user://settings.cfg`, aparte de la
 ## partida, y se aplican al arrancar y cada vez que cambian. Valores por defecto: los de D-084.
 ## Dónde tocar: los valores de cada nivel de sombras en SHADOW_LEVELS y los de la escala en RENDER_SCALES.
 ## La distancia de las sombras se pone a la luz del sol de cada escena: el `DirectionalLight3D` del grupo «sun».
@@ -8,9 +8,11 @@ extends Node
 signal changed
 
 const PATH: String = "user://settings.cfg"
-const SECTION: String = "graphics"
-## Nombres de las opciones (también son las claves del archivo).
-const OPTIONS: Array[StringName] = [&"fullscreen", &"vsync", &"msaa", &"smaa", &"shadow_quality", &"render_scale"]
+## Nombres de las opciones (también son las claves del archivo), por sección del archivo.
+const GRAPHICS_OPTIONS: Array[StringName] = [&"fullscreen", &"vsync", &"msaa", &"smaa", &"shadow_quality", &"render_scale"]
+const AUDIO_OPTIONS: Array[StringName] = [&"music_volume", &"sfx_volume"]
+## Volumen en pasos de 10 %: 0 = silencio, 10 = 100 %.
+const VOLUME_STEPS: int = 10
 ## MSAA por índice: No · 2x · 4x · 8x.
 const MSAA_LEVELS: Array[Viewport.MSAA] = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X, Viewport.MSAA_8X]
 ## Sombras por índice (Baja · Media · Alta): tamaño del mapa del sol, filtro y distancia máxima en metros.
@@ -28,6 +30,8 @@ var msaa: int = 2 ## índice en MSAA_LEVELS (4x)
 var smaa: bool = true
 var shadow_quality: int = 2 ## índice en SHADOW_LEVELS (Alta)
 var render_scale: int = 2 ## índice en RENDER_SCALES (100 %)
+var music_volume: int = 7 ## en décimas: 7 = 70 % (bus «Music»)
+var sfx_volume: int = 10 ## en décimas: 10 = 100 % (bus «SFX»)
 
 
 func _ready() -> void:
@@ -39,7 +43,7 @@ func _ready() -> void:
 
 ## Cambia una opción (nombre de OPTIONS), la aplica y la guarda.
 func set_option(option: StringName, value: Variant) -> void:
-	if not OPTIONS.has(option):
+	if not GRAPHICS_OPTIONS.has(option) and not AUDIO_OPTIONS.has(option):
 		push_warning("Settings: opción desconocida %s" % option)
 		return
 	set(option, value)
@@ -65,7 +69,19 @@ func apply() -> void:
 	RenderingServer.directional_soft_shadow_filter_set_quality(level["filter"])
 	for node: Node in get_tree().get_nodes_in_group(&"sun"):
 		_apply_sun(node)
+	_apply_volume(&"Music", music_volume)
+	_apply_volume(&"SFX", sfx_volume)
 	changed.emit()
+
+
+## Volumen de un bus en décimas (0–10). A 0 se silencia del todo.
+func _apply_volume(bus_name: StringName, steps: int) -> void:
+	var index: int = AudioServer.get_bus_index(bus_name)
+	if index < 0:
+		push_warning("Settings: no existe el bus de audio %s" % bus_name)
+		return
+	AudioServer.set_bus_mute(index, steps <= 0)
+	AudioServer.set_bus_volume_db(index, linear_to_db(maxf(float(steps) / VOLUME_STEPS, 0.001)))
 
 
 func _on_node_added(node: Node) -> void:
@@ -84,9 +100,9 @@ func _load() -> void:
 	var file := ConfigFile.new()
 	if file.load(PATH) != OK:
 		return # primera vez: valores por defecto
-	for option: StringName in OPTIONS:
+	for option: StringName in GRAPHICS_OPTIONS + AUDIO_OPTIONS:
 		var current: Variant = get(option)
-		var stored: Variant = file.get_value(SECTION, String(option), current)
+		var stored: Variant = file.get_value(_section(option), String(option), current)
 		if typeof(stored) == typeof(current):
 			set(option, stored)
 	_clamp_values()
@@ -94,14 +110,20 @@ func _load() -> void:
 
 func _save() -> void:
 	var file := ConfigFile.new()
-	for option: StringName in OPTIONS:
-		file.set_value(SECTION, String(option), get(option))
+	for option: StringName in GRAPHICS_OPTIONS + AUDIO_OPTIONS:
+		file.set_value(_section(option), String(option), get(option))
 	var error: Error = file.save(PATH)
 	if error != OK:
 		push_warning("Settings: no se pudieron guardar las opciones: %s" % error_string(error))
 
 
+func _section(option: StringName) -> String:
+	return "audio" if AUDIO_OPTIONS.has(option) else "graphics"
+
+
 func _clamp_values() -> void:
+	music_volume = clampi(music_volume, 0, VOLUME_STEPS)
+	sfx_volume = clampi(sfx_volume, 0, VOLUME_STEPS)
 	msaa = clampi(msaa, 0, MSAA_LEVELS.size() - 1)
 	shadow_quality = clampi(shadow_quality, 0, SHADOW_LEVELS.size() - 1)
 	render_scale = clampi(render_scale, 0, RENDER_SCALES.size() - 1)

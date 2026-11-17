@@ -26,6 +26,8 @@ const VEIN_ORIGIN: Vector2i = Vector2i(6, -4)
 const CANAL_X: int = -12
 ## Estanque de agua quieta (D-094): 3×3 casillas desde esta esquina noroeste (x −18…−16, y 6…8).
 const POND_ORIGIN: Vector2i = Vector2i(-18, 6)
+## Música de prueba (B5.4): bucle de 8 s generado por art/tools/make_sounds.py, por el bus «Music».
+const TEST_MUSIC: AudioStreamWAV = preload("res://assets/audio/music_test.wav")
 
 @onready var player: Player = $Player
 @onready var test_box: Interactable = $TestBox
@@ -91,7 +93,8 @@ func _ready() -> void:
 	builder.selection_changed.connect(_update_label)
 	inventory.changed.connect(_update_label)
 	SaveSystem.notification_requested.connect(_show_toast)
-	add_child(SettingsPanel.new()) # F10: opciones gráficas (B5.3)
+	add_child(SettingsPanel.new()) # F10: opciones gráficas y volúmenes (B5.3, B5.4)
+	_start_music()
 	toast_label.modulate.a = 0.0
 	_update_label()
 
@@ -107,6 +110,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		if result == "LOAD_DONE" or result == "LOAD_BACKUP":
 			player.restore_from_world()
 			_update_label()
+
+
+## Música en bucle: el bucle se marca aquí (de la muestra 0 al final) en vez de en la importación.
+func _start_music() -> void:
+	var music: AudioStreamWAV = TEST_MUSIC.duplicate()
+	music.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	music.loop_begin = 0
+	music.loop_end = roundi(music.get_length() * music.mix_rate)
+	var player_node := AudioStreamPlayer.new()
+	player_node.stream = music
+	player_node.bus = &"Music"
+	add_child(player_node)
+	player_node.play()
 
 
 ## Muestra un aviso traducido arriba durante 1,5 s y lo desvanece en 0,5 s.

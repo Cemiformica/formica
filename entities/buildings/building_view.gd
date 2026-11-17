@@ -79,6 +79,13 @@ const LAMP_COLOR: Color = Color(1.0, 0.8, 0.52)
 const LAMP_DARK: Color = Color(0.3, 0.3, 0.28)
 const LAMP_BULB_ENERGY: float = 2.5
 const LAMP_LIGHT_ENERGY: float = 1.6
+## Efecto al colocar (B5.4): color del polvo, tiempo que tarda en crecer (igual que el zumbido del sonido,
+## hasta el golpe: art/tools/make_sounds.py, materialize_m1), tamaño inicial, duración del rebote y aplastamiento.
+const PLACE_DUST_COLOR: Color = Color(0.56, 0.47, 0.34)
+const PLACE_GROW_TIME: float = 0.2
+const PLACE_GROW_START: float = 0.15
+const PLACE_POP_TIME: float = 0.35
+const PLACE_POP_SQUASH: float = 0.2
 ## Capas de colisión de las cintas: la 1 (sólidas, B3.7, César: el jugador ya no las atraviesa; las
 ## sube andando gracias al escalón automático de `Player`) y la 2 (la de siempre de las cintas, por si
 ## algún rayo las busca solo a ellas).
@@ -165,6 +172,9 @@ var _status_material: StandardMaterial3D = null
 var _status_time: float = 0.0
 ## ¿Tiene algún cable? (lo dice `set_cabled`; también decide el color de la luz de estado)
 var _cabled: bool = false
+## Piezas que rebotan al colocar y su escala original (B5.4).
+var _pop_nodes: Array[Node3D] = []
+var _pop_scales: Array[Vector3] = []
 
 
 ## Altura de la construcción: la de `BuildingData.height` si la tiene (modelos reales); si no, la de la
@@ -315,6 +325,56 @@ func _process(delta: float) -> void:
 		_label.text = _storage_text()
 	else:
 		_label.text = tr(placed.data.name_key)
+
+
+## Efecto al colocar (B5.4, César), a juego con el sonido: mientras suena el zumbido la construcción crece
+## desde pequeña; en el golpe se aplasta, rebota como un juguete (se pasa un ~5 % y se asienta) y suelta polvo
+## alrededor de la base. Solo al construir: al cargar una partida aparece quieta (lo llama `IslandView`).
+## Crecen y rebotan las piezas visibles, no la colisión.
+func play_place_effect() -> void:
+	_pop_nodes.clear()
+	_pop_scales.clear()
+	for child: Node in get_children():
+		var visual := child as Node3D
+		if visual == null or visual is CollisionShape3D or visual is Label3D or visual is GPUParticles3D:
+			continue
+		_pop_nodes.append(visual)
+		_pop_scales.append(visual.scale)
+	_set_grow(0.0)
+	var tween: Tween = create_tween()
+	tween.tween_method(_set_grow, 0.0, 1.0, PLACE_GROW_TIME)
+	tween.tween_callback(_land)
+	tween.tween_method(_set_pop, 0.0, 1.0, PLACE_POP_TIME)
+
+
+## Crecer: de PLACE_GROW_START a casi su tamaño, acelerando (como si cayera en su sitio).
+func _set_grow(t: float) -> void:
+	var size: float = lerpf(PLACE_GROW_START, 1.0, t * t)
+	for i: int in _pop_nodes.size():
+		if is_instance_valid(_pop_nodes[i]):
+			_pop_nodes[i].scale = _pop_scales[i] * size
+
+
+## El golpe: polvo alrededor de la base (esquinas y mitad de cada lado).
+func _land() -> void:
+	var s: Vector2i = OccupancyGrid.rotated_size(placed.data.size, placed.rotation)
+	for side_x: float in [-0.5, 0.0, 0.5]:
+		for side_z: float in [-0.5, 0.0, 0.5]:
+			if side_x == 0.0 and side_z == 0.0:
+				continue
+			var spot := Vector3(side_x * s.x, 0.05, side_z * s.y)
+			DustPuff.spawn(get_parent(), global_position + spot, PLACE_DUST_COLOR)
+
+
+## Rebote amortiguado: `t` de 0 a 1. La altura oscila alrededor de 1 y lo ancho compensa (como goma).
+func _set_pop(t: float) -> void:
+	var stretch: float = 1.0 - PLACE_POP_SQUASH * exp(-4.0 * t) * cos(t * TAU * 1.5)
+	if t >= 1.0:
+		stretch = 1.0
+	var wide: float = 1.0 / sqrt(stretch)
+	for i: int in _pop_nodes.size():
+		if is_instance_valid(_pop_nodes[i]):
+			_pop_nodes[i].scale = _pop_scales[i] * Vector3(wide, stretch, wide)
 
 
 ## El texto flotante solo se ve mientras el jugador mira esta construcción (B5).

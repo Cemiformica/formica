@@ -8,7 +8,7 @@ extends Node3D
 
 const CABLE_COLOR: Color = Color(0.1, 0.1, 0.11)
 ## Grosor de los cables (B3: más gruesos para que se vean bien, petición de César).
-const CABLE_THICKNESS: float = 0.08
+const CABLE_THICKNESS: float = 0.04
 ## Material de la banda de las cintas, compartido por todas: se desplaza una sola vez por fotograma
 ## para que todas las bandas avancen (B3.7). Su textura se repite BELT_TEXTURE_PER_M veces por metro.
 ## Si la banda avanzara hacia atrás, cambiar el signo de BELT_SCROLL_SIGN.
@@ -101,6 +101,7 @@ func _on_building_placed(placed: PlacedBuilding) -> void:
 	_views[placed.id] = view
 	if not _rebuilding:
 		_refresh_connections()
+		view.play_place_effect() # rebote y polvo (B5.4); al cargar una partida, no
 
 
 func _on_building_removed(placed: PlacedBuilding) -> void:

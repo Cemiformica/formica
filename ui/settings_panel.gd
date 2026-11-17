@@ -1,6 +1,6 @@
 class_name SettingsPanel
 extends CanvasLayer
-## Panel provisional de opciones gráficas (B5.3). Se abre y cierra con F10 (`toggle_settings`) o se cierra
+## Panel provisional de opciones gráficas y volúmenes (B5.3, B5.4). Se abre y cierra con F10 (`toggle_settings`) o se cierra
 ## con Esc. Cada cambio se aplica y se guarda al momento (autoload `Settings`). En la fase C irá dentro del
 ## menú de pausa. Para añadir una opción: una línea en `_build()` con `_add_row()`.
 
@@ -65,6 +65,11 @@ func _build() -> void:
 	_add_row(grid, &"smaa", "SETTINGS_SMAA", [tr("SETTINGS_OFF"), tr("SETTINGS_ON")])
 	_add_row(grid, &"shadow_quality", "SETTINGS_SHADOWS", [tr("SETTINGS_LOW"), tr("SETTINGS_MEDIUM"), tr("SETTINGS_HIGH")])
 	_add_row(grid, &"render_scale", "SETTINGS_RENDER_SCALE", ["50 %", "75 %", "100 %"])
+	var volumes: Array = []
+	for step: int in Settings.VOLUME_STEPS + 1:
+		volumes.append("%d %%" % (step * 10))
+	_add_row(grid, &"music_volume", "SETTINGS_MUSIC_VOLUME", volumes)
+	_add_row(grid, &"sfx_volume", "SETTINGS_SFX_VOLUME", volumes)
 	var hint := _make_label("SETTINGS_CLOSE_HINT")
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.modulate = Color(1.0, 1.0, 1.0, 0.6)

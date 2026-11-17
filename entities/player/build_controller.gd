@@ -38,7 +38,14 @@ const COLOR_INPUT: Color = Color(0.2, 0.5, 1.0)
 const COLOR_OUTPUT: Color = Color(1.0, 0.55, 0.1)
 ## Altura del fantasma de caja (para construcciones sin modelo).
 const GHOST_HEIGHT: float = 1.0
-const CABLE_PREVIEW_THICKNESS: float = 0.08
+const CABLE_PREVIEW_THICKNESS: float = 0.04
+## Sonido al colocar (B5.4, de prueba: art/tools/make_sounds.py). Suena en 3D donde cae, por el bus «SFX».
+const PLACE_SOUND: AudioStream = preload("res://assets/audio/build_place.wav")
+## Acoples (B5.4): clic neumático cuando un puerto de lo colocado queda conectado (suena tras el golpe) y
+## «blip» eléctrico al tender un cable.
+const LINK_SOUND: AudioStream = preload("res://assets/audio/link_pneumatic.wav")
+const CABLE_SOUND: AudioStream = preload("res://assets/audio/link_electric.wav")
+const LINK_SOUND_DELAY: float = 0.3
 
 ## ¿Estamos en el modo construcción?
 var active: bool = false
@@ -399,7 +406,36 @@ func _try_place() -> void:
 		return
 	for item: ItemData in building.cost:
 		inventory.remove_item(item, building.cost[item])
+	_play_sound(PLACE_SOUND, BuildingView.cable_anchor(result))
+	_play_link_sounds(island, result)
 	placed.emit(result)
+
+
+## Un clic por cada puerto de `placed` que ha quedado conectado, en esa casilla, tras el golpe de colocar.
+func _play_link_sounds(island: IslandState, placed_building: PlacedBuilding) -> void:
+	for link: Dictionary in island.get_links():
+		var port: PortData = null
+		if link["from"] == placed_building:
+			port = link["out"]
+		elif link["to"] == placed_building:
+			port = link["in"]
+		if port == null:
+			continue
+		var cell: Vector2i = port.get_grid_cell(placed_building.origin, placed_building.data.size, placed_building.rotation, placed_building.flipped)
+		var at := GridMath.cell_center(cell, 0.3)
+		get_tree().create_timer(LINK_SOUND_DELAY).timeout.connect(_play_sound.bind(LINK_SOUND, at))
+
+
+## Sonido de una sola vez en un punto del mundo, con un poco de variación de tono para que no canse.
+func _play_sound(stream: AudioStream, at: Vector3) -> void:
+	var sound := AudioStreamPlayer3D.new()
+	sound.stream = stream
+	sound.bus = &"SFX"
+	sound.pitch_scale = randf_range(0.92, 1.08)
+	get_tree().current_scene.add_child(sound)
+	sound.global_position = at
+	sound.finished.connect(sound.queue_free)
+	sound.play()
 
 
 # --- Cable (B2.6b) ---
@@ -439,6 +475,7 @@ func _cable_click() -> void:
 		place_failed.emit(problem)
 		return
 	island.add_cable(_cable_from, target.id)
+	_play_sound(CABLE_SOUND, BuildingView.cable_anchor(target))
 	cable_changed.emit(true)
 	_cable_from = 0
 

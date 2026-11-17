@@ -47,7 +47,7 @@ BUILDING_LOGISTIC_BOX,Caja logística,Caixa logística,Logistic box
 BUILDING_WATER_WHEEL,Rueda hidráulica,Roda hidràulica,Water wheel
 BUILDING_WORKBENCH,Banco de trabajo,Banc de treball,Workbench
 BUILD_NEEDS_WATER,Necesita agua que corra a lo largo de la rueda,Necessita aigua que corri al llarg de la roda,Needs water flowing along the wheel
-SETTINGS_TITLE,Opciones gráficas,Opcions gràfiques,Graphics options
+SETTINGS_TITLE,Opciones,Opcions,Options
 SETTINGS_WINDOW_MODE,Modo de ventana,Mode de finestra,Window mode
 SETTINGS_WINDOWED,Ventana,Finestra,Windowed
 SETTINGS_FULLSCREEN,Pantalla completa,Pantalla completa,Fullscreen
@@ -62,3 +62,5 @@ SETTINGS_LOW,Baja,Baixa,Low
 SETTINGS_MEDIUM,Media,Mitjana,Medium
 SETTINGS_HIGH,Alta,Alta,High
 SETTINGS_CLOSE_HINT,F10: cerrar,F10: tancar,F10: close
+SETTINGS_MUSIC_VOLUME,Volumen de la música,Volum de la música,Music volume
+SETTINGS_SFX_VOLUME,Volumen de los efectos,Volum dels efectes,Effects volume
