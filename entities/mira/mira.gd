@@ -5,6 +5,8 @@ extends Node3D
 ## Al arrancar monta en el Skeleton3D, por este orden:
 ## - MiraSkirtFollower: levanta las varillas de la bata siguiendo a los muslos (no atraviesan la tela);
 ## - MiraHoldPose: levanta el brazo derecho cuando lleva algo en la mano;
+## - MiraHandGrip: cierra los dedos de la mano derecha («sujetar» con algo en la mano, «puño» para las
+##   herramientas; set_grip);
 ## y un SpringBoneSimulator3D que añade la inercia encima:
 ## - la bata: solo las varillas del costado y de detrás (3 y 4 de cada lado) se balancean con inercia;
 ##   las delanteras (1 y 2) las mueve solo MiraSkirtFollower, porque con muelle el borde delantero
@@ -14,10 +16,12 @@ extends Node3D
 ## Las animaciones las mezcla un AnimationTree: Mira mide sola su velocidad (cuánto se ha movido desde el
 ## fotograma anterior) y pasa de "idle" a "walk", acelerando o frenando el paso para que no patine.
 ## En la mano derecha lleva lo que tenga seleccionado (hold_item): un BoneAttachment3D sigue al hueso
-## RightHand y de él cuelga el objeto, apoyado en los dedos curvados. Mientras los ítems no tengan modelo,
-## es una cajita de su color. Con algo en la mano, MiraHoldPose le levanta el brazo para enseñarlo.
+## RightHand y de él cuelga el objeto, dentro de los dedos cerrados. Mientras los ítems no tengan modelo,
+## es una barrita de su color, atravesada en la mano. Con algo en la mano, MiraHoldPose le levanta el brazo para enseñarlo.
 ## En primera persona, el jugador pone a Mira en «solo sombras» (set_shadow_only): no se dibuja, pero su
 ## sombra sí (también la de lo que lleva en la mano).
+## La mochila enseña tantos módulos como tenga el inventario (set_backpack_modules; el jugador se lo dice):
+## cada módulo es una malla aparte del .glb, backpack_module_0…5, en el orden en que se ganan (C3).
 ## Dónde tocar: WALK_REFERENCE_SPEED (si los pies patinan), HELD_OFFSET (dónde queda el objeto en la mano),
 ## las constantes SKIRT_* y ANTENNA_* (rigidez, freno, grosor) y LEG_RADIUS.
 
@@ -41,11 +45,21 @@ const SPEED_SMOOTHING: float = 10.0        # cuánto se suaviza la velocidad med
 const MAX_MEASURED_SPEED: float = 20.0     # por encima es un salto de sitio (reaparecer, portal): se ignora
 const HAND_BONE: String = "RightHand"
 # Sitio del objeto en el marco del hueso de la mano: +X va hacia la palma (mira al cuerpo), +Y baja de la
-# muñeca a los dedos y −Z va hacia delante. Queda pegado a la palma, a lo largo de los dedos, con los
-# dedos curvados por delante y el pulgar encima, a 3 mm de toda la superficie de la mano (calculado en
-# Blender con sus vértices y caras). Cuando haya huesos en los dedos, se cerrarán sobre él.
-const HELD_OFFSET: Vector3 = Vector3(0.055, 0.09, -0.06)
-const PLACEHOLDER_SIZE: Vector3 = Vector3(0.035, 0.12, 0.045)   # cajita provisional (m)
+# muñeca a los dedos y −Z va hacia delante. Es el centro del hueco que dejan los dedos en «sujetar» (C3,
+# D-146), calculado en Blender: queda a 13 mm de la palma, los dedos y el pulgar. HELD_BASIS atraviesa la
+# mano: su Z va a lo largo de la fila de nudillos (del índice al anular).
+const HELD_OFFSET: Vector3 = Vector3(0.042, 0.064, -0.0172)
+const HELD_BASIS: Basis = Basis(Vector3(0.9999, 0.0041, 0.0156), Vector3(0.0, 0.9662, -0.2577),
+		Vector3(-0.0161, 0.2576, 0.9661))
+const PLACEHOLDER_SIZE: Vector3 = Vector3(0.024, 0.024, 0.12)   # barrita provisional (m), atravesada en el puño
+# Herramientas (C3): el centro del hueco del puño y su eje, calculados en Blender como HELD_OFFSET. La
+# empuñadura (+Y de la herramienta) va a lo largo de los nudillos con el aparato por el lado del índice, y la
+# herramienta apunta (+X) de la muñeca hacia los nudillos, como una pistola.
+const FIST_OFFSET: Vector3 = Vector3(0.0394, 0.0577, -0.015)
+const FIST_BASIS: Basis = Basis(Vector3(0.0043, 0.9662, -0.2577), Vector3(0.0161, -0.2576, -0.9661),
+		Vector3(-0.9998, 0.0, -0.0167))
+const BACKPACK_MODULE_PREFIX: String = "backpack_module_"   # mallas de los módulos en el .glb (mira_rig.py)
+const MAX_BACKPACK_MODULES: int = 6
 
 var skeleton: Skeleton3D
 var springs: SpringBoneSimulator3D
@@ -53,8 +67,12 @@ var animations: AnimationPlayer        # las del .glb: "idle" y "walk" (mira_ani
 var animation_tree: AnimationTree
 var move_speed: float = 0.0            # velocidad horizontal medida y suavizada (m/s)
 var held_anchor: Node3D                # de aquí cuelga lo que lleva en la mano derecha
+var fist_anchor: Node3D                # y de aquí, las herramientas que coge en puño
 var hold_pose: MiraHoldPose            # levanta el brazo derecho cuando lleva algo
+var hand_grip: MiraHandGrip            # cierra los dedos de la mano derecha
 var held_item: ItemData
+## Módulos que se ven en la mochila (1 al empezar, D-117).
+var backpack_modules: int = 1
 ## true: Mira no se dibuja, solo proyecta su sombra (primera persona).
 var shadow_only: bool = false
 
@@ -69,6 +87,9 @@ func _ready() -> void:
 	hold_pose = MiraHoldPose.new()
 	hold_pose.name = "HoldPose"
 	skeleton.add_child(hold_pose)
+	hand_grip = MiraHandGrip.new()
+	hand_grip.name = "HandGrip"
+	skeleton.add_child(hand_grip)
 	springs = SpringBoneSimulator3D.new()
 	springs.name = "Springs"
 	skeleton.add_child(springs)
@@ -89,6 +110,7 @@ func _ready() -> void:
 	_setup_animation_tree()
 	_setup_hand()
 	set_shadow_only(shadow_only)
+	set_backpack_modules(backpack_modules)
 	_last_position = get_global_transform_interpolated().origin
 
 
@@ -111,12 +133,24 @@ func _process(delta: float) -> void:
 
 ## Pone en la mano derecha el ítem seleccionado (null = mano vacía).
 func hold_item(item: ItemData) -> void:
-	for child: Node in held_anchor.get_children():
-		child.queue_free()
+	for anchor: Node3D in [held_anchor, fist_anchor]:
+		for child: Node in anchor.get_children():
+			child.queue_free()
 	held_item = item
 	hold_pose.holding = item != null
 	if item == null:
+		set_grip(MiraHandGrip.Grip.OPEN)
 		return
+	if item.held_model != null:
+		var fist: bool = item.held_grip == ItemData.HeldGrip.FIST
+		set_grip(MiraHandGrip.Grip.TOOL if fist else MiraHandGrip.Grip.HOLD)   # el índice, en el gatillo
+		var model: Node3D = item.held_model.instantiate()
+		model.name = "HeldItem"
+		(fist_anchor if fist else held_anchor).add_child(model)
+		for geometry: Node in model.find_children("*", "GeometryInstance3D", true, false):
+			(geometry as GeometryInstance3D).cast_shadow = _shadow_setting()
+		return
+	set_grip(MiraHandGrip.Grip.HOLD)
 	var box := BoxMesh.new()
 	box.size = PLACEHOLDER_SIZE
 	var material := StandardMaterial3D.new()
@@ -128,6 +162,23 @@ func hold_item(item: ItemData) -> void:
 	mesh.material_override = material
 	mesh.cast_shadow = _shadow_setting()
 	held_anchor.add_child(mesh)
+
+
+## Cambia el agarre de la mano derecha (abierta, sujetar o puño). hold_item ya pone «sujetar» o abierta;
+## las herramientas pondrán «puño» (C3).
+func set_grip(grip: MiraHandGrip.Grip) -> void:
+	hand_grip.grip = grip
+
+
+## Enseña en la mochila los `count` primeros módulos y esconde los demás.
+func set_backpack_modules(count: int) -> void:
+	backpack_modules = clampi(count, 0, MAX_BACKPACK_MODULES)
+	if not is_node_ready():
+		return
+	for index: int in MAX_BACKPACK_MODULES:
+		var module := find_child(BACKPACK_MODULE_PREFIX + str(index), true, false) as Node3D
+		if module != null:
+			module.visible = index < backpack_modules
 
 
 ## Con `enabled`, todo lo que se ve de Mira (también lo que coja después) solo proyecta sombra.
@@ -182,8 +233,12 @@ func _setup_hand() -> void:
 	skeleton.add_child(attachment)
 	held_anchor = Node3D.new()
 	held_anchor.name = "HeldAnchor"
-	held_anchor.position = HELD_OFFSET
+	held_anchor.transform = Transform3D(HELD_BASIS, HELD_OFFSET)
 	attachment.add_child(held_anchor)
+	fist_anchor = Node3D.new()
+	fist_anchor.name = "FistAnchor"
+	fist_anchor.transform = Transform3D(FIST_BASIS, FIST_OFFSET)
+	attachment.add_child(fist_anchor)
 
 
 func _setup_chain(index: int, chain: Array) -> void:

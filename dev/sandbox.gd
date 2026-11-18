@@ -51,6 +51,9 @@ func _ready() -> void:
 	inventory.add_item(Content.find_item(&"solar_cell"), START_CELLS)
 	inventory.add_item(Content.find_item(&"copper_ingot"), START_COPPER_INGOTS)
 	inventory.add_item(Content.find_item(&"copper_coil"), START_COILS)
+	# Herramientas del Nexo (C3), para probarlas en primera persona hasta que tengan receta en el banco.
+	inventory.add_item(Content.find_item(&"biter"), 1)
+	inventory.add_item(Content.find_item(&"hand_drill"), 1)
 	print("Inventario inicial: ", inventory.debug_string())
 	# Naturaleza de prueba: una arboleda de 3×3 madura y unos árboles sueltos en distintas fases.
 	var island: IslandState = WorldState.get_island(player.build_controller.island_id)
@@ -114,6 +117,7 @@ func _ready() -> void:
 	add_child(focus_panel)
 	focus_panel.set_player(player)
 	add_child(MusicPlayer.new()) # tres temas por turnos, con silencios entre ellos (C1.8)
+	add_child(PickupFeed.new()) # «+1 Mineral de cobre» sobre la barra al recoger algo (C3)
 	toast_label.modulate.a = 0.0
 
 

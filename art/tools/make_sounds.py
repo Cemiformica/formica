@@ -497,6 +497,421 @@ def write_move_sounds(assets_folder, preview_folder=None, choice="a"):
             write_wav(os.path.join(preview_folder, "move_%s_drop.wav" % key), drop())
 
 
+
+# --- Herramientas y trabajo (C3, César): mordedora, barrena, veta, árbol ---
+
+def _noise_band(rng, n, bright, low_cut=0.04):
+    """Ruido en banda de `n` muestras: `bright` (0–1) quita lo agudo y `low_cut` lo grave."""
+    out = []
+    low = low2 = 0.0
+    for _ in range(n):
+        low += bright * (rng.uniform(-1.0, 1.0) - low)
+        low2 += low_cut * (low - low2)
+        out.append(low - low2)
+    return out
+
+
+def biter_bite():
+    """Mordisco de la mordedora (0,22 s): zumbido corto del servo y el «clac» de las mandíbulas al cerrarse."""
+    rng = random.Random(81)
+    out = [0.0] * int(RATE * 0.22)
+    _add(out, 0, _sweep(320.0, 640.0, 0.07, 0.18))
+    _add(out, int(RATE * 0.06), _clank(rng, 0.15, low=180.0, metal=(1900.0, 2750.0, 3600.0), decay=32.0, gain=0.8))
+    return out
+
+
+def drill_loop():
+    """Motor de la barrena en bucle (1 s): tono de 110 Hz con armónicos, un silbido agudo y un leve vaivén
+    de 8 Hz. Frecuencias enteras: el bucle empalma sin chasquido."""
+    rng = random.Random(83)
+    n = RATE
+    out = [0.0] * n
+    hiss = _noise_band(rng, n, 0.5, 0.08)
+    for i in range(n):
+        t = i / RATE
+        motor = sum(math.sin(2 * math.pi * 110.0 * k * t) / k for k in range(1, 7)) * 0.35
+        whine = math.sin(2 * math.pi * 1320.0 * t) * 0.08
+        wobble = 1.0 + 0.12 * math.sin(2 * math.pi * 8.0 * t)
+        out[i] = (motor + whine + hiss[i] * 0.12) * wobble
+    return out
+
+
+def vein_grind_loop():
+    """La veta perforada, en bucle (1 s): rumor de roca y granitos que crujen al azar."""
+    rng = random.Random(85)
+    n = RATE
+    out = [v * 0.5 for v in _noise_band(rng, n, 0.25, 0.02)]
+    for _ in range(34):
+        _add(out, rng.randrange(n), _knock(rng, rng.uniform(900.0, 2200.0), rng.uniform(0.15, 0.35), 0.04))
+    return out
+
+
+def _pebble(rng, gain):
+    """Trozo de piedra que choca: un clic seco y brillante de unos milisegundos, sin tono."""
+    length = rng.uniform(0.012, 0.03)
+    out = []
+    for i, v in enumerate(_noise_band(rng, int(RATE * length), rng.uniform(0.7, 0.95), 0.15)):
+        t = i / RATE
+        out.append(v * math.exp(-t * rng.uniform(180.0, 320.0)) * gain)
+    return out
+
+
+def vein_yield():
+    """La veta suelta un mineral (0,3 s) (César: trozos de roca rotos que caen y chocan, corto): un primer
+    choque más fuerte con algo de cuerpo y unos cuantos trozos que rebotan cada vez más flojo."""
+    rng = random.Random(97)
+    out = [0.0] * int(RATE * 0.3)
+    body = _noise_band(rng, int(RATE * 0.05), 0.3, 0.03)
+    _add(out, 0, [v * math.exp(-i / RATE * 70.0) * 1.2 for i, v in enumerate(body)])
+    _add(out, 0, _pebble(rng, 1.3))
+    at = 0.0
+    for k in range(7):
+        at += rng.uniform(0.018, 0.045)
+        _add(out, int(RATE * at), _pebble(rng, 0.9 - k * 0.11))
+    return out
+
+
+def biter_loop():
+    """Motor de la mordedora en bucle (1 s), como una sierra eléctrica pequeña (César): zumbido áspero de
+    180 Hz con armónicos, un silbido agudo y el traqueteo de los dientes (ruido que late a 45 Hz).
+    Frecuencias enteras: el bucle empalma sin chasquido."""
+    rng = random.Random(93)
+    n = RATE
+    out = [0.0] * n
+    chain = _noise_band(rng, n, 0.6, 0.1)
+    for i in range(n):
+        t = i / RATE
+        buzz = sum(math.sin(2 * math.pi * 180.0 * k * t) / (k ** 0.8) for k in range(1, 9)) * 0.22
+        whine = math.sin(2 * math.pi * 2340.0 * t) * 0.05
+        teeth = 0.5 + 0.5 * math.sin(2 * math.pi * 45.0 * t)
+        out[i] = buzz * (0.85 + 0.15 * teeth) + whine + chain[i] * teeth * teeth * 0.3
+    return out
+
+
+def wood_saw_loop():
+    """El árbol cortado por la mordedora, en bucle (1 s): raspado de madera que late con los dientes
+    (45 Hz) y un vaivén lento, sin golpes (César: no quería golpes metálicos)."""
+    rng = random.Random(89)
+    n = RATE
+    out = [0.0] * n
+    rasp = _noise_band(rng, n, 0.45, 0.06)
+    dust = _noise_band(rng, n, 0.15, 0.02)
+    for i in range(n):
+        t = i / RATE
+        teeth = (0.5 + 0.5 * math.sin(2 * math.pi * 45.0 * t)) ** 2
+        sway = 0.75 + 0.25 * math.sin(2 * math.pi * 3.0 * t)
+        out[i] = (rasp[i] * teeth * 0.9 + dust[i] * 0.35) * sway
+    return out
+
+
+def _crack(rng, length, gain, bright=0.85):
+    """Chasquido de madera que se parte: ruido muy corto y brillante con un poco de cuerpo grave."""
+    out = []
+    low = 0.0
+    body = _noise_band(rng, int(RATE * length), bright, 0.05)
+    for i, v in enumerate(body):
+        t = i / RATE
+        low += 0.08 * (v - low)
+        out.append((v * math.exp(-t * 140.0) + low * math.exp(-t * 40.0) * 1.5) * gain)
+    return out
+
+
+def tree_fall():
+    """El árbol se parte y cae (1,8 s) (César: más como partir un tronco y menos digital): chasquidos que
+    se aceleran mientras la madera cede, un crujido fuerte al partirse, el aire, el golpe sordo contra el
+    suelo a los 1,05 s (FallingTree.FALL_TIME) y las hojas."""
+    rng = random.Random(95)
+    out = [0.0] * int(RATE * 1.8)
+    count = 26
+    for k in range(count):
+        at = 0.55 * (k / count) ** 0.55 + rng.uniform(-0.01, 0.01)
+        _add(out, int(RATE * max(0.0, at)), _crack(rng, rng.uniform(0.015, 0.05), 0.25 + 0.55 * k / count))
+    _add(out, int(RATE * 0.58), _crack(rng, 0.18, 1.3, 0.7))
+    _add(out, int(RATE * 0.62), _crack(rng, 0.09, 0.8, 0.9))
+    _add(out, int(RATE * 0.6), _hiss(rng, 0.5, gain=0.25, attack=0.35, decay=1.5, bright_start=0.1, bright_end=0.35))
+    # Golpe contra el suelo, seco y crujiente (César: sin el «bum» con tono, que sonaba digital): un golpe de
+    # ruido grave muy corto y, encima, ramas que crujen y se parten.
+    thud = _noise_band(rng, int(RATE * 0.18), 0.2, 0.02)
+    _add(out, int(RATE * 1.05), [v * min(1.0, i / 25.0) * math.exp(-i / RATE * 28.0) * 2.0 for i, v in enumerate(thud)])
+    _add(out, int(RATE * 1.05), _crack(rng, 0.07, 1.0, 0.6))
+    at = 1.06
+    for k in range(10):
+        at += rng.uniform(0.006, 0.02)
+        _add(out, int(RATE * at), _crack(rng, rng.uniform(0.01, 0.03), 0.6 - k * 0.04, rng.uniform(0.7, 0.95)))
+    for k in range(5):
+        _add(out, int(RATE * (1.08 + k * 0.05)), _crack(rng, 0.02, 0.25 - k * 0.04))
+    leaves = _noise_band(rng, int(RATE * 0.6), 0.7, 0.1)
+    _add(out, int(RATE * 1.08), [v * math.exp(-i / RATE * 5.0) * 0.3 for i, v in enumerate(leaves)])
+    return out
+
+
+def mineral_a():
+    """A · Roca que se desprende: chasquido de piedra, un «toc» grave y sordo del trozo que cae y dos
+    piedrecitas que ruedan (0,35 s)."""
+    rng = random.Random(101)
+    out = [0.0] * int(RATE * 0.35)
+    _add(out, 0, _crack(rng, 0.04, 0.9, 0.8))
+    _add(out, int(RATE * 0.02), _knock(rng, 150.0, 1.2, 0.14))
+    tok = _noise_band(rng, int(RATE * 0.1), 0.15, 0.02)
+    _add(out, int(RATE * 0.02), [v * math.exp(-i / RATE * 40.0) * 1.6 for i, v in enumerate(tok)])
+    _add(out, int(RATE * 0.14), _pebble(rng, 0.5))
+    _add(out, int(RATE * 0.2), _pebble(rng, 0.3))
+    return out
+
+
+def mineral_b():
+    """B · Cristal: un toque de piedra y un «cling» suave y cálido de mineral, que suena a premio sin ser
+    metálico (dos notas de marimba, como la música) (0,5 s)."""
+    rng = random.Random(103)
+    out = [0.0] * int(RATE * 0.5)
+    _add(out, 0, _pebble(rng, 0.7))
+    for start, note in ((0.0, 84), (0.07, 91)):
+        f = _hz(note)
+        tone = []
+        for i in range(int(RATE * 0.4)):
+            t = i / RATE
+            v = (math.sin(2 * math.pi * f * t) + 0.25 * math.sin(2 * math.pi * f * 4.0 * t) * math.exp(-t * 30.0))
+            tone.append(v * min(1.0, t / 0.003) * math.exp(-t * 11.0) * 0.45)
+        _add(out, int(RATE * start), tone)
+    return out
+
+
+def mineral_c():
+    """C · «Plop» de recogida: una burbuja corta que sube de tono, como al guardar algo en la mochila,
+    con un clic de piedra delante (0,25 s)."""
+    rng = random.Random(105)
+    out = [0.0] * int(RATE * 0.25)
+    _add(out, 0, _pebble(rng, 0.6))
+    blip = []
+    phase = 0.0
+    for i in range(int(RATE * 0.16)):
+        t = i / RATE
+        f = 330.0 + 900.0 * (t / 0.16) ** 0.7
+        phase += 2 * math.pi * f / RATE
+        blip.append(math.sin(phase) * min(1.0, t / 0.004) * math.exp(-t * 18.0) * 0.8)
+    _add(out, int(RATE * 0.015), blip)
+    return out
+
+
+def mineral_d():
+    """D · Dos piedras: «toc-toc» de dos trozos de roca que chocan entre sí, el segundo más agudo y flojo,
+    como al guardarlos juntos (0,25 s)."""
+    rng = random.Random(107)
+    out = [0.0] * int(RATE * 0.25)
+    for start, freq, gain in ((0.0, 820.0, 1.0), (0.085, 1150.0, 0.6)):
+        knock = []
+        body = _noise_band(rng, int(RATE * 0.06), 0.5, 0.06)
+        for i, v in enumerate(body):
+            t = i / RATE
+            knock.append((v * math.exp(-t * 120.0) + math.sin(2 * math.pi * freq * t) * math.exp(-t * 90.0) * 0.5) * gain)
+        _add(out, int(RATE * start), knock)
+    return out
+
+
+def _stone_knock(rng, freq, gain, length=0.12, bright=0.35, ring=0.5):
+    """Choque de piedra grave: ruido apagado (poco brillante) y una resonancia corta en `freq`."""
+    out = []
+    body = _noise_band(rng, int(RATE * length), bright, 0.02)
+    for i, v in enumerate(body):
+        t = i / RATE
+        out.append((v * math.exp(-t * 45.0) * 1.3 + math.sin(2 * math.pi * freq * t) * math.exp(-t * 30.0) * ring) * gain)
+    return out
+
+
+def mineral_e():
+    """E · Dos piedras, grave (la D, mucho más grave, César): «toc-toc» de dos trozos grandes que chocan (0,35 s)."""
+    rng = random.Random(109)
+    out = [0.0] * int(RATE * 0.35)
+    _add(out, 0, _stone_knock(rng, 190.0, 1.0, 0.16))
+    _add(out, int(RATE * 0.1), _stone_knock(rng, 250.0, 0.65, 0.14))
+    return out
+
+
+def mineral_f():
+    """F · Losa que se parte: un crujido grave y apagado, el «crac» de la losa al abrirse con un rumor corto
+    de piedra que roza, y los dos trozos que golpean el suelo (0,6 s)."""
+    rng = random.Random(111)
+    out = [0.0] * int(RATE * 0.6)
+    _add(out, 0, _crack(rng, 0.09, 1.0, 0.35))
+    rumble = _noise_band(rng, int(RATE * 0.18), 0.12, 0.01)
+    _add(out, int(RATE * 0.01), [v * min(1.0, i / 200.0) * math.exp(-i / RATE * 14.0) * 1.8 for i, v in enumerate(rumble)])
+    _add(out, int(RATE * 0.16), _stone_knock(rng, 120.0, 1.1, 0.2, 0.25, 0.6))
+    _add(out, int(RATE * 0.24), _stone_knock(rng, 150.0, 0.7, 0.18, 0.25, 0.5))
+    return out
+
+
+def mineral_g():
+    """G · Losa seca: un solo chasquido grave y fuerte, como la piedra que cede de golpe, con una cola corta
+    de rumor que se apaga (0,45 s)."""
+    rng = random.Random(113)
+    out = [0.0] * int(RATE * 0.45)
+    _add(out, 0, _crack(rng, 0.12, 1.4, 0.4))
+    _add(out, 0, _stone_knock(rng, 95.0, 0.9, 0.25, 0.15, 0.7))
+    tail = _noise_band(rng, int(RATE * 0.35), 0.1, 0.01)
+    _add(out, int(RATE * 0.03), [v * math.exp(-i / RATE * 9.0) * 0.8 for i, v in enumerate(tail)])
+    return out
+
+
+def mineral_h():
+    """H · Losa que se raja y se separa: un crujido largo y grave que se abre (la grieta corriendo) y un
+    «toc» hondo cuando el trozo se suelta (0,55 s)."""
+    rng = random.Random(115)
+    out = [0.0] * int(RATE * 0.55)
+    at = 0.0
+    for k in range(9):
+        _add(out, int(RATE * at), _crack(rng, rng.uniform(0.02, 0.04), 0.35 + k * 0.08, 0.3))
+        at += 0.022
+    _add(out, int(RATE * 0.22), _stone_knock(rng, 105.0, 1.2, 0.22, 0.2, 0.7))
+    _add(out, int(RATE * 0.22), _crack(rng, 0.05, 0.6, 0.45))
+    return out
+
+
+def write_mineral_previews_2(folder):
+    """La segunda tanda (C3, César: «como una gran losa partirse», la D pero más grave)."""
+    os.makedirs(folder, exist_ok=True)
+    for key, make in (("e_dos_piedras_grave", mineral_e), ("f_losa_se_parte", mineral_f), ("g_losa_seca", mineral_g),
+                      ("h_losa_se_raja", mineral_h)):
+        write_wav(os.path.join(folder, "mineral_%s.wav" % key), make())
+
+
+def _rumble(rng, length, bright, gain, decay, attack=0.004):
+    """Golpe sordo de roca: ruido muy grave (`bright` bajo = más grave) con ataque corto y caída."""
+    out = []
+    level = 1.0 / math.sqrt(bright / 2.0)   # el ruido tan filtrado queda muy flojo: se iguala su volumen
+    for i, v in enumerate(_noise_band(rng, int(RATE * length), bright, 0.002)):
+        t = i / RATE
+        out.append(v * level * min(1.0, t / attack) * math.exp(-t * decay) * gain)
+    return out
+
+
+def _boulder(rng, seconds, impact, rolls, roll_gain, clatter):
+    """Roca grande que se suelta y rueda, a partir de la referencia de César (un «heavy boulder thud»):
+    un chasquido corto de piedra en medios, el golpe grave del bloque (más flojo que en la referencia, como
+    pidió César) y luego `rolls` tumbos graves cada vez más flojos y separados al azar, con algo de gravilla."""
+    out = [0.0] * int(RATE * seconds)
+    _add(out, 0, _crack(rng, 0.035, 0.3 * clatter + 0.2, 0.55))
+    _add(out, int(RATE * 0.008), _rumble(rng, 0.3, 0.008, 0.9 * impact, 12.0))
+    _add(out, int(RATE * 0.008), _rumble(rng, 0.18, 0.025, 0.45 * impact, 22.0))
+    at = 0.12
+    for k in range(rolls):
+        at += rng.uniform(0.05, 0.11)
+        level = roll_gain * (1.0 - k / (rolls + 1)) * rng.uniform(0.7, 1.0)
+        _add(out, int(RATE * at), _rumble(rng, 0.14, rng.uniform(0.012, 0.03), 0.6 * level, 30.0, 0.01))
+        if rng.random() < clatter:
+            _add(out, int(RATE * at), _pebble(rng, 0.35 * level))
+    return out
+
+
+def mineral_i():
+    """I · Roca que rueda (la más parecida a la referencia, con el golpe más suave): 0,9 s."""
+    return _boulder(random.Random(121), 0.9, impact=0.7, rolls=6, roll_gain=0.7, clatter=0.4)
+
+
+def mineral_j():
+    """J · Roca que cae y se asienta (más corta, menos tumbos): 0,55 s."""
+    return _boulder(random.Random(123), 0.55, impact=0.8, rolls=3, roll_gain=0.6, clatter=0.3)
+
+
+def mineral_k():
+    """K · Roca que rueda con gravilla (golpe aún más flojo y más piedrecitas): 0,8 s."""
+    return _boulder(random.Random(125), 0.8, impact=0.5, rolls=5, roll_gain=0.55, clatter=0.9)
+
+
+def write_mineral_previews_3(folder):
+    """La tercera tanda (C3), a partir de la referencia de César."""
+    os.makedirs(folder, exist_ok=True)
+    for key, make in (("i_roca_rueda", mineral_i), ("j_roca_se_asienta", mineral_j), ("k_roca_y_gravilla", mineral_k)):
+        write_wav(os.path.join(folder, "mineral_%s.wav" % key), make())
+
+
+def _dry_hit(rng, impact, depth):
+    """Primer golpe seco de la roca (C3, César: la J sonaba «enlatada»): sin resonancias en medios; un
+    chasquido muy corto de ruido ancho y un golpe grave que se corta enseguida. `depth`: 0 = menos grave."""
+    out = [0.0] * int(RATE * 0.12)
+    click = _noise_band(rng, int(RATE * 0.012), 0.9, 0.2)
+    _add(out, 0, [v * math.exp(-i / RATE * 400.0) * 0.5 for i, v in enumerate(click)])
+    _add(out, 0, _rumble(rng, 0.12, 0.006 + 0.006 * (1.0 - depth), 0.9 * impact, 38.0, 0.002))
+    return out
+
+
+def _dust(rng, length, gain, grains):
+    """Polvo y arenilla que caen tras el golpe: un siseo suave y apagado que se va y unos granitos
+    sueltos muy flojos (`grains`)."""
+    out = [0.0] * int(RATE * length)
+    hiss = _noise_band(rng, len(out), 0.35, 0.08)
+    for i, v in enumerate(hiss):
+        t = i / RATE
+        out[i] += v * min(1.0, t / 0.03) * math.exp(-t * 7.0) * gain
+    for _ in range(grains):
+        at = rng.uniform(0.0, length * 0.7)
+        _add(out, int(RATE * at), _pebble(rng, gain * rng.uniform(0.25, 0.6)))
+    return out
+
+
+def mineral_l():
+    """L · Golpe seco y polvo suave: 0,5 s."""
+    rng = random.Random(131)
+    out = [0.0] * int(RATE * 0.5)
+    _add(out, 0, _dry_hit(rng, 1.0, 0.6))
+    _add(out, int(RATE * 0.03), _dust(rng, 0.45, 0.18, 4))
+    return out
+
+
+def mineral_m():
+    """M · Golpe seco y polvo con más arenilla: 0,5 s."""
+    rng = random.Random(133)
+    out = [0.0] * int(RATE * 0.5)
+    _add(out, 0, _dry_hit(rng, 1.0, 0.6))
+    _add(out, int(RATE * 0.03), _dust(rng, 0.45, 0.14, 12))
+    return out
+
+
+def mineral_n():
+    """N · Golpe seco más grave y polvo corto: 0,4 s."""
+    rng = random.Random(135)
+    out = [0.0] * int(RATE * 0.4)
+    _add(out, 0, _dry_hit(rng, 1.0, 1.0))
+    _add(out, int(RATE * 0.025), _dust(rng, 0.35, 0.16, 6))
+    return out
+
+
+def write_mineral_previews_4(folder):
+    """La cuarta tanda (C3): la J con el primer golpe más seco y polvo que cae en lugar de tumbos."""
+    os.makedirs(folder, exist_ok=True)
+    for key, make in (("l_seco_polvo", mineral_l), ("m_seco_arenilla", mineral_m), ("n_seco_grave", mineral_n)):
+        write_wav(os.path.join(folder, "mineral_%s.wav" % key), make())
+
+
+def mineral_o():
+    """O · El primer golpe de la J y el polvo con arenilla de la M (César): 0,5 s. Se rehacen con sus
+    mismas semillas, así que suenan igual que en las dos pruebas."""
+    hit = _boulder(random.Random(123), 0.2, impact=0.8, rolls=0, roll_gain=0.6, clatter=0.3)
+    rng = random.Random(133)
+    _dry_hit(rng, 1.0, 0.6)   # gasta los mismos números al azar que la M antes de su polvo
+    dust = _dust(rng, 0.45, 0.14, 12)
+    out = [0.0] * int(RATE * 0.5)
+    _add(out, 0, hit)
+    _add(out, int(RATE * 0.03), dust)
+    return out
+
+
+def write_mineral_previews(folder):
+    """Las cuatro versiones del sonido de conseguir un mineral, para escucharlas y elegir (C3)."""
+    os.makedirs(folder, exist_ok=True)
+    for key, make in (("a_roca", mineral_a), ("b_cristal", mineral_b), ("c_plop", mineral_c), ("d_dos_piedras", mineral_d)):
+        write_wav(os.path.join(folder, "mineral_%s.wav" % key), make())
+
+
+def write_tool_sounds(assets_folder):
+    """Escribe los sonidos de C3 en assets/audio. Los que acaban en _loop se repiten mientras se trabaja."""
+    # El mineral: la versión O, elegida por César tras cuatro tandas de pruebas (mineral_o).
+    sounds = {"biter_loop": biter_loop, "drill_loop": drill_loop, "vein_grind_loop": vein_grind_loop,
+              "vein_yield": mineral_o, "wood_saw_loop": wood_saw_loop, "tree_fall": tree_fall}
+    for name, make in sounds.items():
+        write_wav(os.path.join(assets_folder, name + ".wav"), make())
+    return sorted(sounds)
+
+
 if __name__ == "__main__":
     folder = sys.argv[1] if len(sys.argv) > 1 else "."
     os.makedirs(folder, exist_ok=True)

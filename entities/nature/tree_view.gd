@@ -42,6 +42,10 @@ const MODELS: Dictionary = {
 	"b": {"mature": 2, "young": 1, "sprout": 1, "stump": 1},
 }
 const ROCK_VARIANTS: int = 3
+## Cada cuánto salen virutas mientras una herramienta trabaja (ms).
+const TOOL_FX_MS: int = 180
+## Madera mordida, en bucle mientras la mordedora trabaja (C3).
+const SAW_SOUND: AudioStreamWAV = preload("res://assets/audio/wood_saw_loop.wav")
 
 ## Mallas de `nature.glb` por nombre, compartidas por todas las vistas.
 static var _meshes: Dictionary[String, Mesh] = {}
@@ -57,6 +61,10 @@ var _visual: Node3D = null
 var _hits: int = 0
 var _last_hit_ms: int = -100000
 var _shake: float = 0.0
+## Temblor fino mientras una herramienta trabaja el árbol (C3), en lugar de la sacudida del golpe a mano.
+var _tremble: float = 0.0
+var _fx_ms: int = -100000
+var _saw_sound: LoopSound = null
 
 
 ## Prepara la vista. Se llama ANTES de añadirla al árbol.
@@ -131,12 +139,27 @@ func use(_by: Node) -> void:
 		return
 	if state.is_mature_tree():
 		var now: int = Time.get_ticks_msec()
+		var with_tool: bool = _by.has_method("holding_tool") and _by.holding_tool()
+		var at: Vector3 = _by.work_point() if _by.has_method("work_point") else global_position + Vector3(0.0, 0.6, 0.0)
+		if with_tool:
+			# La mordedora va mordiendo: virutas seguidas donde muerde, el árbol tiembla y cruje (C3).
+			_tremble = 1.0
+			if _saw_sound == null:
+				_saw_sound = LoopSound.create(self, SAW_SOUND)
+			_saw_sound.global_position = at
+			_saw_sound.keep()
+			if now - _fx_ms >= TOOL_FX_MS:
+				_fx_ms = now
+				DustPuff.spawn(self, at, BuildingView.CHIPS_COLOR, true)
 		if now - _last_hit_ms < int(NatureState.HIT_COOLDOWN * 1000.0):
 			return
 		_last_hit_ms = now
 		_hits += 1
-		_shake = 1.0
-		DustPuff.spawn(self, global_position + Vector3(0.0, 0.6, 0.0))
+		if with_tool:
+			_shake = 0.5
+		else:
+			_shake = 1.0
+			DustPuff.spawn(self, at)
 		if _hits < NatureState.CHOP_HITS:
 			return
 		_hits = 0
@@ -144,11 +167,19 @@ func use(_by: Node) -> void:
 	if state.is_rock():
 		gained = island.mine_rock(cell)
 	elif state.is_mature_tree():
+		# Antes de que la casilla pase a tocón, una copia del árbol cae hacia el otro lado (C3, César).
+		if _visual != null and get_parent() != null:
+			FallingTree.spawn(get_parent(), _visual, (_by as Node3D).global_position if _by is Node3D else global_position)
 		gained = island.chop_tree(cell, true)
 	else:
 		gained = island.uproot_stump(cell)
+	var pop_at: Vector3 = global_position + Vector3(0.0, 0.8, 0.0)
+	if _by.has_method("work_point"):
+		pop_at = _by.work_point()
 	for item: ItemData in gained:
 		inventory.add_item(item, gained[item])
+		ItemPop.spawn(get_parent(), item, pop_at)   # lo recogido salta hacia la barra (C3)
+		PickupFeed.notify(item, gained[item])
 
 
 ## Qué hace el clic aquí, para el letrero de arriba. Brotes y jóvenes no se tocan.
@@ -167,10 +198,12 @@ func get_use_hint_key() -> String:
 
 ## Sacudida corta del árbol tras un golpe.
 func _process(delta: float) -> void:
-	if _shake <= 0.0 or _visual == null:
+	if (_shake <= 0.0 and _tremble <= 0.0) or _visual == null:
 		return
 	_shake = maxf(_shake - delta * 5.0, 0.0)
-	_visual.rotation.z = 0.06 * sin(_shake * PI * 3.0) * _shake
+	_tremble = maxf(_tremble - delta * 4.0, 0.0)
+	var jitter: float = 0.008 * sin(Time.get_ticks_msec() * 0.09) * _tremble
+	_visual.rotation.z = 0.06 * sin(_shake * PI * 3.0) * _shake + jitter
 
 
 ## Pone la malla `model_name` de `nature.glb` (si no existe, avisa y no dibuja nada).

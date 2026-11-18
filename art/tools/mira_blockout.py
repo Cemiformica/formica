@@ -63,6 +63,17 @@ BOOT_SOLE = (5, 6)     # suela
 HEAD_SCALE = 1.45      # la cabeza se modela a tamaño «1» y se agranda al final alrededor del cuello
 HAND_SCALE = 1.35     # manos y pies, grandes respecto a brazos y piernas
 FOOT_SCALE = 1.35
+PALM_RY, PALM_RZ = 0.044, 0.038   # radios de la palma a lo ancho y a lo largo (sin agrandar); los nudillos siguen su borde
+KNUCKLE_ARC = 0.5                 # cuánto siguen los nudillos la curva de la palma (0 = en línea recta)
+PALM_FLAT = 0.82                  # la palma se aplana a este % de su largo hacia los nudillos (1 = redonda)
+FINGER_LENGTH = (0.78, 0.92, 0.84)  # largo de cada dedo: el de fuera (como un meñique), el corazón y el índice
+# Celda del panal (k, ver build_backpack) de cada módulo, en el orden en que se ganan: el primero arriba a
+# la derecha (vista desde detrás) y los demás en el sentido de las agujas del reloj, como el panal de la
+# interfaz (UiModuleHoneycomb).
+MODULE_ORDER = (1, 0, 5, 4, 3, 2)
+FINGER_THICKNESS = 0.85         # grosor de los dedos (y su parte del guante) respecto al primer modelo (César, C3)
+THUMB_THICKNESS = 0.75          # el pulgar, aún más fino
+FINGER_SPACING = 0.023          # distancia entre dedos vecinos (sin agrandar; antes 0,027, César los quiso más juntos)
 HEAD_DROP = 0.151      # y se baja para que la coronilla siga a 1,80 m (ojos a ~1,6 m)
 
 PARTS = ["head", "body", "arms", "legs", "abdomen", "backpack"]  # se irán añadiendo: "body", "arms", "legs", "abdomen", "backpack"
@@ -978,37 +989,72 @@ def build_arms(root, mats):
         d = (wr - el).normalized()
         inward = Vector((-sx, 0.0, 0.0))
         fwd = Vector((0.0, -1.0, 0.0))
-        palm = wr + d * 0.04
+        palm = wr + d * 0.04   # referencia de la mano: de aquí salen los dedos y el pulgar
+        # La palma acaba en la línea de los nudillos (C3, D-145): si llegara más abajo, al cerrar el puño
+        # asomaría como un muñón por debajo de los dedos doblados (César).
+        palm_c = wr + d * 0.025
         gloved = side == "r"   # guante gris oscuro sin dedos en su mano derecha (César)
+        def flat_palm(radii):
+            # Palma con el borde de los nudillos más plano (C3, César): lo que pasa de PALM_FLAT de su
+            # largo hacia los dedos se aplana contra un plano. No cambia dónde nacen los dedos.
+            bm = sphere(palm_c, radii, 10, 6)
+            limit = PALM_FLAT * radii[2]
+            for v in bm.verts:
+                t = (v.co - palm_c).dot(d)
+                if t > limit:
+                    v.co -= d * (t - limit)
+            return bm
         if gloved:
-            finish("glove_palm", sphere(palm, (0.028, 0.049, 0.054), 10, 6), GLOVE, hand, mats["base"], smooth=True)
+            finish("glove_palm", flat_palm((0.028, 0.049, 0.042)), GLOVE, hand, mats["base"], smooth=True)
             finish("glove_cuff", bar(wr - d * 0.022, wr + d * 0.012, 0.031, 0.033, 8), GLOVE, hand, mats["base"])
         else:
-            finish("hand_palm_" + side, sphere(palm, (0.024, 0.044, 0.05), 10, 6), SKIN, hand, gloss, smooth=True)
-        for k, off in enumerate((-0.027, 0.0, 0.027)):
-            f0 = palm + d * 0.01 + fwd * off
-            fl = 0.84 if k == 2 else 1.0   # el índice (junto al pulgar), algo más corto
+            finish("hand_palm_" + side, flat_palm((0.024, PALM_RY, PALM_RZ)), SKIN, hand, gloss, smooth=True)
+        # Fila de nudillos perpendicular al eje de la mano (C3): con `fwd` a secas quedaba inclinada y, en el
+        # puño, un dedo de fuera asomaba y el otro se hundía (César: «parece que solo tiene 2 nudillos»).
+        across = (fwd - d * fwd.dot(d)).normalized()
+        for k, off in enumerate((-FINGER_SPACING, 0.0, FINGER_SPACING)):
+            # Los nudillos de fuera suben un poco siguiendo la curva de la palma: el corazón queda apenas
+            # más adelantado, como en una mano de verdad.
+            drop = KNUCKLE_ARC * PALM_RZ * (1.0 - math.sqrt(1.0 - (off / PALM_RY) ** 2))
+            f0 = palm + d * (0.01 - drop) + across * off
+            fl = FINGER_LENGTH[k]
             f1 = f0 + (d + inward * 0.2).normalized() * 0.062 * fl
             f2 = f1 + (d + inward * 0.75).normalized() * 0.032 * fl
-            finish("hand_finger_%s_%d" % (side, k), tube([f0, f1, f2], [0.0125, 0.012, 0.0095], [inward] * 3, 6),
-                   SKIN_DARK, hand, gloss)
+            # Dos falanges (C3, D-145): cada una cuelga de su vacío (nudillo y doblez) y una bolita del
+            # grosor del dedo tapa la junta al doblarse. El vacío «_end» solo marca dónde acaba el hueso.
+            joint0 = empty("finger_%s_%d" % (side, k), f0, hand)
+            joint1 = empty("finger_%s_%d_mid" % (side, k), f1, joint0)
+            empty("finger_%s_%d_end" % (side, k), f2 + (f2 - f1).normalized() * 0.0098 * FINGER_THICKNESS, joint1)
+            finish("hand_finger_%s_%d" % (side, k), tube([f0, f1], [0.0125 * FINGER_THICKNESS, 0.012 * FINGER_THICKNESS], [inward] * 2, 6),
+                   SKIN_DARK, joint0, gloss)
+            finish("hand_knuckle_%s_%d" % (side, k), sphere(f1, (0.0122 * FINGER_THICKNESS,) * 3, 6, 4), SKIN_DARK, joint1,
+                   gloss, smooth=True)
+            finish("hand_finger_%s_%d_b" % (side, k), tube([f1, f2], [0.012 * FINGER_THICKNESS, 0.0095 * FINGER_THICKNESS], [inward] * 2, 6),
+                   SKIN_DARK, joint1, gloss)
             if gloved:   # el guante cubre el arranque de cada dedo
                 fd = (f1 - f0).normalized()
-                finish("glove_finger_%d" % k, bar(f0 - fd * 0.004, f0 + fd * 0.047, 0.0158, 0.0148, 6), GLOVE, hand,
+                finish("glove_finger_%d" % k, bar(f0 - fd * 0.004, f0 + fd * 0.047, 0.0158 * FINGER_THICKNESS, 0.0148 * FINGER_THICKNESS, 6), GLOVE, joint0,
                        mats["base"])
-            finish("hand_fingertip_%s_%d" % (side, k), sphere(f2, (0.0098, 0.0098, 0.0098), 6, 4), SKIN_DARK, hand,
+            finish("hand_fingertip_%s_%d" % (side, k), sphere(f2, (0.0098 * FINGER_THICKNESS,) * 3, 6, 4), SKIN_DARK, joint1,
                    gloss, smooth=True)
         t0 = palm + fwd * 0.02 - d * 0.032   # nace cerca de la muñeca
         tm = t0 + (fwd + d * 0.35 + inward * 0.2).normalized() * 0.037
         t1 = tm + (fwd * 0.3 + d + inward * 0.6).normalized() * 0.03   # la punta se curva hacia los dedos
-        finish("hand_thumb_" + side, tube([t0, tm, t1], [0.0165, 0.0155, 0.013], [inward] * 3, 6), SKIN_DARK, hand,
+        thumb0 = empty("thumb_" + side, t0, hand)
+        thumb1 = empty("thumb_%s_mid" % side, tm, thumb0)
+        empty("thumb_%s_end" % side, t1 + (t1 - tm).normalized() * 0.0134 * THUMB_THICKNESS, thumb1)
+        finish("hand_thumb_" + side, tube([t0, tm], [0.0165 * THUMB_THICKNESS, 0.0155 * THUMB_THICKNESS], [inward] * 2, 6), SKIN_DARK, thumb0,
+               gloss, smooth=True)
+        finish("hand_thumb_knuckle_" + side, sphere(tm, (0.0158 * THUMB_THICKNESS,) * 3, 6, 4), SKIN_DARK, thumb1,
+               gloss, smooth=True)
+        finish("hand_thumb_%s_b" % side, tube([tm, t1], [0.0155 * THUMB_THICKNESS, 0.013 * THUMB_THICKNESS], [inward] * 2, 6), SKIN_DARK, thumb1,
                gloss, smooth=True)
         if gloved:
             td = (tm - t0).normalized()
             # La funda nace dentro de la palma del guante y una bola tapa la base: sin huecos (César).
-            finish("glove_thumb", merge(bar(t0 - td * 0.006, t0 + td * 0.03, 0.02, 0.0185, 6),
-                                        sphere(t0, (0.021, 0.021, 0.021), 8, 5)), GLOVE, hand, mats["base"], smooth=True)
-        finish("hand_thumbtip_" + side, sphere(t1, (0.0134, 0.0134, 0.0134), 6, 4), SKIN_DARK, hand, gloss, smooth=True)
+            finish("glove_thumb", merge(bar(t0 - td * 0.006, t0 + td * 0.03, 0.02 * THUMB_THICKNESS, 0.0185 * THUMB_THICKNESS, 6),
+                                        sphere(t0, (0.021 * THUMB_THICKNESS,) * 3, 8, 5)), GLOVE, thumb0, mats["base"], smooth=True)
+        finish("hand_thumbtip_" + side, sphere(t1, (0.0134 * THUMB_THICKNESS,) * 3, 6, 4), SKIN_DARK, thumb1, gloss, smooth=True)
         rescale(hand, HAND_SCALE, wr, (0.0, 0.0, 0.0))   # manos grandes respecto al brazo (César)
 
 
@@ -1071,9 +1117,11 @@ def build_abdomen(root, mats):
 
 def build_backpack(root, mats):
     # Mochila de panal (D-099): armazón hexagonal grande en la espalda, por encima del abdomen, con un
-    # panal de 7 celdas: el emblema de la colonia en el centro, 2 módulos puestos (el inventario inicial)
-    # y 4 huecos vacíos; cada ampliación añadirá un módulo visible (`backpack_module_<n>`). Luz de estado
-    # ámbar, dos antenitas y dos asas que van POR ENCIMA de la ropa, ceñidas a la bata y a las solapas.
+    # panal de 7 celdas: el emblema de la colonia en el centro y 6 huecos, cada uno con su módulo. Los
+    # módulos son piezas aparte (`backpack_module_<n>`, n = 0…5 en el orden en que se ganan, MODULE_ORDER):
+    # mira_rig.py no los une a la malla y Godot enseña solo los que tiene el inventario (C3; se empieza
+    # con 1, D-117). Luz de estado ámbar, dos antenitas y dos asas que van POR ENCIMA de la ropa, ceñidas
+    # a la bata y a las solapas.
     base, gloss, glow = mats["base"], mats["gloss"], mats["glow"]
     chest = bpy.data.objects.get("chest") or root
     c = Vector((0.0, 0.135, 1.0))
@@ -1088,17 +1136,19 @@ def build_backpack(root, mats):
     for k in range(6):
         a = math.radians(60 * k)
         p = face + Vector((-step * math.cos(a), 0.0, step * math.sin(a)))
-        if k in (1, 2):   # las dos celdas de arriba: módulos puestos
-            module = disc(r, 0.03, 6, r_front=r - 0.007)
-            orient(module, p, back)
-            finish("backpack_module_%d" % (k - 1), module, METAL_LIGHT, pack, base)
-            window = disc(r - 0.019, 0.005, 6)
-            orient(window, p + back * 0.03, back)
-            finish("backpack_module_window_%d" % (k - 1), window, LENS, pack, gloss)
-        else:              # huecos vacíos: fondo oscuro
-            slot = disc(r - 0.004, 0.003, 6)
-            orient(slot, p, back)
-            finish("backpack_slot_%d" % k, slot, METAL_DARK, pack, base)
+        # Hueco de fondo oscuro, que se ve mientras falte su módulo. Sin la cara de atrás, que toca el armazón.
+        slot = disc(r - 0.004, 0.003, 6)
+        orient(slot, p, back)
+        slot.normal_update()
+        bmesh.ops.delete(slot, geom=[f for f in slot.faces if f.normal.dot(back) < -0.9], context="FACES")
+        finish("backpack_slot_%d" % k, slot, METAL_DARK, pack, base)
+        n = MODULE_ORDER.index(k)
+        module = disc(r, 0.03, 6, r_front=r - 0.007)
+        orient(module, p, back)
+        finish("backpack_module_%d" % n, module, METAL_LIGHT, pack, base)
+        window = disc(r - 0.019, 0.005, 6)
+        orient(window, p + back * 0.03, back)
+        finish("backpack_module_window_%d" % n, window, LENS, pack, gloss)
     tools = os.path.dirname(os.path.abspath(__file__))
     if tools not in sys.path:
         sys.path.append(tools)

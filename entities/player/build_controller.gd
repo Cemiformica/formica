@@ -109,14 +109,18 @@ var _ghost_data: BuildingData = null
 var _ghost_carried: bool = false
 var _ghost_meshes: Array[MeshInstance3D] = []
 var _carry_blocked_material: StandardMaterial3D
-## Arrastrar cintas (C2b): pulsar empieza el tramo en `_drag_start`; soltar construye. El tramo sigue el
-## camino del ratón (César): cada casilla por la que pasa se añade y, si vuelve sobre el tramo, se recorta.
-## Un fantasma por casilla.
+## Arrastrar cintas (C2b; revisado en C3 con lo que César averiguó de Alchemy Factory): pulsar fija el
+## principio (`_drag_start`) y soltar construye. El tramo va del principio a la casilla apuntada en **L**:
+## primero por el eje en que más se ha movido el ratón y después un solo giro (R invierte el orden de la L),
+## así que es siempre una línea seguida, sin zigzags ni tramos pegados. Se puede cruzar en recto una cinta
+## que ya está (su fantasma enseña el cruce); un giro sobre una cinta, una cinta en sentido contrario o un
+## obstáculo cortan el tramo: desde ahí todo sale en rojo y no se construye. Un fantasma por casilla.
 var _drag_active: bool = false
 var _drag_start: Vector2i = Vector2i.ZERO
 var _drag_cells: Array[Vector2i] = []
 var _drag_rotations: Array[int] = []
 var _drag_states: Array[DragCell] = []
+var _drag_flip: bool = false   # R mientras se arrastra: la L empieza por el otro eje
 ## Fantasmas del tramo: vistas de cinta de verdad (sin colisión y translúcidas) sobre una isla de prueba
 ## con el tramo y lo que lo rodea, para que cada una enseñe su forma real (recta, curva o cruce). Se
 ## rehacen solo cuando cambia el tramo; las que no cambian de casilla ni de giro se reutilizan.
@@ -241,6 +245,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_finish_drag()
 		elif event.is_action_pressed("build_move") or event.is_action_pressed("ui_cancel"):
 			_cancel_drag()
+		elif event.is_action_pressed("build_rotate"):
+			_drag_flip = not _drag_flip
 		return
 	# Clic derecho: levantar la construcción que miras para moverla, o devolverla si ya la llevas (C2.5).
 	if event.is_action_pressed("build_move") and Aim.pointer_ready():
@@ -734,6 +740,7 @@ func _start_drag() -> void:
 	_drag_cells = [_drag_start]
 	_drag_rotations = [rotation_steps]
 	_drag_states = []
+	_drag_flip = false
 
 
 func _cancel_drag() -> void:
@@ -745,24 +752,26 @@ func _cancel_drag() -> void:
 	_drag_preview_key = ""
 
 
-## Sigue al ratón (C2b, César): si `to` es una casilla nueva, añade el camino hasta ella (con pasos rectos si
-## el ratón ha saltado varias casillas de golpe); si es una del tramo, lo recorta hasta ahí. Cada cinta mira
-## hacia la siguiente; la última, en la dirección del último paso. Sin moverse, una sola cinta con el giro
-## elegido con R.
+## Tramo en L del principio a `to`: por el eje dominante (o el otro, con R) y un solo giro. Se recalcula
+## entero en cada movimiento. Cada cinta mira hacia la siguiente; la última, en la dirección del último
+## paso. Sin moverse, una sola cinta con el giro elegido con R.
 func _drag_path(to: Vector2i) -> void:
-	if _drag_cells.is_empty():
-		_drag_cells.append(_drag_start)
-	var last: Vector2i = _drag_cells[_drag_cells.size() - 1]
-	while last != to and _drag_cells.size() < DRAG_MAX_CELLS:
-		var delta: Vector2i = to - last
-		var step: Vector2i = Vector2i(signi(delta.x), 0) if absi(delta.x) >= absi(delta.y) else Vector2i(0, signi(delta.y))
-		var next: Vector2i = last + step
-		var index: int = _drag_cells.find(next)
-		if index >= 0:
-			_drag_cells.resize(index + 1) # vuelve sobre el tramo: se recorta
-		else:
-			_drag_cells.append(next)
-		last = next
+	_drag_cells = [_drag_start]
+	var delta: Vector2i = to - _drag_start
+	var x_first: bool = absi(delta.x) >= absi(delta.y)
+	if _drag_flip:
+		x_first = not x_first
+	var legs: Array[Vector2i] = [Vector2i(delta.x, 0), Vector2i(0, delta.y)]
+	if not x_first:
+		legs.reverse()
+	var last: Vector2i = _drag_start
+	for leg: Vector2i in legs:
+		var step := Vector2i(signi(leg.x), signi(leg.y))
+		for _k: int in absi(leg.x) + absi(leg.y):
+			if _drag_cells.size() >= DRAG_MAX_CELLS:
+				break
+			last += step
+			_drag_cells.append(last)
 	_drag_rotations.clear()
 	if _drag_cells.size() == 1:
 		_drag_rotations.append(rotation_steps)
@@ -798,18 +807,23 @@ func _update_drag(building: BuildingData, ground_y: float) -> void:
 		affordable = mini(affordable, floori(float(inventory.get_total(item)) / building.cost[item]))
 	_drag_states.clear()
 	var used: int = 0
+	var cut: bool = false   # tras el primer obstáculo, todo lo que sigue sale en rojo y no se construye
 	for i: int in _drag_cells.size():
 		var cell: Vector2i = _drag_cells[i]
 		var existing: PlacedBuilding = island.get_at(cell)
 		var state: DragCell = DragCell.OK
-		if existing != null and existing.is_belt():
-			state = DragCell.EXISTING_BELT
+		if cut:
+			state = DragCell.BLOCKED
+		elif existing != null and existing.is_belt():
+			state = DragCell.EXISTING_BELT if _can_cross(existing, i) else DragCell.BLOCKED
 		elif not island.can_place(building, cell, _drag_rotations[i]):
 			state = DragCell.BLOCKED
 		elif used >= affordable:
 			state = DragCell.NO_MATERIALS
 		else:
 			used += 1
+		if state == DragCell.BLOCKED and i > 0:
+			cut = true
 		_drag_states.append(state)
 	var key: String = "%s|%s|%s" % [str(_drag_cells), str(_drag_rotations), str(_drag_states)]
 	if key != _drag_preview_key:
@@ -822,9 +836,23 @@ func _update_drag(building: BuildingData, ground_y: float) -> void:
 		# En coordenadas del mundo y sin heredar giro: este nodo es `top_level`, pero conserva el sitio y el giro
 		# que tenía el jugador al empezar, y la vista se coloca relativa a su padre.
 		view.global_transform = Transform3D(Basis.IDENTITY, GridMath.cell_center(_drag_cells[i], ground_y))
-		var material: StandardMaterial3D = _drag_ok_material if _drag_states[i] == DragCell.OK else _drag_bad_material
+		var ok: bool = _drag_states[i] == DragCell.OK or _drag_states[i] == DragCell.EXISTING_BELT
+		var material: StandardMaterial3D = _drag_ok_material if ok else _drag_bad_material
 		for node: Node in view.find_children("*", "MeshInstance3D", true, false):
 			(node as MeshInstance3D).material_override = material
+
+
+## ¿Puede el tramo pasar por la cinta `existing` (casilla `i` del tramo)? Al principio o al final del tramo,
+## sí (se empalma con ella). En medio, solo en recto (sin girar encima) y sin ir en sentido contrario a ella:
+## así una cinta nunca recibe dos entradas raras del mismo arrastre (César).
+func _can_cross(existing: PlacedBuilding, i: int) -> bool:
+	if i == 0 or i == _drag_cells.size() - 1:
+		return true
+	var step_in: Vector2i = _drag_cells[i] - _drag_cells[i - 1]
+	var step_out: Vector2i = _drag_cells[i + 1] - _drag_cells[i]
+	if step_in != step_out:
+		return false
+	return existing.rotation != (_rotation_for_step(step_in) + 2) % 4
 
 
 ## Isla de prueba con lo que rodea el tramo y las cintas que se pondrían (también las rojas por falta de
@@ -835,18 +863,23 @@ func _rebuild_drag_preview(building: BuildingData, island: IslandState) -> void:
 	for i: int in _drag_cells.size():
 		if _drag_states[i] == DragCell.OK or _drag_states[i] == DragCell.NO_MATERIALS:
 			planned[_drag_cells[i]] = true
-	var copied: Dictionary[int, bool] = {}
+	var copied: Dictionary[int, PlacedBuilding] = {}
 	for cell: Vector2i in _drag_cells:
 		for offset: Vector2i in [Vector2i.ZERO, Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]:
 			var neighbor: PlacedBuilding = island.get_at(cell + offset)
 			if neighbor != null and not copied.has(neighbor.id):
-				copied[neighbor.id] = true
-				preview.add_for_preview(neighbor.data, neighbor.origin, neighbor.rotation, neighbor.flipped, neighbor.output_turn)
+				copied[neighbor.id] = preview.add_for_preview(neighbor.data, neighbor.origin, neighbor.rotation,
+						neighbor.flipped, neighbor.output_turn)
 	var preview_belts: Array = []
 	preview_belts.resize(_drag_cells.size())
 	for i: int in _drag_cells.size():
 		if planned.has(_drag_cells[i]):
 			preview_belts[i] = preview.add_for_preview(building, _drag_cells[i], _drag_rotations[i])
+		elif _drag_states[i] == DragCell.EXISTING_BELT:
+			# Cinta que ya está y que el tramo cruza: su fantasma enseña cómo quedará (el cruce) (César).
+			var existing: PlacedBuilding = island.get_at(_drag_cells[i])
+			if existing != null:
+				preview_belts[i] = copied.get(existing.id)
 	preview.get_links()
 	var views: Dictionary[String, BuildingView] = {}
 	_drag_view_at.clear()
@@ -854,7 +887,8 @@ func _rebuild_drag_preview(building: BuildingData, island: IslandState) -> void:
 	for i: int in _drag_cells.size():
 		if preview_belts[i] == null:
 			continue
-		var view_key: String = "%d,%d,%d" % [_drag_cells[i].x, _drag_cells[i].y, _drag_rotations[i]]
+		var view_key: String = "%d,%d,%d,%s" % [_drag_cells[i].x, _drag_cells[i].y, _drag_rotations[i],
+				"e" if _drag_states[i] == DragCell.EXISTING_BELT else "n"]
 		var view: BuildingView = _drag_views.get(view_key)
 		if view == null:
 			view = BuildingView.new()

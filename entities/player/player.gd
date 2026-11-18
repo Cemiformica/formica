@@ -23,6 +23,9 @@ signal building_opened(view: BuildingView)
 @export var mouse_sensitivity: float = 0.002 ## Radianes girados por cada píxel de ratón.
 @export var max_pitch_degrees: float = 89.0 ## Límite para mirar arriba y abajo.
 
+@export_group("Herramientas")
+@export var tool_reach: float = 2.5 ## Alcance para talar y picar con una herramienta (m); la E sigue llegando a 3 m (C3).
+
 @export_group("Seguridad")
 @export var fall_limit_y: float = -10.0 ## Por debajo de esta altura, vuelve al punto de inicio.
 
@@ -31,6 +34,7 @@ signal building_opened(view: BuildingView)
 @onready var interact_ray: RayCast3D = $Head/InteractRay
 @onready var build_controller: BuildController = $BuildController
 @onready var mira: Mira = $Mira
+@onready var arm: FirstPersonArm = $Head/Camera3D/FirstPersonArm   # lo que lleva en la mano, en primera persona
 
 ## Posición y orientación iniciales, para reaparecer si caemos.
 var spawn_transform: Transform3D
@@ -50,6 +54,9 @@ var _using: bool = false
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	interact_ray.add_exception(self) # el rayo no debe tocar nuestra propia cápsula
+	# Zonas de trabajo (capa 4): la losa de las vetas, para picar en cualquiera de sus 9 casillas (C3).
+	interact_ray.collide_with_areas = true
+	interact_ray.collision_mask |= VeinView.WORK_AREA_LAYER
 	add_to_group(&"player")
 	spawn_transform = global_transform
 	# Interpolación de la física (B3): la cámara va suelta y se coloca en cada fotograma (ver _process).
@@ -58,6 +65,8 @@ func _ready() -> void:
 	# Primera persona: Mira oculta (sin sombra). Sigue animándose por dentro, lista para la tercera persona.
 	mira.visible = false
 	WorldState.player_inventory.changed.connect(_update_held_item)
+	WorldState.player_inventory.changed.connect(_update_backpack)
+	_update_backpack()
 	planter = PlantController.new()
 	planter.player = self
 	add_child(planter)
@@ -135,7 +144,13 @@ func _physics_process(delta: float) -> void:
 	if _using and (WindowManager.is_open() or in_tool_mode()):
 		_using = false
 	if _using and is_instance_valid(focused_interactable):
-		focused_interactable.use(self)
+		# Con una herramienta, talar y picar piden acercarse un poco (tool_reach) (C3).
+		var workable: bool = focused_interactable.get_use_hint_key() in ["HINT_CHOP", "HINT_MINE"]
+		if not (holding_tool() and workable and work_distance() > tool_reach):
+			focused_interactable.use(self)
+	# La herramienta se enciende con el clic aunque no haya nada delante; solo da materiales si trabaja algo
+	# (César).
+	arm.set_working(_using and holding_tool())
 
 
 ## Elige la casilla de la barra (C1.6; lo llama la barra de abajo). Mira lleva en la mano lo que haya en ella.
@@ -150,6 +165,31 @@ func _update_held_item() -> void:
 	var item: ItemData = stack.item if stack != null else null
 	if mira.held_item != item:
 		mira.hold_item(item)
+	if arm.held_item != item:
+		arm.hold_item(item)
+
+
+## ¿Lleva Mira una herramienta en la mano (algo que se coge en puño, C3)?
+func holding_tool() -> bool:
+	return mira.held_item != null and mira.held_item.held_grip == ItemData.HeldGrip.FIST
+
+
+## Punto del mundo donde está trabajando (donde toca la mira); si no toca nada, delante de la cámara.
+func work_point() -> Vector3:
+	if interact_ray.is_colliding():
+		return interact_ray.get_collision_point()
+	return interact_ray.to_global(interact_ray.target_position)
+
+
+## Distancia de los ojos a lo que miramos (m).
+func work_distance() -> float:
+	return interact_ray.global_position.distance_to(work_point())
+
+
+## La mochila de Mira enseña un módulo por cada 10 casillas que haya después de la barra (C3).
+func _update_backpack() -> void:
+	var slots: int = WorldState.player_inventory.get_slot_count() - WorldState.HOTBAR_SLOTS
+	mira.set_backpack_modules(slots / WorldState.BACKPACK_MODULE_SLOTS)
 
 
 ## ¿Estamos construyendo o desmontando? En esos modos el clic y la E son del modo, no de la mano.
@@ -204,7 +244,10 @@ func _update_focus() -> void:
 		focus_changed.emit(null)
 	var new_focus: Interactable = null
 	if interact_ray.is_colliding():
-		new_focus = interact_ray.get_collider() as Interactable # null si no es Interactable
+		var collider: Object = interact_ray.get_collider()
+		new_focus = collider as Interactable # null si no es Interactable
+		if new_focus == null and collider is Area3D:   # zona de trabajo: cuenta como su dueño
+			new_focus = (collider as Node).get_parent() as Interactable
 	if new_focus != focused_interactable:
 		if is_instance_valid(focused_interactable):
 			focused_interactable.set_focused(false)

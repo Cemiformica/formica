@@ -34,8 +34,11 @@ def export() -> None:
         bpy.ops.object.mode_set(mode="OBJECT")
     check_ready()
     bpy.ops.object.select_all(action="DESELECT")
-    for name in (RIG_NAME, MESH_NAME):
-        bpy.data.objects[name].select_set(True)
+    rig = bpy.data.objects[RIG_NAME]
+    rig.select_set(True)
+    for child in rig.children:   # la malla y los módulos de la mochila (mallas aparte, C3)
+        if child.type == "MESH":
+            child.select_set(True)
     bpy.context.view_layer.objects.active = bpy.data.objects[RIG_NAME]
     options = dict(filepath=bpy.path.abspath(OUTPUT), export_format="GLB", use_selection=True, export_yup=True,
                    export_apply=False, export_cameras=False, export_lights=False, export_skins=True, export_def_bones=False,

@@ -23,6 +23,7 @@ from mathutils import Vector
 
 RIG_NAME = "mira_rig"
 MESH_NAME = "mira_mesh"
+MODULE_PREFIX = "backpack_module_"   # piezas de cada módulo de la mochila (mallas aparte, ver build)
 
 # Empty del blockout → hueso que hereda sus piezas
 EMPTY_TO_BONE = {
@@ -35,6 +36,16 @@ EMPTY_TO_BONE = {
     "thigh_l": "LeftUpperLeg", "shin_l": "LeftLowerLeg", "foot_l": "LeftFoot",
     "thigh_r": "RightUpperLeg", "shin_r": "RightLowerLeg", "foot_r": "RightFoot",
 }
+
+# Dedos (C3, D-145): tres dedos y el pulgar por mano, dos falanges cada uno. El dedo 2 es el índice
+# (el más corto, junto al pulgar), el 1 el corazón y el 0 el anular. Nombres del perfil humanoide.
+FINGERS = ((2, "Index"), (1, "Middle"), (0, "Ring"))
+for _s, _side in (("l", "Left"), ("r", "Right")):
+    for _k, _name in FINGERS:
+        EMPTY_TO_BONE["finger_%s_%d" % (_s, _k)] = _side + _name + "Proximal"
+        EMPTY_TO_BONE["finger_%s_%d_mid" % (_s, _k)] = _side + _name + "Intermediate"
+    EMPTY_TO_BONE["thumb_" + _s] = _side + "ThumbProximal"
+    EMPTY_TO_BONE["thumb_%s_mid" % _s] = _side + "ThumbDistal"
 
 
 SKIRT_EMPTY = "skirt"
@@ -143,6 +154,16 @@ def bone_specs() -> list:
             ("Antenna" + side_lower, ant, tip, "Head"),
             ("Antenna" + side_lower + "Tip", tip, tip + (tip - ant) * 0.6, "Antenna" + side_lower),
         ]
+        for k, name in FINGERS:
+            base = "finger_%s_%d" % (s, k)
+            specs += [
+                (side + name + "Proximal", pivot(base), pivot(base + "_mid"), side + "Hand"),
+                (side + name + "Intermediate", pivot(base + "_mid"), pivot(base + "_end"), side + name + "Proximal"),
+            ]
+        specs += [
+            (side + "ThumbProximal", pivot("thumb_" + s), pivot("thumb_%s_mid" % s), side + "Hand"),
+            (side + "ThumbDistal", pivot("thumb_%s_mid" % s), pivot("thumb_%s_end" % s), side + "ThumbProximal"),
+        ]
     return specs
 
 
@@ -208,16 +229,24 @@ def prepare_piece(obj: bpy.types.Object, skirt: tuple) -> None:
             value.color = (1.0, 1.0, 1.0, 1.0)
 
 
-def join_pieces(pieces: list) -> bpy.types.Object:
+def join_pieces(pieces: list, name: str = MESH_NAME) -> bpy.types.Object:
     bpy.ops.object.select_all(action="DESELECT")
     for piece in pieces:
         piece.select_set(True)
     bpy.context.view_layer.objects.active = pieces[0]
-    bpy.ops.object.join()
+    if len(pieces) > 1:
+        bpy.ops.object.join()
     mesh = bpy.context.view_layer.objects.active
-    mesh.name = MESH_NAME
-    mesh.data.name = MESH_NAME
+    mesh.name = name
+    mesh.data.name = name
     return mesh
+
+
+def module_index(obj: bpy.types.Object) -> int:
+    """Número del módulo de la mochila al que pertenece la pieza (−1 si no es de un módulo)."""
+    if not obj.name.startswith(MODULE_PREFIX):
+        return -1
+    return int(obj.name.rsplit("_", 1)[1])
 
 
 def build() -> None:
@@ -231,10 +260,20 @@ def build() -> None:
     pieces = [o for o in bpy.data.objects if o.type == "MESH"]
     for piece in pieces:
         prepare_piece(piece, skirt)
-    mesh = join_pieces(pieces)
-    mesh.parent = rig
-    modifier = mesh.modifiers.new("Armature", "ARMATURE")
-    modifier.object = rig
+    # Los módulos de la mochila quedan como mallas aparte (una por módulo, con su ventanilla) para que Godot
+    # enseñe solo los que tiene el inventario (C3); todo lo demás va en una sola malla.
+    modules = {}
+    for piece in pieces:
+        if module_index(piece) >= 0:
+            modules.setdefault(module_index(piece), []).append(piece)
+    meshes = [join_pieces([p for p in pieces if module_index(p) < 0])]
+    for index in sorted(modules):
+        meshes.append(join_pieces(modules[index], MODULE_PREFIX + str(index)))
+    for part in meshes:
+        part.parent = rig
+        modifier = part.modifiers.new("Armature", "ARMATURE")
+        modifier.object = rig
+    mesh = meshes[0]
     for obj in [o for o in bpy.data.objects if o.type == "EMPTY"]:
         bpy.data.objects.remove(obj)
     groups = {g.name for g in mesh.vertex_groups}

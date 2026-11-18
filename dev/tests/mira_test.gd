@@ -5,7 +5,8 @@ extends Node3D
 ## En bucle, tres fases: quieta (4 s); andando 2 s hacia un lado y 2 s de vuelta, arrancando y frenando
 ## (Mira pasa sola de "idle" a "walk" según su velocidad); y agachándose (la pose de prueba hecha por
 ## código, con las animaciones apagadas) y levantándose. La cámara gira despacio a su alrededor.
-## En la mano derecha lleva un ítem, que cambia en cada vuelta (HELD_ITEMS).
+## Quieta, con la mano vacía, la abre, la cierra en puño y la vuelve a abrir (C3); al andar y al agacharse
+## lleva un ítem en la mano («sujetar»), que cambia en cada vuelta (HELD_ITEMS).
 ## Al arrancar imprime OK si los muelles, las animaciones, el AnimationTree y el enganche de la mano están.
 ## Dónde tocar: PHASE_TIME, WALK_SPEED, WALK_RAMP (cuánto tarda en arrancar y frenar), CROUCH_POSE y
 ## HELD_ITEMS.
@@ -24,7 +25,8 @@ const CAMERA_PERIOD: float = 20.0
 const EXPECTED_CHAINS: int = 6         # 4 varillas de la bata con muelle + 2 antenas
 const EXPECTED_ANIMATIONS: Array[String] = ["idle", "walk"]
 const HELD_ITEMS: Array[String] = [
-	"res://content/items/copper_ingot.tres", "res://content/items/wood.tres", "res://content/items/copper_coil.tres",
+	"res://content/items/biter.tres", "res://content/items/hand_drill.tres", "res://content/items/copper_ingot.tres",
+	"res://content/items/wood.tres",
 ]
 # Pose de agacharse, la misma que probamos en Blender: hueso → (giro en X, giro en Z) en grados.
 # Se aplica primero el giro en Z (abrir la pierna) y luego el de X (levantarla).
@@ -58,6 +60,7 @@ func _ready() -> void:
 	else:
 		print("FALLO: cadenas %d (esperaba %d), animaciones %s, AnimationTree %s" % [chains, EXPECTED_CHAINS,
 				mira.animations.get_animation_list(), mira.animation_tree])
+	mira.hold_item(null)   # la primera fase es la de quieta, con la mano vacía
 
 
 func _process(delta: float) -> void:
@@ -66,6 +69,12 @@ func _process(delta: float) -> void:
 	if phase_time >= PHASE_TIME and crouch == 0.0:
 		_next_phase()
 	match phase:
+		Phase.IDLE:
+			# Mano vacía: abierta, puño y abierta otra vez.
+			if phase_time > PHASE_TIME / 3.0 and phase_time < PHASE_TIME * 2.0 / 3.0:
+				mira.set_grip(MiraHandGrip.Grip.FIST)
+			else:
+				mira.set_grip(MiraHandGrip.Grip.OPEN)
 		Phase.WALK:
 			var leg_time: float = fmod(phase_time, PHASE_TIME * 0.5)
 			var direction: float = 1.0
@@ -93,6 +102,8 @@ func _next_phase() -> void:
 	# La pose de agacharse se pone a mano: se apagan las animaciones y se parte del reposo.
 	mira.set_animated(phase != Phase.CROUCH)
 	if phase == Phase.IDLE:
+		mira.hold_item(null)
+	if phase == Phase.WALK:
 		held_index = (held_index + 1) % HELD_ITEMS.size()
 		mira.hold_item(load(HELD_ITEMS[held_index]) as ItemData)
 	if phase == Phase.CROUCH:
