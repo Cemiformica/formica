@@ -105,6 +105,9 @@ static var _cable_light: StandardMaterial3D = null
 static var _smoke_processes: Dictionary[Color, ParticleProcessMaterial] = {}
 static var _smoke_mesh: ArrayMesh = null
 
+## Rojo translúcido encima de lo marcado para desmontar (C2.2), compartido por todas.
+static var _marked_material: StandardMaterial3D = null
+
 ## Construcción que muestra.
 var placed: PlacedBuilding
 ## Isla a la que pertenece (para preguntar por su red eléctrica).
@@ -307,6 +310,17 @@ func _process(delta: float) -> void:
 		_update_water_wheel(delta)
 	if placed.is_storage():
 		_update_storage_visuals()
+
+
+## Marca (o desmarca) la construcción para desmontarla: se tiñe de rojo (C2.2).
+func set_marked(marked: bool) -> void:
+	if _marked_material == null:
+		_marked_material = StandardMaterial3D.new()
+		_marked_material.albedo_color = Color(1.0, 0.2, 0.15, 0.4)
+		_marked_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_marked_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	for node: Node in find_children("*", "MeshInstance3D", true, false):
+		(node as MeshInstance3D).material_overlay = _marked_material if marked else null
 
 
 ## Efecto al colocar (B5.4, César), a juego con el sonido: mientras suena el zumbido la construcción crece

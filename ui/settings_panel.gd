@@ -4,7 +4,7 @@ extends CanvasLayer
 ## con Esc, como ventana de `WindowManager` (C1.1). Cada cambio se aplica y se guarda al momento (autoload `Settings`). En la fase C irá dentro del
 ## menú de pausa. Para añadir una opción: una línea en `_build()` con `_add_row()`.
 
-var _panel: PanelContainer
+var _panel: UiWindow
 ## Desplegable de cada opción: nombre de la opción → OptionButton.
 var _buttons: Dictionary[StringName, OptionButton] = {}
 
@@ -33,23 +33,12 @@ func _build() -> void:
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(center)
-	_panel = PanelContainer.new()
+	_panel = UiWindow.new(tr("SETTINGS_TITLE")) # marco del tema (C2)
 	center.add_child(_panel)
-	var margin := MarginContainer.new()
-	for side: String in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 20)
-	_panel.add_child(margin)
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 14)
-	margin.add_child(column)
-	var title := _make_label("SETTINGS_TITLE")
-	title.add_theme_font_size_override("font_size", 24)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(title)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 24)
-	grid.add_theme_constant_override("v_separation", 8)
+	var column: VBoxContainer = _panel.content
+	column.add_theme_constant_override("separation", 12)
+	column.add_child(UiSection.new(tr("SETTINGS_GRAPHICS")))
+	var grid: GridContainer = _make_grid()
 	column.add_child(grid)
 	_add_row(grid, &"fullscreen", "SETTINGS_WINDOW_MODE", [tr("SETTINGS_WINDOWED"), tr("SETTINGS_FULLSCREEN")])
 	_add_row(grid, &"vsync", "SETTINGS_VSYNC", [tr("SETTINGS_OFF"), tr("SETTINGS_ON")])
@@ -57,6 +46,9 @@ func _build() -> void:
 	_add_row(grid, &"smaa", "SETTINGS_SMAA", [tr("SETTINGS_OFF"), tr("SETTINGS_ON")])
 	_add_row(grid, &"shadow_quality", "SETTINGS_SHADOWS", [tr("SETTINGS_LOW"), tr("SETTINGS_MEDIUM"), tr("SETTINGS_HIGH")])
 	_add_row(grid, &"render_scale", "SETTINGS_RENDER_SCALE", ["50 %", "75 %", "100 %"])
+	column.add_child(UiSection.new(tr("SETTINGS_AUDIO")))
+	grid = _make_grid()
+	column.add_child(grid)
 	var volumes: Array = []
 	for step: int in Settings.VOLUME_STEPS + 1:
 		volumes.append("%d %%" % (step * 10))
@@ -66,6 +58,14 @@ func _build() -> void:
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.modulate = Color(1.0, 1.0, 1.0, 0.6)
 	column.add_child(hint)
+
+
+func _make_grid() -> GridContainer:
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 32)
+	grid.add_theme_constant_override("v_separation", 8)
+	return grid
 
 
 ## Una fila: nombre traducido y desplegable. Las opciones de sí/no usan el índice 0 = no, 1 = sí.

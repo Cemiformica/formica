@@ -21,6 +21,10 @@ var current_island: StringName = &""
 ## Posición y giro horizontal del jugador dentro de esa isla.
 var player_position: Vector3 = Vector3.ZERO
 var player_rotation_y: float = 0.0
+## Barras de construcción elegidas por el jugador (C2.3): una lista de ids por barra ("" = casilla vacía).
+## Vacía del todo = las barras de serie del jugador. Y cuál se está usando.
+var build_bars_ids: Array = []
+var build_bar_index: int = 0
 ## Estado de cada isla: id de isla → `IslandState`. Usa `get_island()` para no tener que comprobar si existe.
 var islands: Dictionary[StringName, IslandState] = {}
 
@@ -38,6 +42,8 @@ func reset() -> void:
 	current_island = &""
 	player_position = Vector3.ZERO
 	player_rotation_y = 0.0
+	build_bars_ids.clear()
+	build_bar_index = 0
 	islands.clear()
 	state_replaced.emit()
 
@@ -53,6 +59,8 @@ func to_data() -> Dictionary:
 			"pos": [player_position.x, player_position.y, player_position.z],
 			"rot_y": player_rotation_y,
 			"inventory": player_inventory.to_data(),
+			"build_bars": build_bars_ids,
+			"build_bar_index": build_bar_index,
 		},
 		"islands": islands_data,
 	}
@@ -70,6 +78,16 @@ func load_data(data: Dictionary) -> void:
 	player_rotation_y = float(player.get("rot_y", 0.0))
 	var inventory_data: Variant = player.get("inventory", [])
 	player_inventory.load_data(inventory_data if inventory_data is Array else [])
+	build_bars_ids.clear()
+	var bars_data: Variant = player.get("build_bars", [])
+	if bars_data is Array:
+		for bar: Variant in bars_data:
+			var ids: Array[String] = []
+			if bar is Array:
+				for entry: Variant in bar:
+					ids.append(str(entry))
+			build_bars_ids.append(ids)
+	build_bar_index = int(player.get("build_bar_index", 0))
 	# Los límites de cada isla son parte de cómo es la isla (los pone su escena), no de la partida, y no se
 	# guardan (D-070): se conservan al cargar. Sin ellos no habría suelo ni aparecerían rocas (B5.2).
 	var old_bounds: Dictionary[StringName, Rect2i] = {}

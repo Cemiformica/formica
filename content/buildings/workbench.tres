@@ -7,11 +7,14 @@
 [ext_resource type="Resource" path="res://content/recipes/make_coil.tres" id="5_recipe"]
 [ext_resource type="PackedScene" path="res://assets/models/buildings/workbench.glb" id="6_model"]
 [ext_resource type="Script" path="res://core/content/recipe_data.gd" id="7_recipescript"]
+[ext_resource type="Texture2D" path="res://assets/textures/icons/buildings/workbench.png" id="90_icon"]
 
 [resource]
 script = ExtResource("1_building")
 id = &"workbench"
 name_key = "BUILDING_WORKBENCH"
+icon = ExtResource("90_icon")
+category = &"production"
 scene = ExtResource("6_model")
 size = Vector2i(2, 1)
 height = 2

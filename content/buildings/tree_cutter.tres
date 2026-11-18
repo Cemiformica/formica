@@ -7,6 +7,7 @@
 [ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
 [ext_resource type="Resource" path="res://content/items/copper_coil.tres" id="6_coil"]
 [ext_resource type="PackedScene" uid="uid://csch8g7lhyykf" path="res://assets/models/buildings/tree_cutter.glb" id="7_model"]
+[ext_resource type="Texture2D" path="res://assets/textures/icons/buildings/tree_cutter.png" id="90_icon"]
 
 [sub_resource type="Resource" id="Resource_out"]
 script = ExtResource("3_portscript")
@@ -19,6 +20,8 @@ item_filter = ExtResource("4_wood")
 script = ExtResource("1_building")
 id = &"tree_cutter"
 name_key = "BUILDING_TREE_CUTTER"
+icon = ExtResource("90_icon")
+category = &"production"
 scene = ExtResource("7_model")
 size = Vector2i(3, 1)
 height = 2

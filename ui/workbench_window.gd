@@ -1,15 +1,15 @@
 class_name WorkbenchWindow
 extends CanvasLayer
-## Ventana del banco de trabajo (C1.5, D-067): recetas a la izquierda; a la derecha, lo que pide la elegida
-## (lo que tienes / lo que hace falta), la **cantidad** y el botón Fabricar. Se fabrica **al instante** con
-## lo del inventario del jugador, y mientras está abierta el banco se anima (D-095). E o Esc la cierran.
+## Ventana del banco de trabajo (C1.5, D-067; tema y dos columnas en C2). A la izquierda, las recetas y, de
+## la elegida, lo que pide (lo que tienes / lo que hace falta, en verde o en rojo), la **cantidad** y el botón
+## Fabricar; a la derecha, la mochila. Se fabrica **al instante** con lo del inventario del jugador, y mientras
+## está abierta el banco se anima (D-095). E, Esc o el botón de cerrar la cierran.
 ## Las recetas son las de `BuildingData.crafting_recipes` del banco.
 
-const COLOR_OK: Color = Color(0.75, 0.95, 0.6)
-const COLOR_MISSING: Color = Color(1.0, 0.5, 0.4)
+const LEFT_WIDTH: float = 340.0
+const NEED_ICON: Vector2 = Vector2(30, 30)
 
-var _panel: PanelContainer
-var _title: Label
+var _window: UiWindow
 var _list: ItemList
 var _needs: VBoxContainer
 var _amount: SpinBox
@@ -24,78 +24,79 @@ func _ready() -> void:
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(center)
-	_panel = PanelContainer.new()
-	center.add_child(_panel)
-	var margin := MarginContainer.new()
-	for side: String in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 16)
-	_panel.add_child(margin)
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 10)
-	margin.add_child(column)
-	_title = _make_label("")
-	_title.add_theme_font_size_override("font_size", 22)
-	column.add_child(_title)
+	_window = UiWindow.new()
+	center.add_child(_window)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 16)
-	column.add_child(row)
+	row.add_theme_constant_override("separation", 22)
+	_window.content.add_child(row)
+	var left := VBoxContainer.new()
+	left.custom_minimum_size.x = LEFT_WIDTH
+	left.add_theme_constant_override("separation", 10)
+	row.add_child(left)
+	left.add_child(UiSection.new(tr("WINDOW_RECIPES")))
 	_list = ItemList.new()
 	_list.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
-	_list.custom_minimum_size = Vector2(220, 180)
+	_list.custom_minimum_size = Vector2(LEFT_WIDTH, 150)
+	_list.fixed_icon_size = Vector2i(28, 28)
 	_list.item_selected.connect(_on_recipe_selected.unbind(1))
-	row.add_child(_list)
-	var detail := VBoxContainer.new()
-	detail.custom_minimum_size.x = 260
-	detail.add_theme_constant_override("separation", 8)
-	row.add_child(detail)
-	detail.add_child(_make_label(tr("WINDOW_NEEDS")))
+	left.add_child(_list)
+	left.add_child(UiSection.new(tr("WINDOW_NEEDS")))
 	_needs = VBoxContainer.new()
-	detail.add_child(_needs)
+	_needs.add_theme_constant_override("separation", 4)
+	left.add_child(_needs)
 	var amount_row := HBoxContainer.new()
-	amount_row.add_child(_make_label(tr("WINDOW_AMOUNT")))
+	amount_row.add_theme_constant_override("separation", 10)
+	amount_row.add_child(_make_label(tr("WINDOW_AMOUNT"), 14, UiStyle.SUBTLE))
 	_amount = SpinBox.new()
 	_amount.min_value = 1
 	_amount.max_value = 99
 	_amount.value_changed.connect(_refresh.unbind(1))
 	amount_row.add_child(_amount)
-	detail.add_child(amount_row)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	amount_row.add_child(spacer)
 	_craft = Button.new()
 	_craft.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	_craft.text = tr("WINDOW_CRAFT")
+	_craft.custom_minimum_size = Vector2(130, 36)
 	_craft.pressed.connect(_on_craft)
-	detail.add_child(_craft)
-	column.add_child(HSeparator.new())
-	column.add_child(PlayerInventoryPanel.new())
-	_panel.visible = false
+	amount_row.add_child(_craft)
+	left.add_child(amount_row)
+	# Mochila a la derecha
+	row.add_child(VSeparator.new())
+	row.add_child(PlayerInventoryPanel.new())
+	_window.visible = false
 	WindowManager.window_closed.connect(_on_window_closed)
 	WorldState.player_inventory.changed.connect(_refresh)
 
 
-func _make_label(text: String) -> Label:
+func _make_label(text: String, font_size: int, color: Color) -> Label:
 	var label := Label.new()
 	label.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED # el texto ya va traducido
 	label.text = text
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
 	return label
 
 
 ## Abre la ventana del banco que muestra `view`.
 func open_for(view: BuildingView) -> void:
 	_view = view
-	_title.text = tr(view.placed.data.name_key)
+	_window.set_title(tr(view.placed.data.name_key), "%d × %d" % [view.placed.data.size.x, view.placed.data.size.y])
 	_recipes = view.placed.data.crafting_recipes
 	_list.clear()
 	for recipe: RecipeData in _recipes:
-		_list.add_item(_recipe_name(recipe))
+		_list.add_item(_recipe_name(recipe), _recipe_icon(recipe))
 	if not _recipes.is_empty():
 		_list.select(0)
 	_amount.value = 1
 	_refresh()
-	WindowManager.open(_panel)
+	WindowManager.open(_window)
 	view.set_window_open(true)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if WindowManager.is_showing(_panel) and event.is_action_pressed("interact"):
+	if WindowManager.is_showing(_window) and event.is_action_pressed("interact"):
 		WindowManager.close()
 		get_viewport().set_input_as_handled()
 
@@ -106,6 +107,12 @@ func _recipe_name(recipe: RecipeData) -> String:
 		var amount: int = recipe.outputs[item]
 		return tr(item.name_key) if amount == 1 else "%s ×%d" % [tr(item.name_key), amount]
 	return String(recipe.id)
+
+
+func _recipe_icon(recipe: RecipeData) -> Texture2D:
+	for item: ItemData in recipe.outputs:
+		return item.icon
+	return null
 
 
 func _selected() -> RecipeData:
@@ -144,8 +151,17 @@ func _refresh() -> void:
 	for item: ItemData in recipe.inputs:
 		var need: int = recipe.inputs[item] * amount
 		var have: int = inventory.get_total(item)
-		var line := _make_label("%s  %d / %d" % [tr(item.name_key), have, need])
-		line.add_theme_color_override("font_color", COLOR_OK if have >= need else COLOR_MISSING)
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 8)
+		var icon: TextureRect = SlotUI.make_icon_rect()
+		icon.custom_minimum_size = NEED_ICON
+		icon.texture = item.icon
+		line.add_child(icon)
+		line.add_child(_make_label(tr(item.name_key), 14, UiStyle.TEXT))
+		var count := _make_label("%d / %d" % [have, need], 14, UiStyle.GREEN if have >= need else UiStyle.RED)
+		count.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		line.add_child(count)
 		_needs.add_child(line)
 	var outputs: Dictionary[ItemData, int] = {}
 	for item: ItemData in recipe.outputs:
@@ -172,7 +188,7 @@ func _on_craft() -> void:
 
 
 func _on_window_closed(window: Control) -> void:
-	if window == _panel:
+	if window == _window:
 		if is_instance_valid(_view):
 			_view.set_window_open(false)
 		_view = null

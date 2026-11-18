@@ -5,6 +5,10 @@ extends Node
 ## Para añadir contenido nuevo no se toca este script: se añade el .tres a `content/catalog.tres`.
 
 const CATALOG: Catalog = preload("res://content/catalog.tres")
+## La herramienta de cable va en la barra de construcción y en el catálogo como una construcción más.
+const CABLE_TOOL: CableTool = preload("res://content/tools/cable_tool.tres")
+## Orden de las categorías del catálogo (C2.3).
+const CATALOG_CATEGORIES: Array[StringName] = [&"power", &"production", &"logistics", &"storage"]
 
 var _items_by_id: Dictionary[StringName, ItemData] = {}
 var _recipes_by_id: Dictionary[StringName, RecipeData] = {}
@@ -34,6 +38,24 @@ func find_recipe(id: StringName) -> RecipeData:
 
 
 ## Edificio con ese id (null si no existe).
+## Lo que sale en el catálogo de una categoría (construcciones y el cable), en el orden del catálogo.
+func catalog_entries(category: StringName) -> Array[Resource]:
+	var result: Array[Resource] = []
+	for building: BuildingData in CATALOG.buildings:
+		if building.category == category:
+			result.append(building)
+	if CABLE_TOOL.category == category:
+		result.append(CABLE_TOOL)
+	return result
+
+
+## Construcción (o el cable) por id, para la barra de construcción guardada. Null si no existe.
+func find_buildable(id: StringName) -> Resource:
+	if id == CABLE_TOOL.id:
+		return CABLE_TOOL
+	return find_building(id)
+
+
 func find_building(id: StringName) -> BuildingData:
 	return _buildings_by_id.get(id, null)
 

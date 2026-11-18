@@ -40,6 +40,7 @@ var _belt_material: StandardMaterial3D = preload("res://assets/materials/belt_ba
 
 
 func _ready() -> void:
+	add_to_group(&"island_view") # el desmontaje busca aquí las vistas para marcarlas (C2.2)
 	var conveyor: BuildingData = Content.find_building(&"conveyor")
 	if conveyor != null:
 		_belt_speed = conveyor.belt_speed
@@ -47,6 +48,11 @@ func _ready() -> void:
 	_cable_material.albedo_color = CABLE_COLOR
 	WorldState.state_replaced.connect(_rebuild)
 	_rebuild()
+
+
+## Vista de una construcción por su id (null si no hay).
+func get_view(id: int) -> BuildingView:
+	return _views.get(id, null)
 
 
 ## Hace avanzar la banda de todas las cintas a la vez (cuesta lo mismo con 1 cinta que con 1.000).

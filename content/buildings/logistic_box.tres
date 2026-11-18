@@ -7,6 +7,7 @@
 [ext_resource type="Resource" path="res://content/items/iron_ingot.tres" id="5_iron"]
 [ext_resource type="Resource" path="res://content/items/copper_ingot.tres" id="6_ingot"]
 [ext_resource type="PackedScene" uid="uid://bca5qeujj05mw" path="res://assets/models/buildings/logistic_box.glb" id="7_model"]
+[ext_resource type="Texture2D" path="res://assets/textures/icons/buildings/logistic_box.png" id="90_icon"]
 
 [sub_resource type="Resource" id="Resource_in"]
 script = ExtResource("3_portscript")
@@ -21,6 +22,9 @@ kind = 1
 script = ExtResource("1_building")
 id = &"logistic_box"
 name_key = "BUILDING_LOGISTIC_BOX"
+icon = ExtResource("90_icon")
+category = &"logistics"
+locked = true
 scene = ExtResource("7_model")
 size = Vector2i(1, 2)
 height = 1

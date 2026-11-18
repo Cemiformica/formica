@@ -23,10 +23,15 @@ signal cable_changed(added: bool)
 
 ## Número de casillas de la barra de construcción.
 const BAR_SIZE: int = 10 # teclas 1–9 y 0 (la décima, como en Satisfactory)
+## Número de barras de construcción (C2.3, César): Mayús + rueda cambia de una a otra.
+const BAR_COUNT: int = 5
 
-## Barra de construcción (hasta 9): `BuildingData` o `CableTool`. Por ahora fija en el Inspector;
-## el catálogo con Q llegará en la fase C.
+## Barra de construcción en uso (10 casillas): `BuildingData`, `CableTool` o null (vacía). La primera de serie
+## se pone en el Inspector; el catálogo (Q, C2.3) las cambia y se guardan en `WorldState.build_bars_ids`.
 @export var build_bar: Array[Resource] = []
+## Las 5 barras (C2.3); `build_bar` es siempre `bars[bar_index]`.
+var bars: Array = []
+var bar_index: int = 0
 ## Isla de `WorldState` donde se construye.
 @export var island_id: StringName = &"dev_sandbox"
 ## Alcance del rayo para apuntar (m).
@@ -60,6 +65,14 @@ var output_turn: int = 0
 
 ## Construcción cogida con el cuentagotas que no está en la barra (tiene prioridad sobre la casilla).
 var _picked: BuildingData = null
+## Mover (C2.5, César): construcción levantada con el clic derecho, la MISMA (con su contenido), sus cables
+## y dónde estaba, para devolverla con otro clic derecho, al salir del modo o al guardar.
+var _carried: PlacedBuilding = null
+var _carried_cables: Array[Vector2i] = []
+var _carried_origin: Vector2i = Vector2i.ZERO
+var _carried_rotation: int = 0
+var _carried_flipped: bool = false
+var _carried_turn: int = 0
 var _ghost: MeshInstance3D
 var _ghost_box: BoxMesh
 var _ghost_material: StandardMaterial3D
@@ -106,6 +119,18 @@ func _ready() -> void:
 	add_child(_cable_preview)
 	# Al cargar una partida, un cable a medias apuntaría a una construcción que ya no es la misma (B5.2).
 	WorldState.state_replaced.connect(func() -> void: _cable_from = 0)
+	# Al cargar una partida, lo que se estaba moviendo ya no existe en el estado nuevo (C2.5).
+	WorldState.state_replaced.connect(func() -> void:
+		_carried = null
+		_carried_cables.clear())
+	WorldState.state_replaced.connect(_load_bar)
+	build_bar.resize(BAR_SIZE)
+	bars.append(build_bar)
+	for i: int in BAR_COUNT - 1:
+		var empty: Array[Resource] = []
+		empty.resize(BAR_SIZE)
+		bars.append(empty)
+	_load_bar()
 	visible = false
 
 
@@ -113,6 +138,8 @@ func _ready() -> void:
 func get_held() -> BuildingData:
 	if not active:
 		return null
+	if _carried != null:
+		return _carried.data
 	if _picked != null:
 		return _picked
 	if selected_slot < build_bar.size():
@@ -130,9 +157,34 @@ func cable_started() -> bool:
 	return holding_cable() and _cable_from != 0
 
 
+## ¿Llevamos una construcción levantada para moverla?
+func is_carrying() -> bool:
+	return _carried != null
+
+
+## Devuelve a su sitio lo que se está moviendo (al salir del modo, cambiar de casilla o guardar).
+func cancel_carry() -> void:
+	if _carried == null:
+		return
+	var island: IslandState = WorldState.get_island(island_id)
+	var placed_back: PlacedBuilding = _carried
+	_carried = null
+	if island.drop(placed_back, _carried_origin, _carried_rotation, _carried_flipped, _carried_turn):
+		for cable: Vector2i in _carried_cables:
+			island.add_cable(cable.x, cable.y)
+	else:
+		# Muy raro: algo ocupó su sitio mientras se movía (una roca). Se devuelve como al desmontar.
+		var refund: Dictionary[ItemData, int] = placed_back.get_refund()
+		for item: ItemData in refund:
+			WorldState.player_inventory.add_item(item, refund[item])
+		push_warning("BuildController: no se pudo devolver %s a su sitio; se ha reembolsado" % placed_back.data.id)
+	_carried_cables.clear()
+	selection_changed.emit()
+
+
 ## ¿Llevamos el cable en la mano?
 func holding_cable() -> bool:
-	return active and _picked == null and selected_slot < build_bar.size() and build_bar[selected_slot] is CableTool
+	return active and _carried == null and _picked == null and selected_slot < build_bar.size() and build_bar[selected_slot] is CableTool
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -148,11 +200,22 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if not active:
 		return
+	# Clic derecho: levantar la construcción que miras para moverla, o devolverla si ya la llevas (C2.5).
+	if event.is_action_pressed("build_move") and Aim.pointer_ready():
+		if _carried != null:
+			cancel_carry()
+		else:
+			_lift_aimed()
+		return
 	for i: int in BAR_SIZE:
 		if event.is_action_pressed("hotbar_%d" % (i + 1)):
 			_select_slot(i)
 			_face_player()
 			return
+	# Mayús + rueda: otra barra (C2.3, César).
+	if Input.is_action_pressed("select_area") and (event.is_action_pressed("hotbar_next") or event.is_action_pressed("hotbar_prev")):
+		switch_bar(1 if event.is_action_pressed("hotbar_next") else -1)
+		return
 	if event.is_action_pressed("hotbar_next"):
 		_select_slot((selected_slot + 1) % BAR_SIZE)
 		_face_player()
@@ -227,7 +290,147 @@ func _process(_delta: float) -> void:
 	visible = true
 
 
+## Fija `entry` (construcción o cable) en la casilla `slot` de la barra (catálogo, C2.3). Si ya estaba en otra
+## casilla, esa queda vacía: cada cosa una sola vez en la barra.
+func pin(slot: int, entry: Resource) -> void:
+	if slot < 0 or slot >= BAR_SIZE or entry == null:
+		return
+	var old: int = build_bar.find(entry)
+	if old >= 0:
+		build_bar[old] = null
+	build_bar[slot] = entry
+	_store_bar()
+	if _picked == entry:
+		_picked = null
+	selection_changed.emit()
+
+
+## Coge `entry` para colocarla (clic en el catálogo, C2.3): si está en la barra, elige su casilla; si no, la
+## lleva en la mano como el cuentagotas (el cable, que no puede ir así, se fija en la casilla elegida).
+## Entra en el modo construcción si no estaba.
+func pick(entry: Resource) -> void:
+	cancel_carry()
+	var index: int = build_bar.find(entry)
+	if index >= 0:
+		_select_slot(index)
+	elif entry is BuildingData:
+		_picked = entry
+		_cable_from = 0
+		selection_changed.emit()
+	else:
+		pin(selected_slot, entry)
+		_select_slot(selected_slot)
+	if not active:
+		_set_active(true)
+	_face_player()
+
+
+## Vacía una casilla de la barra en uso (clic derecho sobre ella con el catálogo abierto).
+func clear_slot(slot: int) -> void:
+	if slot < 0 or slot >= BAR_SIZE:
+		return
+	build_bar[slot] = null
+	_store_bar()
+	selection_changed.emit()
+
+
+## Pasa a la barra siguiente (+1) o anterior (−1), dando la vuelta (Mayús + rueda).
+func switch_bar(step: int) -> void:
+	cancel_carry()
+	bar_index = posmod(bar_index + step, BAR_COUNT)
+	build_bar = bars[bar_index]
+	WorldState.build_bar_index = bar_index
+	_picked = null
+	_cable_from = 0
+	selection_changed.emit()
+
+
+func _store_bar() -> void:
+	var all_ids: Array = []
+	for bar: Array in bars:
+		var ids: Array[String] = []
+		for entry: Resource in bar:
+			ids.append(String(entry.get("id")) if entry != null else "")
+		all_ids.append(ids)
+	WorldState.build_bars_ids = all_ids
+	WorldState.build_bar_index = bar_index
+
+
+## Pone las barras guardadas en la partida (si las hay; si no, se quedan las de serie).
+func _load_bar() -> void:
+	if WorldState.build_bars_ids.is_empty():
+		return
+	for b: int in BAR_COUNT:
+		var ids: Array = WorldState.build_bars_ids[b] if b < WorldState.build_bars_ids.size() else []
+		for i: int in BAR_SIZE:
+			var id: String = str(ids[i]) if i < ids.size() else ""
+			bars[b][i] = Content.find_buildable(StringName(id)) if id != "" else null
+	bar_index = clampi(WorldState.build_bar_index, 0, BAR_COUNT - 1)
+	build_bar = bars[bar_index]
+	selection_changed.emit()
+
+
+## Sale del modo construcción (lo usa el modo desmontar: los dos no pueden estar a la vez, C2.2).
+func leave() -> void:
+	if active:
+		_set_active(false)
+
+
+## Levanta la construcción que se mira: sale de la isla con su contenido, sin reembolso, y se lleva como
+## fantasma con su giro. Se recuerdan sus cables y su sitio.
+func _lift_aimed() -> void:
+	var hit: Dictionary = _aim_hit()
+	if hit.is_empty():
+		return
+	var view := hit["collider"] as BuildingView
+	if view == null or view.placed == null:
+		return
+	var island: IslandState = WorldState.get_island(island_id)
+	var target: PlacedBuilding = view.placed
+	_carried_cables = island.cables_of(target.id)
+	_carried_origin = target.origin
+	_carried_rotation = target.rotation
+	_carried_flipped = target.flipped
+	_carried_turn = target.output_turn
+	_picked = null
+	_cable_from = 0
+	_carried = island.remove(target.id)
+	rotation_steps = _carried_rotation
+	flipped = _carried_flipped
+	output_turn = _carried_turn
+	_play_sound(PLACE_SOUND, view.global_position)
+	selection_changed.emit()
+
+
+## Suelta lo que se está moviendo en el sitio apuntado: sin coste; recupera los cables que sigan llegando.
+func _drop_carried() -> void:
+	if not _has_target:
+		return
+	var island: IslandState = WorldState.get_island(island_id)
+	var problem: String = island.placement_problem(_carried.data, _target_origin, rotation_steps)
+	if problem != "":
+		place_failed.emit(problem)
+		return
+	var moving: PlacedBuilding = _carried
+	if not island.drop(moving, _target_origin, rotation_steps, flipped, output_turn):
+		place_failed.emit("BUILD_NO_ROOM")
+		return
+	_carried = null
+	var lost: int = 0
+	for cable: Vector2i in _carried_cables:
+		if not island.add_cable(cable.x, cable.y):
+			lost += 1
+	_carried_cables.clear()
+	if lost > 0:
+		place_failed.emit("BUILD_CABLES_LOST")
+	_play_sound(PLACE_SOUND, BuildingView.cable_anchor(moving))
+	_play_link_sounds(island, moving)
+	selection_changed.emit()
+
+
 func _set_active(value: bool) -> void:
+	if not value:
+		cancel_carry()
 	active = value
 	_cable_from = 0
 	if not active:
@@ -236,6 +439,7 @@ func _set_active(value: bool) -> void:
 
 
 func _select_slot(index: int) -> void:
+	cancel_carry()
 	selected_slot = index
 	_picked = null
 	_cable_from = 0
@@ -267,6 +471,7 @@ func _face_player() -> void:
 ## Cuentagotas: coge la construcción que miras. Si está en la barra, elige su casilla; si no, la lleva
 ## en la mano igualmente. Si no estabas en el modo construcción, entra.
 func _pick_building() -> void:
+	cancel_carry()
 	var hit: Dictionary = _aim_hit()
 	if hit.is_empty():
 		return
@@ -290,6 +495,8 @@ func _pick_building() -> void:
 ## ¿Cabe aquí y tenemos los materiales?
 func _can_place_here(building: BuildingData) -> bool:
 	var island: IslandState = WorldState.get_island(island_id)
+	if _carried != null:
+		return island.can_place(building, _target_origin, rotation_steps) # mover no cuesta nada
 	return island.can_place(building, _target_origin, rotation_steps) and WorldState.player_inventory.has_items(building.cost)
 
 
@@ -398,6 +605,9 @@ func _update_area_markers(building: BuildingData, ground_y: float) -> void:
 
 ## Coloca en los datos de la isla y cobra. Avisa con señales de lo que pasó.
 func _try_place() -> void:
+	if _carried != null:
+		_drop_carried()
+		return
 	var building: BuildingData = get_held()
 	if building == null or not _has_target:
 		return

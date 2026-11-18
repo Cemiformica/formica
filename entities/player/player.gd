@@ -40,6 +40,8 @@ var focused_interactable: Interactable = null
 var held_slot: int = 0
 ## Plantar semillas con el clic izquierdo, con la semilla en la mano (C1.9).
 var planter: PlantController
+## Modo desmontar con X (C2.2).
+var dismantler: DismantleController
 ## El clic izquierdo de trabajar (talar, picar…) empezó con el ratón ya capturado. Así, el clic que solo
 ## recaptura el ratón no da un golpe.
 var _using: bool = false
@@ -59,6 +61,9 @@ func _ready() -> void:
 	planter = PlantController.new()
 	planter.player = self
 	add_child(planter)
+	dismantler = DismantleController.new()
+	dismantler.player = self
+	add_child(dismantler)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -74,12 +79,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 	# E interactúa con lo que miramos, salvo en el modo construcción: construir es un modo aparte (C1.6, César).
-	if event.is_action_pressed("interact") and is_instance_valid(focused_interactable) and not build_controller.active:
+	if event.is_action_pressed("interact") and is_instance_valid(focused_interactable) and not in_tool_mode():
 		focused_interactable.interact(self)
 	# Clic izquierdo: usar lo que se lleva en la mano (César). Con una semilla, plantar (C1.9); si no,
 	# trabajar lo que miramos (C1.8), y mantenerlo sigue golpeando (ver `_physics_process`).
 	if event.is_action_pressed("use_tool"):
-		var ready_to_use: bool = pointer_was_ready and not build_controller.active
+		var ready_to_use: bool = pointer_was_ready and not in_tool_mode()
 		if ready_to_use and planter.held_seed() != null:
 			planter.try_plant()
 			_using = false
@@ -127,7 +132,7 @@ func _physics_process(delta: float) -> void:
 		reset_physics_interpolation() # salto instantáneo: sin «volar» desde donde caía
 
 	_update_focus()
-	if _using and (WindowManager.is_open() or build_controller.active):
+	if _using and (WindowManager.is_open() or in_tool_mode()):
 		_using = false
 	if _using and is_instance_valid(focused_interactable):
 		focused_interactable.use(self)
@@ -147,6 +152,11 @@ func _update_held_item() -> void:
 		mira.hold_item(item)
 
 
+## ¿Estamos construyendo o desmontando? En esos modos el clic y la E son del modo, no de la mano.
+func in_tool_mode() -> bool:
+	return build_controller.active or (dismantler != null and dismantler.active)
+
+
 ## Lo llama una construcción al pulsar E sobre ella (C1.3).
 func open_building(view: BuildingView) -> void:
 	building_opened.emit(view)
@@ -154,6 +164,7 @@ func open_building(view: BuildingView) -> void:
 
 ## Anota en `WorldState` dónde está el jugador, justo antes de guardar la partida (B5.2).
 func store_to_world() -> void:
+	build_controller.cancel_carry() # nunca se guarda una construcción a medio mover (C2.5)
 	WorldState.current_island = build_controller.island_id
 	WorldState.player_position = global_position
 	WorldState.player_rotation_y = rotation.y

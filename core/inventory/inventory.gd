@@ -172,7 +172,8 @@ func split_half(index: int, from: int = 0, to: int = -1) -> bool:
 	var empty: int = find_empty(from, to, stack.item)
 	if empty < 0:
 		return false
-	var half: int = stack.amount / 2
+	@warning_ignore("integer_division")
+	var half: int = stack.amount / 2 # se redondea hacia abajo a propósito
 	stack.amount -= half
 	slots[empty] = ItemStack.new(stack.item, half)
 	changed.emit()

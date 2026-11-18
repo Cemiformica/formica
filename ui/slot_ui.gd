@@ -3,12 +3,18 @@ extends PanelContainer
 ## Casilla visual de un inventario (C1.2; del prototipo, D-036): del jugador, de una máquina o de un arcón.
 ## Muestra el ítem y la cantidad. Se maneja con clics, como en Minecraft (César): ver `_gui_input`.
 ## Muestra el icono del ítem (C1.7); si un ítem no lo tiene, su color y su nombre abreviado.
+## Estilo del tema (C2): casilla hundida (sombra arriba, luz abajo) que se ilumina al pasar el ratón; la
+## cantidad solo si es más de 1. En la barra de abajo el marco lo pone la celda (`framed = false`).
 
 const SLOT_SIZE: Vector2 = Vector2(60, 60)
 
 var inventory: Inventory ## Inventario al que pertenece la casilla.
 var index: int = 0 ## Posición dentro de ese inventario.
 
+## ¿Dibuja su propio marco? (la barra de abajo pone el suyo)
+var framed: bool = true
+
+var _hover: bool = false
 var _swatch: ColorRect
 var _icon: TextureRect
 var _name_label: Label
@@ -29,6 +35,10 @@ func setup(p_inventory: Inventory, p_index: int) -> void:
 func _ready() -> void:
 	custom_minimum_size = SLOT_SIZE
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	add_to_group(&"inventory_slots") # para soltar una pila arrastrada (WindowManager)
+	_apply_frame()
+	mouse_entered.connect(_set_hover.bind(true))
+	mouse_exited.connect(_set_hover.bind(false))
 	_swatch = ColorRect.new()
 	_swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_swatch)
@@ -53,8 +63,34 @@ func _make_label(horizontal: HorizontalAlignment, vertical: VerticalAlignment) -
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_color_override("font_outline_color", Color.BLACK)
 	label.add_theme_constant_override("outline_size", 4)
+	label.add_theme_font_size_override("font_size", 15)
 	add_child(label)
 	return label
+
+
+func _apply_frame() -> void:
+	if not framed:
+		add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+		return
+	var lit: bool = _hover and WindowManager.is_open()
+	add_theme_stylebox_override("panel", UiStyle.slot_style(UiStyle.TITLE if lit else UiStyle.SLOT_EDGE, 2 if lit else 1))
+
+
+func _set_hover(value: bool) -> void:
+	_hover = value
+	if framed:
+		_apply_frame()
+		queue_redraw()
+
+
+## Casilla hundida: sombra arriba y luz abajo; brillo ámbar suave al pasar el ratón con una ventana abierta.
+func _draw() -> void:
+	if not framed:
+		return
+	draw_line(Vector2(4, 2.5), Vector2(size.x - 4, 2.5), Color(0, 0, 0, 0.9), 2.0)
+	draw_line(Vector2(4, size.y - 1.5), Vector2(size.x - 4, size.y - 1.5), UiStyle.SLOT_LIGHT, 1.0)
+	if _hover and WindowManager.is_open():
+		draw_rect(Rect2(Vector2(2, 2), size - Vector2(4, 4)), Color(1.0, 0.72, 0.23, 0.12))
 
 
 func _connect_and_refresh() -> void:
@@ -81,8 +117,8 @@ func refresh() -> void:
 	_icon.texture = icon
 	_swatch.color = Color(0, 0, 0, 0) if icon != null else stack.item.color
 	_name_label.text = "" if icon != null else short_name(stack.item)
-	_amount_label.text = str(stack.amount)
-	tooltip_text = tr(stack.item.name_key)
+	_amount_label.text = str(stack.amount) if stack.amount > 1 else ""
+	tooltip_text = "%s\n%d / %d" % [tr(stack.item.name_key), stack.amount, stack.item.max_stack]
 
 
 ## Rectángulo que pinta un icono de ítem ocupando su hueco sin deformarse (casillas y pila en la mano).

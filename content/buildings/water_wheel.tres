@@ -6,11 +6,14 @@
 [ext_resource type="Resource" path="res://content/items/stone.tres" id="4_stone"]
 [ext_resource type="Resource" path="res://content/items/copper_coil.tres" id="5_coil"]
 [ext_resource type="PackedScene" path="res://assets/models/buildings/water_wheel.glb" id="6_model"]
+[ext_resource type="Texture2D" path="res://assets/textures/icons/buildings/water_wheel.png" id="90_icon"]
 
 [resource]
 script = ExtResource("1_building")
 id = &"water_wheel"
 name_key = "BUILDING_WATER_WHEEL"
+icon = ExtResource("90_icon")
+category = &"power"
 scene = ExtResource("6_model")
 size = Vector2i(2, 3)
 height = 3

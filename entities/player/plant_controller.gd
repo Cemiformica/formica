@@ -44,7 +44,7 @@ func held_seed() -> ItemData:
 func _process(_delta: float) -> void:
 	_can_plant = false
 	var seed_item: ItemData = null
-	if not player.build_controller.active and not WindowManager.is_open():
+	if not player.in_tool_mode() and not WindowManager.is_open():
 		seed_item = held_seed()
 	if seed_item == null:
 		_ghost.visible = false

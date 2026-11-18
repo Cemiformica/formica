@@ -6,6 +6,13 @@ extends Resource
 @export var id: StringName = &""
 ## Clave de traducción del nombre visible.
 @export var name_key: String = ""
+## Icono del catálogo y de la barra de construcción (C2.3, `art/tools/render_building_icons.py`).
+@export var icon: Texture2D
+## Categoría del catálogo (Q): &"power", &"production", &"logistics" o &"storage". Vacía = no sale en el
+## catálogo (piezas de prueba como la trituradora).
+@export var category: StringName = &""
+## Bloqueada hasta la progresión (D-115): sale en el catálogo con candado y no se puede coger.
+@export var locked: bool = false
 ## Escena que se instancia al construir. Su origen debe estar en el centro de la base.
 @export var scene: PackedScene
 ## Tamaño en casillas de la cuadrícula (X, Z).

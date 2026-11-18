@@ -4,11 +4,14 @@
 [ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
 [ext_resource type="Resource" path="res://content/items/wood.tres" id="3_wood"]
 [ext_resource type="PackedScene" path="res://assets/models/buildings/storage_chest.glb" id="4_model"]
+[ext_resource type="Texture2D" path="res://assets/textures/icons/buildings/storage_chest.png" id="90_icon"]
 
 [resource]
 script = ExtResource("1_building")
 id = &"storage_chest"
 name_key = "BUILDING_STORAGE_CHEST"
+icon = ExtResource("90_icon")
+category = &"storage"
 scene = ExtResource("4_model")
 size = Vector2i(2, 1)
 height = 1

@@ -10,6 +10,7 @@
 [ext_resource type="Resource" path="res://content/recipes/smelt_copper.tres" id="8_smelt"]
 [ext_resource type="PackedScene" uid="uid://cnvywy31bhmqg" path="res://assets/models/buildings/furnace.glb" id="9_model"]
 [ext_resource type="Resource" path="res://content/items/iron_ingot.tres" id="10_iron"]
+[ext_resource type="Texture2D" path="res://assets/textures/icons/buildings/furnace.png" id="90_icon"]
 
 [sub_resource type="Resource" id="Resource_in_north"]
 script = ExtResource("3_portscript")
@@ -38,6 +39,8 @@ item_filter = ExtResource("7_slag")
 script = ExtResource("1_building")
 id = &"furnace"
 name_key = "BUILDING_FURNACE"
+icon = ExtResource("90_icon")
+category = &"production"
 scene = ExtResource("9_model")
 size = Vector2i(2, 2)
 height = 3

@@ -6,6 +6,7 @@
 [ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
 [ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
 [ext_resource type="PackedScene" uid="uid://clugvblmu8ag1" path="res://assets/models/buildings/conveyor.glb" id="6_model"]
+[ext_resource type="Texture2D" path="res://assets/textures/icons/buildings/conveyor.png" id="90_icon"]
 
 [sub_resource type="Resource" id="Resource_in"]
 script = ExtResource("3_portscript")
@@ -19,6 +20,8 @@ kind = 1
 script = ExtResource("1_building")
 id = &"conveyor"
 name_key = "BUILDING_CONVEYOR"
+icon = ExtResource("90_icon")
+category = &"logistics"
 scene = ExtResource("6_model")
 cost = Dictionary[ExtResource("2_itemscript"), int]({
 ExtResource("4_wood"): 1,

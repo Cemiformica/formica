@@ -6,11 +6,14 @@
 [ext_resource type="Resource" path="res://content/items/stone.tres" id="4_stone"]
 [ext_resource type="Resource" path="res://content/items/copper_ingot.tres" id="5_ingot"]
 [ext_resource type="PackedScene" path="res://assets/models/buildings/power_pole.glb" id="6_model"]
+[ext_resource type="Texture2D" path="res://assets/textures/icons/buildings/power_pole.png" id="90_icon"]
 
 [resource]
 script = ExtResource("1_building")
 id = &"power_pole"
 name_key = "BUILDING_POWER_POLE"
+icon = ExtResource("90_icon")
+category = &"power"
 scene = ExtResource("6_model")
 size = Vector2i(1, 1)
 height = 3

@@ -117,6 +117,37 @@ func place(data: BuildingData, origin: Vector2i, rotation: int = 0, flipped: boo
 	return placed
 
 
+## Vuelve a poner una construcción que se había quitado para moverla (C2.5), la MISMA, con su id y todo lo
+## que lleva dentro, en otro sitio y con otro giro. Devuelve false si ahí no cabe (y no la pone).
+func drop(placed: PlacedBuilding, origin: Vector2i, rotation: int = 0, flipped: bool = false, turn: int = 0) -> bool:
+	if placed == null or buildings.has(placed.id) or not can_place(placed.data, origin, rotation):
+		return false
+	if not grid.place(placed.id, origin, placed.data.size, rotation):
+		return false
+	placed.origin = origin
+	placed.rotation = posmod(rotation, 4)
+	placed.flipped = flipped and placed.data.can_flip()
+	if placed.data.output_turns:
+		placed.output_turn = posmod(turn, 3)
+	placed.moved()
+	if placed.is_extractor():
+		placed.set_vein_item(vein_at(PlacedBuilding.head_cell_for(placed.data, origin, rotation)).item)
+	buildings[placed.id] = placed
+	_links_dirty = true
+	_networks_dirty = true
+	building_placed.emit(placed)
+	return true
+
+
+## Cables de una construcción (pares de ids), p. ej. para recuperarlos después de moverla.
+func cables_of(id: int) -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	for cable: Vector2i in cables:
+		if cable.x == id or cable.y == id:
+			result.append(cable)
+	return result
+
+
 ## Quita una construcción y libera sus casillas. Devuelve la que se quitó (para el reembolso), o null.
 func remove(id: int) -> PlacedBuilding:
 	if not buildings.has(id):
@@ -136,6 +167,32 @@ func remove(id: int) -> PlacedBuilding:
 		cables_changed.emit()
 	building_removed.emit(placed)
 	return placed
+
+
+## Reembolso total de varias construcciones (C2.1): coste y contenido de todas. Ids que no existan, ignorados.
+func refund_for(ids: Array[int]) -> Dictionary[ItemData, int]:
+	var result: Dictionary[ItemData, int] = {}
+	for id: int in ids:
+		var placed: PlacedBuilding = buildings.get(id, null)
+		if placed == null:
+			continue
+		var refund: Dictionary[ItemData, int] = placed.get_refund()
+		for item: ItemData in refund:
+			result[item] = result.get(item, 0) + refund[item]
+	return result
+
+
+## Desmonta varias construcciones de una vez y mete el reembolso en `into` (D-089, D-033). Todo o nada:
+## si el reembolso no cabe entero, no quita ninguna y devuelve false. Los cables se quitan con ellas.
+func dismantle(ids: Array[int], into: Inventory) -> bool:
+	var refund: Dictionary[ItemData, int] = refund_for(ids)
+	if not into.can_add_all(refund):
+		return false
+	for id: int in ids:
+		remove(id)
+	for item: ItemData in refund:
+		into.add_item(item, refund[item])
+	return true
 
 
 ## Construcción que ocupa esa casilla, o null.

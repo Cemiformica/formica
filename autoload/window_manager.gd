@@ -20,6 +20,11 @@ var _held_source: Inventory = null
 var _held_index: int = -1
 ## Inventario de la ventana abierta (máquina, arcón…) al que va Mayús + clic desde el del jugador.
 var other_inventory: Inventory = null
+## Arrastrar (C2.4, César): si se coge una pila con el clic y se suelta el botón lejos, sobre otra casilla,
+## se deja ahí, como si se hubiera hecho clic en ella. Así funcionan las dos cosas: clic-clic y arrastrar.
+const DRAG_DISTANCE: float = 10.0
+var _press_position: Vector2 = Vector2.ZERO
+var _picked_by_press: bool = false
 
 var _held_view: Control
 var _held_swatch: ColorRect
@@ -28,6 +33,7 @@ var _held_label: Label
 
 
 func _ready() -> void:
+	UiStyle.apply_theme(get_tree().root) # tema común de la interfaz (C2)
 	# La pila en la mano se dibuja encima de todo y sigue al ratón.
 	var layer := CanvasLayer.new()
 	layer.layer = 50
@@ -118,8 +124,27 @@ func _unhandled_input(event: InputEvent) -> void:
 func slot_left_click(inventory: Inventory, index: int) -> void:
 	if held == null:
 		_set_held(inventory.take_stack(index), inventory, index)
+		_picked_by_press = held != null
+		_press_position = get_viewport().get_mouse_position()
 	else:
+		_picked_by_press = false
 		_set_held(inventory.put_stack(index, held), inventory, index)
+
+
+## Al soltar el botón tras arrastrar una pila recién cogida, se deja en la casilla que haya debajo.
+func _input(event: InputEvent) -> void:
+	var click := event as InputEventMouseButton
+	if click == null or click.pressed or click.button_index != MOUSE_BUTTON_LEFT or not _picked_by_press:
+		return
+	_picked_by_press = false
+	if held == null or not is_open() or click.position.distance_to(_press_position) < DRAG_DISTANCE:
+		return # fue un clic: la pila se queda en la mano hasta el siguiente
+	# Mientras se mantiene el botón, Godot no cambia el control «bajo el ratón»: se busca la casilla a mano.
+	for node: Node in get_tree().get_nodes_in_group(&"inventory_slots"):
+		var slot := node as SlotUI
+		if slot.is_visible_in_tree() and slot.inventory != null and slot.get_global_rect().has_point(click.position):
+			slot_left_click(slot.inventory, slot.index)
+			return
 
 
 ## Clic derecho: con la mano vacía coge la mitad; con algo en la mano deja una unidad.

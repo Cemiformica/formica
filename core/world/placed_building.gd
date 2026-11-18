@@ -67,6 +67,34 @@ func _init(p_id: int, p_data: BuildingData, p_origin: Vector2i, p_rotation: int 
 		output = Inventory.new(data.storage_slots, any_item, true)
 
 
+## Se ha movido a otro sitio (C2.5): olvida lo que dependía de dónde estaba.
+func moved() -> void:
+	_harvest_cells.clear()
+
+
+## Todo lo que lleva dentro: entrada, salida o almacén, e ítems encima si es una cinta (C2.1).
+func get_contents() -> Dictionary[ItemData, int]:
+	var result: Dictionary[ItemData, int] = {}
+	for inventory: Inventory in [input, output]:
+		if inventory == null:
+			continue
+		for stack: ItemStack in inventory.slots:
+			if stack != null:
+				result[stack.item] = result.get(stack.item, 0) + stack.amount
+	for item: ItemData in belt_items:
+		if item != null:
+			result[item] = result.get(item, 0) + 1
+	return result
+
+
+## Lo que devuelve al desmontarla (C2.1, D-089): su coste entero más lo que lleva dentro.
+func get_refund() -> Dictionary[ItemData, int]:
+	var result: Dictionary[ItemData, int] = get_contents()
+	for item: ItemData in data.cost:
+		result[item] = result.get(item, 0) + data.cost[item]
+	return result
+
+
 ## Puertos de esta construcción, con la salida girada si es una caja logística (usar siempre esto en
 ## lugar de `data.ports`).
 func get_ports() -> Array[PortData]:

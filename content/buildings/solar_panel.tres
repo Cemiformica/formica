@@ -5,11 +5,14 @@
 [ext_resource type="Script" path="res://core/content/item_data.gd" id="3_itemscript"]
 [ext_resource type="Resource" path="res://content/items/solar_cell.tres" id="4_cell"]
 [ext_resource type="Resource" path="res://content/items/iron_ingot.tres" id="5_iron"]
+[ext_resource type="Texture2D" path="res://assets/textures/icons/buildings/solar_panel.png" id="90_icon"]
 
 [resource]
 script = ExtResource("1_building")
 id = &"solar_panel"
 name_key = "BUILDING_SOLAR_PANEL"
+icon = ExtResource("90_icon")
+category = &"power"
 scene = ExtResource("2_model")
 size = Vector2i(2, 2)
 height = 2
