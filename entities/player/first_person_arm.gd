@@ -49,6 +49,11 @@ const MOTOR_QUIET_DB: float = -40.0
 const MOTOR_SPIN_UP: float = 2.0      # cuánto tarda el motor en arrancar o pararse (1 / segundos)
 
 var held_item: ItemData
+## En el modo construcción o desmontar no se enseña lo de la mano (César); lo pone el jugador.
+var suppressed: bool = false:
+	set(value):
+		suppressed = value
+		visible = _should_show()
 
 var _model: Node3D
 var _skeleton: Skeleton3D
@@ -92,6 +97,7 @@ func _ready() -> void:
 	_fist_anchor.transform = Transform3D(Mira.FIST_BASIS, Mira.FIST_OFFSET)
 	attachment.add_child(_fist_anchor)
 	_set_no_shadow(_model)
+	visible = _should_show()
 	# Los bucles se marcan por código. Sobre una variable: la constante no deja cambiar sus propiedades.
 	for sound: AudioStreamWAV in [BITER_SOUND, DRILL_SOUND]:
 		var stream: AudioStreamWAV = sound
@@ -103,7 +109,7 @@ func _ready() -> void:
 	_motor_player.bus = &"SFX"
 	_motor_player.volume_db = MOTOR_QUIET_DB
 	add_child(_motor_player)
-	visible = held_item != null and held_item.held_model != null
+	visible = _should_show()
 
 
 ## Lo llama el jugador en cada paso: si la herramienta está encendida (clic mantenido).
@@ -157,7 +163,7 @@ func _process(delta: float) -> void:
 ## Pone en la mano lo que lleva Mira (null = nada: el brazo se esconde).
 func hold_item(item: ItemData) -> void:
 	held_item = item
-	visible = item != null and item.held_model != null
+	visible = _should_show()
 	if not is_node_ready():
 		return
 	for anchor: Node3D in [_held_anchor, _fist_anchor]:
@@ -203,6 +209,10 @@ func hold_item(item: ItemData) -> void:
 	mesh.material_override = material
 	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_held_anchor.add_child(mesh)
+
+
+func _should_show() -> bool:
+	return held_item != null and held_item.held_model != null and not suppressed
 
 
 func _set_no_shadow(node: Node) -> void:

@@ -34,6 +34,16 @@ func get_use_hint_key() -> String:
 	return ""
 
 
+## Herramienta (id del ítem) que hace falta en la mano para el clic izquierdo; vacío si se hace a mano (C3).
+func get_required_tool() -> StringName:
+	return &""
+
+
+## Avance del trabajo para el letrero de arriba («2/4»); vacío si no hay nada empezado (C3).
+func get_progress_text() -> String:
+	return ""
+
+
 ## Llamado por el jugador cuando empieza (true) o deja (false) de mirar este objeto a alcance de E.
 ## No hace nada; quien quiera reaccionar lo sobrescribe.
 func set_focused(_focused: bool) -> void:

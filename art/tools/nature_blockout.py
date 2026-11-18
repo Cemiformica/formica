@@ -1,4 +1,4 @@
-# Naturaleza (B3.7, pieza 10, D-097): árboles por fases con variantes, tocones y rocas.
+# Naturaleza (B3.7, pieza 10, D-097): árboles por fases con variantes, tocones, rocas y palos (C3).
 #   A — «frondoso»: tronco hexagonal con raíces y copa de bolas facetadas en verdes vecinos (el más común).
 #   B — «pino de hexágonos»: conos hexagonales apilados y girados (eco del hexágono de la colonia).
 # Cada pieza sale de una SEMILLA: cambiarla da otra variante con la misma receta. Cada pieza va en su
@@ -47,6 +47,9 @@ PIECES = [
     ("rock_0", "rock", 5),
     ("rock_1", "rock", 17),
     ("rock_2", "rock", 28),
+    ("sticks_0", "sticks_fork", 41),
+    ("sticks_1", "sticks_bundle", 52),
+    ("sticks_2", "sticks_crooked", 63),
 ]
 
 
@@ -267,6 +270,61 @@ def rock(name: str, root, mat, rng: random.Random) -> None:
     if rng.random() < 0.6:
         finish(name + "_moss", blob((rng.uniform(-0.05, 0.05), rng.uniform(-0.05, 0.05), w * 0.85), w * 0.55, 0.25, rng, 0.1),
                MOSS, root, mat)
+
+
+def _branch(name: str, root, mat, points, r0: float, r1: float, color) -> None:
+    # Rama de varios tramos rectos (más gruesa al principio), con un nudo en cada codo.
+    n = len(points) - 1
+    for k in range(n):
+        ra = r0 + (r1 - r0) * k / n
+        rb = r0 + (r1 - r0) * (k + 1) / n
+        finish("%s_seg_%d" % (name, k), bar(points[k], points[k + 1], ra, rb, 5), color, root, mat)
+        if 0 < k:
+            finish("%s_knot_%d" % (name, k), blob(points[k], ra * 1.15, 1.0, random.Random(k), 0.05), color, root, mat)
+
+
+def sticks_fork(name: str, root, mat, rng: random.Random) -> None:
+    # A · Rama bifurcada (C3, César: variantes más distintas): una rama larga que se abre en Y en la punta,
+    # con un par de hojas en las puntas. Unos 0,8 m.
+    a = rng.uniform(0, math.tau)
+    d = Vector((math.cos(a), math.sin(a), 0.0))
+    side = Vector((-d.y, d.x, 0.0))
+    r = 0.032
+    start, fork = -d * 0.4 + Vector((0, 0, r)), d * 0.12 + Vector((0, 0, r))
+    _branch(name + "_main", root, mat, [start, start.lerp(fork, 0.5) + side * 0.03, fork], r, r * 0.8, BARK)
+    for s, k in ((1.0, "l"), (-1.0, "r")):
+        tip = fork + (d + side * 0.65 * s).normalized() * rng.uniform(0.26, 0.34) + Vector((0, 0, 0.02))
+        finish("%s_%s" % (name, k), bar(fork, tip, r * 0.75, r * 0.4, 5), BARK, root, mat)
+        finish("%s_leaf_%s" % (name, k), blob(tip, 0.05, 0.35, rng, 0.1), rng.choice(LEAVES_A), root, mat)
+
+
+def sticks_bundle(name: str, root, mat, rng: random.Random) -> None:
+    # B · Montoncito de palitos cortos, cruzados unos sobre otros, claros y oscuros. Unos 0,45 m.
+    base = rng.uniform(0, math.pi)
+    for k in range(5):
+        a = base + k * 0.7 + rng.uniform(-0.25, 0.25)
+        d = Vector((math.cos(a), math.sin(a), 0.0)) * rng.uniform(0.18, 0.24)
+        shift = Vector((rng.uniform(-0.05, 0.05), rng.uniform(-0.05, 0.05), 0.0))
+        r = rng.uniform(0.014, 0.02)
+        z = Vector((0, 0, r + 0.014 * k))
+        color = (BARK, BARK_DARK, WOOD_END)[k % 3]
+        finish("%s_twig_%d" % (name, k), bar(shift - d + z, shift + d + z, r, r * 0.8, 4), color, root, mat)
+
+
+def sticks_crooked(name: str, root, mat, rng: random.Random) -> None:
+    # C · Rama retorcida y gruesa, de corteza oscura, con nudos en los codos, una ramita rota y un poco de
+    # musgo. Unos 0,75 m.
+    a = rng.uniform(0, math.tau)
+    d = Vector((math.cos(a), math.sin(a), 0.0))
+    side = Vector((-d.y, d.x, 0.0))
+    r = 0.04
+    pts = [-d * 0.38 + Vector((0, 0, r)), -d * 0.12 + side * 0.09 + Vector((0, 0, r)),
+           d * 0.12 - side * 0.06 + Vector((0, 0, r * 0.95)), d * 0.37 + side * 0.04 + Vector((0, 0, r * 0.85))]
+    _branch(name + "_main", root, mat, pts, r, r * 0.65, BARK_DARK)
+    stub = pts[1] + (side + d * 0.3).normalized() * 0.11 + Vector((0, 0, 0.05))
+    finish(name + "_stub", bar(pts[1], stub, r * 0.5, r * 0.4, 4), BARK, root, mat)
+    finish(name + "_stub_cut", blob(stub, r * 0.42, 0.6, rng, 0.05), WOOD_END, root, mat)
+    finish(name + "_moss", blob(pts[2] + Vector((0, 0, r * 0.7)), 0.055, 0.35, rng, 0.12), MOSS, root, mat)
 
 
 def clear_previous() -> None:

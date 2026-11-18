@@ -169,6 +169,16 @@ func _update_hint(target: Interactable) -> void:
 		parts.append("[%s] %s" % [InputLabels.action_text(&"interact"), tr(interact_key)])
 	var use_key: String = target.get_use_hint_key()
 	if use_key != "":
-		parts.append("[%s] %s" % [InputLabels.action_text(&"use_tool"), tr(use_key)])
+		# Si pide una herramienta que no se lleva, se dice cuál en lugar del clic (C3).
+		var required: StringName = target.get_required_tool()
+		if required != &"" and _player != null and not _player.can_use_on(target):
+			var needed: ItemData = Content.find_item(required)
+			parts.append(tr("HINT_NEEDS_TOOL") % (tr(needed.name_key) if needed != null else String(required)))
+		else:
+			var text: String = "[%s] %s" % [InputLabels.action_text(&"use_tool"), tr(use_key)]
+			var progress: String = target.get_progress_text()
+			if progress != "":
+				text += "  " + progress
+			parts.append(text)
 	_hint_label.text = "    ".join(parts)
 	_hint_label.visible = not parts.is_empty()

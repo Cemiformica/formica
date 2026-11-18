@@ -1,13 +1,14 @@
 class_name NatureState
 extends RefCounted
-## Algo natural que ocupa una casilla de la isla (B2.7, B2.8; D-057, D-069): un árbol o una roca.
+## Algo natural que ocupa una casilla de la isla (B2.7, B2.8; D-057, D-069): un árbol, una roca o unos palos
+## caídos (C3, César: se recogen con la E como las rocas y dan madera para empezar sin herramientas).
 ## Bloquea construir en su casilla (ver `IslandState`).
 ##
 ## Ciclo del árbol: TOCÓN → BROTE → JOVEN → MADURO, 30 s por fase (90 s en total).
 ## Talar un árbol maduro deja un TOCÓN que, si no se arranca, rebrota solo (monte bajo).
 ## Solo el tocón se puede arrancar (libera la casilla).
 
-enum Kind { TREE, ROCK }
+enum Kind { TREE, ROCK, STICKS }   # al final, para que las partidas guardadas sigan valiendo
 ## Especies de árbol (C1.9, César): cada una da su semilla y se dibuja con su modelo.
 const OAK: StringName = &"oak"
 const PINE: StringName = &"pine"
@@ -61,6 +62,11 @@ func is_mature_tree() -> bool:
 ## ¿Es una roca (se puede picar)?
 func is_rock() -> bool:
 	return kind == Kind.ROCK
+
+
+## ¿Son unos palos caídos (se recogen con la E)?
+func is_sticks() -> bool:
+	return kind == Kind.STICKS
 
 
 ## ¿Es un tocón (se puede arrancar)?

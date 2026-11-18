@@ -73,6 +73,7 @@ FINGER_LENGTH = (0.78, 0.92, 0.84)  # largo de cada dedo: el de fuera (como un m
 MODULE_ORDER = (1, 0, 5, 4, 3, 2)
 FINGER_THICKNESS = 0.85         # grosor de los dedos (y su parte del guante) respecto al primer modelo (César, C3)
 THUMB_THICKNESS = 0.75          # el pulgar, aún más fino
+JOINT_FIT = 0.92                # bolitas del doblez y de la punta, algo más finas que el dedo: sin picos (Mira.md §7)
 FINGER_SPACING = 0.023          # distancia entre dedos vecinos (sin agrandar; antes 0,027, César los quiso más juntos)
 HEAD_DROP = 0.151      # y se baja para que la coronilla siga a 1,80 m (ojos a ~1,6 m)
 
@@ -1027,7 +1028,7 @@ def build_arms(root, mats):
             empty("finger_%s_%d_end" % (side, k), f2 + (f2 - f1).normalized() * 0.0098 * FINGER_THICKNESS, joint1)
             finish("hand_finger_%s_%d" % (side, k), tube([f0, f1], [0.0125 * FINGER_THICKNESS, 0.012 * FINGER_THICKNESS], [inward] * 2, 6),
                    SKIN_DARK, joint0, gloss)
-            finish("hand_knuckle_%s_%d" % (side, k), sphere(f1, (0.0122 * FINGER_THICKNESS,) * 3, 6, 4), SKIN_DARK, joint1,
+            finish("hand_knuckle_%s_%d" % (side, k), sphere(f1, (0.012 * FINGER_THICKNESS * JOINT_FIT,) * 3, 6, 4), SKIN_DARK, joint1,
                    gloss, smooth=True)
             finish("hand_finger_%s_%d_b" % (side, k), tube([f1, f2], [0.012 * FINGER_THICKNESS, 0.0095 * FINGER_THICKNESS], [inward] * 2, 6),
                    SKIN_DARK, joint1, gloss)
@@ -1035,7 +1036,7 @@ def build_arms(root, mats):
                 fd = (f1 - f0).normalized()
                 finish("glove_finger_%d" % k, bar(f0 - fd * 0.004, f0 + fd * 0.047, 0.0158 * FINGER_THICKNESS, 0.0148 * FINGER_THICKNESS, 6), GLOVE, joint0,
                        mats["base"])
-            finish("hand_fingertip_%s_%d" % (side, k), sphere(f2, (0.0098 * FINGER_THICKNESS,) * 3, 6, 4), SKIN_DARK, joint1,
+            finish("hand_fingertip_%s_%d" % (side, k), sphere(f2, (0.0095 * FINGER_THICKNESS * JOINT_FIT,) * 3, 6, 4), SKIN_DARK, joint1,
                    gloss, smooth=True)
         t0 = palm + fwd * 0.02 - d * 0.032   # nace cerca de la muñeca
         tm = t0 + (fwd + d * 0.35 + inward * 0.2).normalized() * 0.037
@@ -1045,7 +1046,7 @@ def build_arms(root, mats):
         empty("thumb_%s_end" % side, t1 + (t1 - tm).normalized() * 0.0134 * THUMB_THICKNESS, thumb1)
         finish("hand_thumb_" + side, tube([t0, tm], [0.0165 * THUMB_THICKNESS, 0.0155 * THUMB_THICKNESS], [inward] * 2, 6), SKIN_DARK, thumb0,
                gloss, smooth=True)
-        finish("hand_thumb_knuckle_" + side, sphere(tm, (0.0158 * THUMB_THICKNESS,) * 3, 6, 4), SKIN_DARK, thumb1,
+        finish("hand_thumb_knuckle_" + side, sphere(tm, (0.0155 * THUMB_THICKNESS * JOINT_FIT,) * 3, 6, 4), SKIN_DARK, thumb1,
                gloss, smooth=True)
         finish("hand_thumb_%s_b" % side, tube([tm, t1], [0.0155 * THUMB_THICKNESS, 0.013 * THUMB_THICKNESS], [inward] * 2, 6), SKIN_DARK, thumb1,
                gloss, smooth=True)
@@ -1054,7 +1055,7 @@ def build_arms(root, mats):
             # La funda nace dentro de la palma del guante y una bola tapa la base: sin huecos (César).
             finish("glove_thumb", merge(bar(t0 - td * 0.006, t0 + td * 0.03, 0.02 * THUMB_THICKNESS, 0.0185 * THUMB_THICKNESS, 6),
                                         sphere(t0, (0.021 * THUMB_THICKNESS,) * 3, 8, 5)), GLOVE, thumb0, mats["base"], smooth=True)
-        finish("hand_thumbtip_" + side, sphere(t1, (0.0134 * THUMB_THICKNESS,) * 3, 6, 4), SKIN_DARK, thumb1, gloss, smooth=True)
+        finish("hand_thumbtip_" + side, sphere(t1, (0.013 * THUMB_THICKNESS * JOINT_FIT,) * 3, 6, 4), SKIN_DARK, thumb1, gloss, smooth=True)
         rescale(hand, HAND_SCALE, wr, (0.0, 0.0, 0.0))   # manos grandes respecto al brazo (César)
 
 

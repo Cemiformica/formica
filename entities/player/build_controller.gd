@@ -121,6 +121,11 @@ var _drag_cells: Array[Vector2i] = []
 var _drag_rotations: Array[int] = []
 var _drag_states: Array[DragCell] = []
 var _drag_flip: bool = false   # R mientras se arrastra: la L empieza por el otro eje
+## Si el tramo acaba apuntando a una construcción o a una cinta (C3, César): la última cinta mira hacia
+## ella para conectarse justo ahí (un puerto concreto, o una cinta para hacer una T).
+var _drag_into: bool = false
+var _drag_into_step: Vector2i = Vector2i.ZERO
+var _drag_ground_y: float = 0.0
 ## Fantasmas del tramo: vistas de cinta de verdad (sin colisión y translúcidas) sobre una isla de prueba
 ## con el tramo y lo que lo rodea, para que cada una enseñe su forma real (recta, curva o cruce). Se
 ## rehacen solo cuando cambia el tramo; las que no cambian de casilla ni de giro se reutilizan.
@@ -303,6 +308,20 @@ func _process(_delta: float) -> void:
 	# Rayo desde el centro de la pantalla; solo vale una superficie poco inclinada (las rampas de las
 	# orillas del agua, unos 39°, también valen: así se puede apuntar al agua, D-094).
 	var hit: Dictionary = _aim_hit()
+	# Arrastrando una cinta, apuntar a una construcción o a una cinta (también a su costado) elige a qué se
+	# conecta el final del tramo: la casilla apuntada es la de dentro de lo que se mira (C3, César).
+	if _drag_active and not hit.is_empty() and hit["collider"] is BuildingView:
+		var inside: Vector3 = hit["position"] - hit["normal"] * 0.1
+		_target_origin = GridMath.world_to_cell(inside)
+		_has_target = true
+		_update_drag(building, _drag_ground_y)
+		_ghost.visible = false
+		if _ghost_model != null:
+			_ghost_model.visible = false
+		for marker: MeshInstance3D in _port_markers:
+			marker.visible = false
+		visible = true
+		return
 	if hit.is_empty() or hit["normal"].y < 0.7:
 		visible = false
 		_has_target = false
@@ -323,6 +342,7 @@ func _process(_delta: float) -> void:
 		_target_origin = GridMath.world_to_cell(hit_pos) - head_offset
 	_has_target = true
 	if _drag_active:
+		_drag_ground_y = hit_pos.y
 		_update_drag(building, hit_pos.y)
 		_ghost.visible = false
 		if _ghost_model != null:
@@ -741,6 +761,7 @@ func _start_drag() -> void:
 	_drag_rotations = [rotation_steps]
 	_drag_states = []
 	_drag_flip = false
+	_drag_into = false
 
 
 func _cancel_drag() -> void:
@@ -772,14 +793,23 @@ func _drag_path(to: Vector2i) -> void:
 				break
 			last += step
 			_drag_cells.append(last)
+	# Si la casilla final está ocupada (una máquina o una cinta), no se construye ahí: la cinta anterior
+	# mira hacia ella y se conecta justo con eso.
+	_drag_into = false
+	if _drag_cells.size() >= 2 and WorldState.get_island(island_id).get_at(_drag_cells[_drag_cells.size() - 1]) != null:
+		var target: Vector2i = _drag_cells.pop_back()
+		_drag_into = true
+		_drag_into_step = target - _drag_cells[_drag_cells.size() - 1]
 	_drag_rotations.clear()
 	if _drag_cells.size() == 1:
-		_drag_rotations.append(rotation_steps)
+		_drag_rotations.append(_rotation_for_step(_drag_into_step) if _drag_into else rotation_steps)
 		return
 	for i: int in _drag_cells.size():
 		var step: Vector2i
 		if i + 1 < _drag_cells.size():
 			step = _drag_cells[i + 1] - _drag_cells[i]
+		elif _drag_into:
+			step = _drag_into_step
 		else:
 			step = _drag_cells[i] - _drag_cells[i - 1]
 		_drag_rotations.append(_rotation_for_step(step))
@@ -914,7 +944,7 @@ func _rebuild_drag_preview(building: BuildingData, island: IslandState) -> void:
 ## pone una sola, como siempre.
 func _finish_drag() -> void:
 	_cancel_drag()
-	if _drag_cells.size() <= 1 or _drag_states.size() != _drag_cells.size():
+	if (_drag_cells.size() <= 1 and not _drag_into) or _drag_states.size() != _drag_cells.size():
 		_try_place()
 		return
 	var building: BuildingData = get_held()

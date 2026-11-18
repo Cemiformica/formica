@@ -145,9 +145,11 @@ func _physics_process(delta: float) -> void:
 		_using = false
 	if _using and is_instance_valid(focused_interactable):
 		# Con una herramienta, talar y picar piden acercarse un poco (tool_reach) (C3).
-		var workable: bool = focused_interactable.get_use_hint_key() in ["HINT_CHOP", "HINT_MINE"]
-		if not (holding_tool() and workable and work_distance() > tool_reach):
+		var workable: bool = focused_interactable.get_required_tool() != &""
+		if can_use_on(focused_interactable) and not (workable and work_distance() > tool_reach):
 			focused_interactable.use(self)
+	# En el modo construcción o desmontar no se ve lo que lleva en la mano (César).
+	arm.suppressed = in_tool_mode()
 	# La herramienta se enciende con el clic aunque no haya nada delante; solo da materiales si trabaja algo
 	# (César).
 	arm.set_working(_using and holding_tool())
@@ -172,6 +174,17 @@ func _update_held_item() -> void:
 ## ¿Lleva Mira una herramienta en la mano (algo que se coge en puño, C3)?
 func holding_tool() -> bool:
 	return mira.held_item != null and mira.held_item.held_grip == ItemData.HeldGrip.FIST
+
+
+## Id de la herramienta que lleva en la mano (vacío si no lleva ninguna).
+func held_tool_id() -> StringName:
+	return mira.held_item.id if holding_tool() else &""
+
+
+## ¿Puede hacer el clic izquierdo sobre `target`? Si pide una herramienta, tiene que llevar esa (C3).
+func can_use_on(target: Interactable) -> bool:
+	var required: StringName = target.get_required_tool()
+	return required == &"" or required == held_tool_id()
 
 
 ## Punto del mundo donde está trabajando (donde toca la mira); si no toca nada, delante de la cámara.

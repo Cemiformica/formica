@@ -20,5 +20,5 @@ const SIZE: int = 3
 @export_range(1, 10) var hits_per_item: int = 4
 ## Segundos mínimos entre dos golpes.
 @export var hit_cooldown: float = 1.0
-## Herramienta necesaria para minarla a mano. Vacío = ninguna (las herramientas llegan en la fase C).
+## Herramienta (id del ítem) necesaria para picarla. Vacío = a mano. La malaquita pide la barrena (C3).
 @export var required_tool: StringName = &""

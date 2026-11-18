@@ -5,6 +5,8 @@ extends Interactable
 ## tocón bajo, brote pequeño, árbol joven y árbol maduro. Formas provisionales hasta B3.
 ## Se trabaja con el clic izquierdo (`use`, C1.8; César: la E queda para abrir y accionar). En C3 talar pedirá
 ## el hacha y picar el pico en la mano; de momento se hace a mano.
+## Talar exige la mordedora en la mano y arrancar un tocón, la barrena (C3, César; get_required_tool). Las
+## rocas se recogen con la E (C3, César: la E recoge e interactúa; el clic, solo para las herramientas). El avance de los golpes sale en el letrero («2/4», get_progress_text).
 ## Clic sobre un árbol maduro: un golpe; a los `NatureState.CHOP_HITS` golpes (uno por segundo como mucho;
 ## manteniendo el clic, va golpeando) se tala (4 de madera + 1 semilla, queda un tocón) (D-090). Cada golpe
 ## levanta polvo y lo agita. Clic sobre un tocón: arrancarlo (1 de madera, libera la casilla). Brotes y
@@ -42,6 +44,11 @@ const MODELS: Dictionary = {
 	"b": {"mature": 2, "young": 1, "sprout": 1, "stump": 1},
 }
 const ROCK_VARIANTS: int = 3
+const STICKS_VARIANTS: int = 3   # palos caídos (C3)
+## Golpes de barrena para arrancar un tocón (C3).
+const UPROOT_HITS: int = 2
+const TOOL_CHOP: StringName = &"biter"         # mordedora
+const TOOL_UPROOT: StringName = &"hand_drill"  # barrena
 ## Cada cuánto salen virutas mientras una herramienta trabaja (ms).
 const TOOL_FX_MS: int = 180
 ## Madera mordida, en bucle mientras la mordedora trabaja (C3).
@@ -100,6 +107,13 @@ func refresh() -> void:
 		_shape.height = 0.4
 		(get_child(0) as CollisionShape3D).position.y = 0.2
 		return
+	if state.is_sticks():
+		display_name_key = "PROP_STICKS"
+		_add_model("sticks_%d" % ((seed_value >> 4) % STICKS_VARIANTS))
+		_shape.radius = 0.35
+		_shape.height = 0.15
+		(get_child(0) as CollisionShape3D).position.y = 0.075
+		return
 	var species: String = MODEL_PREFIX.get(state.species, "a")
 	var phase: String = "mature"
 	match state.stage:
@@ -126,17 +140,33 @@ func use(_by: Node) -> void:
 	var state: NatureState = island.nature.get(cell, null)
 	if state == null:
 		return
+	if state.is_rock() or state.is_sticks():
+		return # las rocas y los palos se recogen con la E (interact)
 	var inventory: Inventory = WorldState.player_inventory
 	var preview: Dictionary[ItemData, int] = {}
-	if state.is_rock():
-		preview = {Content.find_item(&"stone"): IslandState.ROCK_STONE}
-	elif state.is_mature_tree():
+	if state.is_mature_tree():
 		preview = {Content.find_item(&"wood"): IslandState.TREE_WOOD,
 				Content.find_item(NatureState.SEED_ITEMS[state.species]): 1}
 	elif state.is_stump():
 		preview = {Content.find_item(&"wood"): IslandState.STUMP_WOOD}
 	if preview.is_empty() or not inventory.can_add_all(preview):
 		return
+	if state.is_stump():
+		# Con la barrena, unos golpes para soltar las raíces (C3, César).
+		var now: int = Time.get_ticks_msec()
+		var at: Vector3 = _by.work_point() if _by.has_method("work_point") else global_position + Vector3(0.0, 0.2, 0.0)
+		_tremble = 1.0
+		if now - _fx_ms >= TOOL_FX_MS:
+			_fx_ms = now
+			DustPuff.spawn(self, at, BuildingView.CHIPS_COLOR, true)
+		if now - _last_hit_ms < int(NatureState.HIT_COOLDOWN * 1000.0):
+			return
+		_last_hit_ms = now
+		_hits += 1
+		_shake = 0.5
+		if _hits < UPROOT_HITS:
+			return
+		_hits = 0
 	if state.is_mature_tree():
 		var now: int = Time.get_ticks_msec()
 		var with_tool: bool = _by.has_method("holding_tool") and _by.holding_tool()
@@ -164,22 +194,65 @@ func use(_by: Node) -> void:
 			return
 		_hits = 0
 	var gained: Dictionary[ItemData, int] = {}
-	if state.is_rock():
-		gained = island.mine_rock(cell)
-	elif state.is_mature_tree():
+	if state.is_mature_tree():
 		# Antes de que la casilla pase a tocón, una copia del árbol cae hacia el otro lado (C3, César).
 		if _visual != null and get_parent() != null:
 			FallingTree.spawn(get_parent(), _visual, (_by as Node3D).global_position if _by is Node3D else global_position)
 		gained = island.chop_tree(cell, true)
 	else:
 		gained = island.uproot_stump(cell)
+	_give(gained, _by)
+
+
+## E sobre una roca o unos palos: recogerlos de una vez (si cabe en el inventario).
+func interact(by: Node) -> void:
+	var state: NatureState = island.nature.get(cell, null)
+	if state == null:
+		return
+	if state.is_rock():
+		var stone: Dictionary[ItemData, int] = {Content.find_item(&"stone"): IslandState.ROCK_STONE}
+		if WorldState.player_inventory.can_add_all(stone):
+			_give(island.mine_rock(cell), by)
+	elif state.is_sticks():
+		var wood: Dictionary[ItemData, int] = {Content.find_item(&"wood"): IslandState.STICKS_WOOD}
+		if WorldState.player_inventory.can_add_all(wood):
+			_give(island.pick_sticks(cell), by)
+
+
+## Mete lo obtenido en el inventario, con el icono que vuela a la barra y el aviso de arriba.
+func _give(gained: Dictionary[ItemData, int], by: Node) -> void:
+	var inventory: Inventory = WorldState.player_inventory
 	var pop_at: Vector3 = global_position + Vector3(0.0, 0.8, 0.0)
-	if _by.has_method("work_point"):
-		pop_at = _by.work_point()
+	if by.has_method("work_point"):
+		pop_at = by.work_point()
 	for item: ItemData in gained:
 		inventory.add_item(item, gained[item])
 		ItemPop.spawn(get_parent(), item, pop_at)   # lo recogido salta hacia la barra (C3)
 		PickupFeed.notify(item, gained[item])
+
+
+## Talar pide la mordedora y arrancar un tocón, la barrena (C3, César). Las rocas, con la E.
+func get_required_tool() -> StringName:
+	var state: NatureState = island.nature.get(cell, null) if island != null else null
+	if state == null:
+		return &""
+	if state.is_mature_tree():
+		return TOOL_CHOP
+	if state.is_stump():
+		return TOOL_UPROOT
+	return &""
+
+
+## «2/4» mientras se tala o se arranca.
+func get_progress_text() -> String:
+	var state: NatureState = island.nature.get(cell, null) if island != null else null
+	if state == null or _hits <= 0:
+		return ""
+	if state.is_mature_tree():
+		return "%d/%d" % [_hits, NatureState.CHOP_HITS]
+	if state.is_stump():
+		return "%d/%d" % [_hits, UPROOT_HITS]
+	return ""
 
 
 ## Qué hace el clic aquí, para el letrero de arriba. Brotes y jóvenes no se tocan.
@@ -187,13 +260,17 @@ func get_use_hint_key() -> String:
 	var state: NatureState = island.nature.get(cell, null) if island != null else null
 	if state == null:
 		return ""
-	if state.is_rock():
-		return "HINT_PICK_UP"
 	if state.is_mature_tree():
 		return "HINT_CHOP"
 	if state.is_stump():
 		return "HINT_UPROOT"
 	return ""
+
+
+## Qué hace la E aquí: recoger las rocas (C3).
+func get_interact_hint_key() -> String:
+	var state: NatureState = island.nature.get(cell, null) if island != null else null
+	return "HINT_PICK_UP" if state != null and (state.is_rock() or state.is_sticks()) else ""
 
 
 ## Sacudida corta del árbol tras un golpe.

@@ -80,6 +80,8 @@ HINT_CHOP,Talar,Talar,Chop
 HINT_UPROOT,Arrancar,Arrencar,Uproot
 HINT_PICK_UP,Recoger,Recollir,Pick up
 HINT_MINE,Picar,Picar,Mine
+PROP_STICKS,Palos,Branques seques,Sticks
+HINT_NEEDS_TOOL,Necesitas: %s,Necessites: %s,Needs: %s
 INPUT_MOUSE_LEFT,Clic,Clic,Click
 INPUT_MOUSE_RIGHT,Clic derecho,Clic dret,Right click
 INPUT_MOUSE_MIDDLE,Clic central,Clic central,Middle click

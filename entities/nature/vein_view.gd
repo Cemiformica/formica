@@ -81,6 +81,18 @@ func _process(delta: float) -> void:
 	_model.scale = Vector3.ONE * (1.0 + 0.04 * sin(_bump * PI) + jitter)
 
 
+## Herramienta para picarla (C3: la barrena), según su `VeinData`.
+func get_required_tool() -> StringName:
+	return data.required_tool if data != null else &""
+
+
+## «2/4» mientras se pica.
+func get_progress_text() -> String:
+	if data == null or _hits <= 0:
+		return ""
+	return "%d/%d" % [_hits, data.hits_per_item]
+
+
 ## Qué hace el clic aquí, para el letrero de arriba.
 func get_use_hint_key() -> String:
 	return "HINT_MINE"

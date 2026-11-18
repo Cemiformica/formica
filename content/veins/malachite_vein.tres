@@ -10,3 +10,4 @@ id = &"malachite_vein"
 name_key = "VEIN_MALACHITE"
 item = ExtResource("2_ore")
 scene = ExtResource("3_model")
+required_tool = &"hand_drill"

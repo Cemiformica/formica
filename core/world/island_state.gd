@@ -39,6 +39,11 @@ const STUMP_WOOD: int = 1
 const ROCK_STONE: int = 1
 const ROCK_SPAWN_TIME: float = 20.0
 const MAX_ROCKS: int = 16
+## Palos caídos (C3, César): se recogen con la E, como las rocas, y dan madera; así se puede empezar sin
+## herramientas. Aparecen solos con su propio ritmo.
+const STICKS_WOOD: int = 1   # como las rocas, 1 de piedra (César)
+const STICKS_SPAWN_TIME: float = 30.0
+const MAX_STICKS: int = 10
 
 ## Casillas de la isla donde pueden aparecer rocas. Vacío = no aparecen. Es parte de cómo es la isla
 ## (lo pone su escena), no de la partida, así que no se guarda.
@@ -47,6 +52,9 @@ var bounds: Rect2i = Rect2i()
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 ## Segundos desde la última roca que apareció (se guarda).
 var _rock_timer: float = 0.0
+## Segundos desde los últimos palos que aparecieron (se guarda). `spawn_sticks` = false los apaga (pruebas).
+var _sticks_timer: float = 0.0
+var spawn_sticks: bool = true
 
 ## Capa natural (B2.7): casilla → árbol o tocón. Bloquea construir. Se guarda con la isla.
 var nature: Dictionary[Vector2i, NatureState] = {}
@@ -242,7 +250,7 @@ func to_data() -> Dictionary:
 	for cell: Vector2i in water:
 		water_list.append([cell.x, cell.y, water[cell].x, water[cell].y])
 	return {"next_id": _next_id, "buildings": list, "cables": cable_list, "nature": nature_list, "veins": vein_list,
-			"water": water_list, "rock_timer": _rock_timer}
+			"water": water_list, "rock_timer": _rock_timer, "sticks_timer": _sticks_timer}
 
 
 ## Datos del guardado → estado. Ignora con aviso lo dañado, lo desconocido y lo que se solape.
@@ -275,6 +283,7 @@ func load_data(data: Dictionary) -> void:
 			if vein_data == null or not add_vein(vein_data, Vector2i(int(entry.get("x", 0)), int(entry.get("y", 0)))):
 				push_warning("IslandState: veta desconocida o solapada ignorada: %s" % str(entry))
 	_rock_timer = clampf(float(data.get("rock_timer", 0.0)), 0.0, ROCK_SPAWN_TIME)
+	_sticks_timer = clampf(float(data.get("sticks_timer", 0.0)), 0.0, STICKS_SPAWN_TIME)
 	_networks_dirty = true
 	var max_id: int = 0
 	var list: Variant = data.get("buildings", [])
@@ -305,6 +314,10 @@ func load_data(data: Dictionary) -> void:
 			if int(entry.get("k", NatureState.Kind.TREE)) == NatureState.Kind.ROCK:
 				if not add_rock(cell):
 					push_warning("IslandState: roca en casilla ocupada ignorada: %s" % str(entry))
+				continue
+			if int(entry.get("k", NatureState.Kind.TREE)) == NatureState.Kind.STICKS:
+				if not add_sticks(cell):
+					push_warning("IslandState: palos en casilla ocupada ignorados: %s" % str(entry))
 				continue
 			var stage: int = clampi(int(entry.get("s", NatureState.Stage.MATURE)), 0, NatureState.Stage.MATURE)
 			# Especie (C1.9); las partidas de antes no la guardaban y salen con la regla de los salvajes.
@@ -631,6 +644,52 @@ func mine_rock(cell: Vector2i) -> Dictionary[ItemData, int]:
 	return result
 
 
+## Pone unos palos caídos. Devuelve false si la casilla tiene una construcción o ya hay algo.
+func add_sticks(cell: Vector2i) -> bool:
+	if not _is_free_ground(cell):
+		return false
+	nature[cell] = NatureState.new(NatureState.Kind.STICKS)
+	nature_changed.emit(cell)
+	return true
+
+
+## Recoge unos palos: da `STICKS_WOOD` de madera y libera la casilla. Vacío si ahí no hay palos.
+func pick_sticks(cell: Vector2i) -> Dictionary[ItemData, int]:
+	var result: Dictionary[ItemData, int] = {}
+	if not nature.has(cell) or not nature[cell].is_sticks():
+		return result
+	nature.erase(cell)
+	result[Content.find_item(&"wood")] = STICKS_WOOD
+	nature_changed.emit(cell)
+	return result
+
+
+## Palos que hay ahora en la isla.
+func sticks_count() -> int:
+	var count: int = 0
+	for state: NatureState in nature.values():
+		if state.is_sticks():
+			count += 1
+	return count
+
+
+## ¿Casilla de suelo libre (sin naturaleza, construcción, veta ni agua)?
+func _is_free_ground(cell: Vector2i) -> bool:
+	return not nature.has(cell) and grid.get_occupant(cell) == 0 and not _vein_cells.has(cell) and not water.has(cell)
+
+
+## Una casilla libre al azar dentro de `bounds`, o (-1, -1) si no queda ninguna.
+func _random_free_cell() -> Vector2i:
+	var free_cells: Array[Vector2i] = []
+	for x: int in range(bounds.position.x, bounds.end.x):
+		for y: int in range(bounds.position.y, bounds.end.y):
+			if _is_free_ground(Vector2i(x, y)):
+				free_cells.append(Vector2i(x, y))
+	if free_cells.is_empty():
+		return Vector2i(-1, -1)
+	return free_cells[rng.randi_range(0, free_cells.size() - 1)]
+
+
 ## Rocas que hay ahora en la isla.
 func rock_count() -> int:
 	var count: int = 0
@@ -648,6 +707,14 @@ func step_nature(dt: float) -> void:
 			nature_changed.emit(cell)
 	if not bounds.has_area():
 		return
+	if spawn_sticks:
+		_sticks_timer += dt
+		if _sticks_timer + 0.0001 >= STICKS_SPAWN_TIME:
+			_sticks_timer = 0.0
+			if sticks_count() < MAX_STICKS:
+				var stick_cell: Vector2i = _random_free_cell()
+				if stick_cell != Vector2i(-1, -1):
+					add_sticks(stick_cell)
 	_rock_timer += dt
 	if _rock_timer + 0.0001 < ROCK_SPAWN_TIME:
 		return

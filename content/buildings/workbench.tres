@@ -8,6 +8,8 @@
 [ext_resource type="PackedScene" path="res://assets/models/buildings/workbench.glb" id="6_model"]
 [ext_resource type="Script" path="res://core/content/recipe_data.gd" id="7_recipescript"]
 [ext_resource type="Texture2D" path="res://assets/textures/icons/buildings/workbench.png" id="90_icon"]
+[ext_resource type="Resource" path="res://content/recipes/make_biter.tres" id="8_biter"]
+[ext_resource type="Resource" path="res://content/recipes/make_hand_drill.tres" id="9_drill"]
 
 [resource]
 script = ExtResource("1_building")
@@ -22,4 +24,4 @@ cost = Dictionary[ExtResource("2_itemscript"), int]({
 ExtResource("3_wood"): 6,
 ExtResource("4_stone"): 2
 })
-crafting_recipes = Array[ExtResource("7_recipescript")]([ExtResource("5_recipe")])
+crafting_recipes = Array[ExtResource("7_recipescript")]([ExtResource("8_biter"), ExtResource("9_drill"), ExtResource("5_recipe")])

@@ -14,6 +14,7 @@ func _ready() -> void:
 
 	# 1) Picar una roca: 2 de piedra y casilla libre; mientras está, bloquea construir.
 	var island: IslandState = WorldState.get_island(&"test_rocks")
+	island.spawn_sticks = false   # los palos (C3) tienen su prueba al final
 	island.add_rock(Vector2i(0, 0))
 	_check("la roca bloquea construir", not island.can_place(crusher, Vector2i(0, 0)))
 	var gained: Dictionary[ItemData, int] = island.mine_rock(Vector2i(0, 0))
@@ -42,6 +43,7 @@ func _ready() -> void:
 	# 4) Solo en casillas libres: en un 3×3 con una construcción y un árbol, caben 7 rocas.
 	var small: IslandState = WorldState.get_island(&"test_rocks_small")
 	small.bounds = Rect2i(0, 0, 3, 3)
+	small.spawn_sticks = false
 	small.rng.seed = 7
 	small.place(crusher, Vector2i(1, 1))
 	small.add_tree(Vector2i(0, 0))
@@ -55,6 +57,22 @@ func _ready() -> void:
 	restored.load_data(JSON.parse_string(JSON.stringify(small.to_data())))
 	_check("cargada: rocas", restored.rock_count() == 7)
 	_check("cargada: temporizador", is_equal_approx(restored.to_data()["rock_timer"], small.to_data()["rock_timer"]))
+
+	# 6) Palos (C3): se recogen y dan madera, aparecen solos y se guardan.
+	var wood: ItemData = Content.find_item(&"wood")
+	var woods: IslandState = WorldState.get_island(&"test_sticks")
+	woods.add_sticks(Vector2i(0, 0))
+	_check("los palos bloquean construir", not woods.can_place(crusher, Vector2i(0, 0)))
+	var sticks_gained: Dictionary[ItemData, int] = woods.pick_sticks(Vector2i(0, 0))
+	_check("recoger palos: %d de madera y casilla libre" % IslandState.STICKS_WOOD,
+			sticks_gained.get(wood, 0) == IslandState.STICKS_WOOD and woods.can_place(crusher, Vector2i(0, 0)))
+	woods.bounds = Rect2i(0, 0, 6, 6)
+	woods.rng.seed = 99
+	Simulation.advance(IslandState.STICKS_SPAWN_TIME * (IslandState.MAX_STICKS + 5))
+	_check("palos: como mucho %d" % IslandState.MAX_STICKS, woods.sticks_count() == IslandState.MAX_STICKS)
+	var woods_restored := IslandState.new()
+	woods_restored.load_data(JSON.parse_string(JSON.stringify(woods.to_data())))
+	_check("cargada: palos", woods_restored.sticks_count() == IslandState.MAX_STICKS)
 
 	WorldState.reset()
 	Simulation.running = true

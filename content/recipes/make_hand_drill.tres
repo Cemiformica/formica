@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="RecipeData" format=3]
+
+[ext_resource type="Script" path="res://core/content/recipe_data.gd" id="1_recipe"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Resource" path="res://content/items/iron_ingot.tres" id="3_iron"]
+[ext_resource type="Resource" path="res://content/items/wood.tres" id="4_wood"]
+[ext_resource type="Resource" path="res://content/items/stone.tres" id="5_stone"]
+[ext_resource type="Resource" path="res://content/items/hand_drill.tres" id="6_tool"]
+
+[resource]
+script = ExtResource("1_recipe")
+id = &"make_hand_drill"
+inputs = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("3_iron"): 1,
+ExtResource("4_wood"): 2,
+ExtResource("5_stone"): 3
+})
+outputs = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("6_tool"): 1
+})
+duration = 3.0
