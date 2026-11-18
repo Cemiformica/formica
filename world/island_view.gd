@@ -107,7 +107,10 @@ func _on_building_placed(placed: PlacedBuilding) -> void:
 	_views[placed.id] = view
 	if not _rebuilding:
 		_refresh_connections()
-		view.play_place_effect() # rebote y polvo (B5.4); al cargar una partida, no
+		if _island.is_dropping():
+			view.play_drop_effect() # soltar tras moverla (C2b): cae y rebota, sin crecer
+		else:
+			view.play_place_effect() # rebote y polvo (B5.4); al cargar una partida, no
 
 
 func _on_building_removed(placed: PlacedBuilding) -> void:

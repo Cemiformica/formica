@@ -14,7 +14,7 @@ var origin: Vector2i
 var rotation: int
 ## Reflejada de norte a sur (tecla F en el modo construcción; ver `PortData`).
 var flipped: bool
-## Solo cajas logísticas (D-093): lado de la salida. 0 = recta, 1 = derecha, 2 = izquierda (tecla F).
+## Solo cajas logísticas (D-093; C2b): combinación de entrada y salida (0–8, ver `BuildingData.ports_for`; tecla F).
 var output_turn: int = 0
 ## Solo máquinas: entrada (admite los ingredientes de la receta) y salida (solo se saca).
 ## Almacenes: todo lo que guardan está en `output` (se mete y se saca de ahí).
@@ -29,6 +29,18 @@ var belt_progress: Array[float] = []
 ## Lo que el ítem de delante se pasó del final en el último paso (en fracción de casilla). Al pasar a
 ## otra cinta empieza ahí, no en 0, para no perder ese trocito de tiempo en cada unión. No se guarda.
 var belt_overflow: float = 0.0
+## Solo cintas (C2b, D-118): lado SIN girar por el que entró cada ítem (`PortData.PortSide`; SOUTH = por
+## detrás, EAST u WEST = por un costado). Lo usa la vista para dibujar la curva. No se guarda: al cargar,
+## todos cuentan como entrados por detrás.
+var belt_entries: Array[int] = []
+## Solo cintas con varias salidas o varias entradas: a qué conexión le toca (reparto por turnos, D-118).
+## No se guardan.
+var out_turn: int = 0
+var in_turn: int = 0
+## Conexiones que salen de aquí y que entran aquí (las rellena `IslandState` al recalcularlas; no se
+## guardan). Guardarlas en la construcción ahorra buscarlas en cada paso (rendimiento, C2b). No modificar.
+var links_out: Array = []
+var links_in: Array = []
 ## Solo taladores: casillas del área, calculadas una vez (la construcción no se mueve; B2.9).
 var _harvest_cells: Array[Vector2i] = []
 
@@ -49,7 +61,7 @@ func _init(p_id: int, p_data: BuildingData, p_origin: Vector2i, p_rotation: int 
 	rotation = posmod(p_rotation, 4)
 	flipped = p_flipped
 	if data.output_turns:
-		output_turn = posmod(p_turn, 3)
+		output_turn = posmod(p_turn, BuildingData.TURN_COUNT)
 	if data.recipe != null:
 		# Una casilla por ingrediente y otra por producto.
 		var accepted: Array[ItemData] = []
@@ -99,6 +111,45 @@ func get_refund() -> Dictionary[ItemData, int]:
 ## lugar de `data.ports`).
 func get_ports() -> Array[PortData]:
 	return data.ports_for(output_turn)
+
+
+## Puertos de los costados de las cintas (C2b, D-118), en la casilla (0, 0) sin girar: entrada y salida
+## al este y al oeste. Son «flexibles»: un costado solo se conecta con un puerto FIJO de enfrente (el
+## frente o la trasera de otra cinta, o el puerto de una máquina), y eso decide si entra o sale. Dos
+## costados nunca se conectan entre sí, así que dos cintas paralelas no se mezclan.
+static var _belt_side_ports: Array[PortData] = []
+
+
+static func belt_side_ports() -> Array[PortData]:
+	if _belt_side_ports.is_empty():
+		for kind: PortData.Kind in [PortData.Kind.INPUT, PortData.Kind.OUTPUT]:
+			for side: PortData.PortSide in [PortData.PortSide.EAST, PortData.PortSide.WEST]:
+				var port := PortData.new()
+				port.kind = kind
+				port.side = side
+				_belt_side_ports.append(port)
+	return _belt_side_ports
+
+
+## Salida por la trasera de una cinta (C2b): solo la usa `IslandState` cuando dos cintas quedan trasera
+## con trasera y una de ellas recibe algo (p. ej. la cinta de un cruce que mira hacia uno de sus lados).
+static var _belt_back_output: PortData = null
+
+
+static func belt_back_output_port() -> PortData:
+	if _belt_back_output == null:
+		_belt_back_output = PortData.new()
+		_belt_back_output.kind = PortData.Kind.OUTPUT
+		_belt_back_output.side = PortData.PortSide.SOUTH
+	return _belt_back_output
+
+
+## Puertos flexibles de esta construcción: los costados si es una cinta; ninguno si no.
+func get_flexible_ports() -> Array[PortData]:
+	if is_belt():
+		return belt_side_ports()
+	var none: Array[PortData] = []
+	return none
 
 
 ## ¿Es un almacén? (arcón o caja logística, D-093)
@@ -210,13 +261,15 @@ func can_accept(item: ItemData, port: PortData) -> bool:
 
 ## Recibe una unidad de `item`. Llamar solo si `can_accept()` dio true.
 ## Cinta: el ítem entra en `start` (lo que se pasó en la cinta anterior), sin acercarse al de delante.
-func accept(item: ItemData, start: float = 0.0) -> void:
+## `entry`: lado sin girar por el que entra (`PortData.PortSide`; por defecto, por detrás).
+func accept(item: ItemData, start: float = 0.0, entry: int = PortData.PortSide.SOUTH) -> void:
 	if is_belt():
 		var max_start: float = 1.0
 		if not belt_progress.is_empty():
 			max_start = belt_progress[belt_progress.size() - 1] - _belt_spacing()
 		belt_items.append(item)
 		belt_progress.append(clampf(start, 0.0, maxf(max_start, 0.0)))
+		belt_entries.append(entry)
 	elif is_machine():
 		input.add_item(item, 1)
 	elif is_storage():
@@ -242,6 +295,7 @@ func take_output(item: ItemData) -> void:
 	if is_belt():
 		belt_items.remove_at(0)
 		belt_progress.remove_at(0)
+		belt_entries.remove_at(0)
 		belt_overflow = 0.0
 	elif output != null:
 		output.remove_item(item, 1)
@@ -339,6 +393,7 @@ static func from_data(entry: Dictionary) -> PlacedBuilding:
 				continue
 			placed.belt_items.append(item)
 			placed.belt_progress.append(clampf(float(belt_entry.get("p", 0.0)), 0.0, 1.0))
+			placed.belt_entries.append(PortData.PortSide.SOUTH)
 	return placed
 
 

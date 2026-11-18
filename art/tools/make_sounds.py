@@ -403,6 +403,100 @@ def write_materialize_previews(folder):
         write_wav(os.path.join(folder, name + ".wav"), make())
 
 
+# --- Mover construcciones (C2b, César): sonidos propios para levantar y soltar, sin el zumbido de materializar ---
+
+def _sweep(start, end, length, gain, curve=1.0):
+    """Tono que sube (o baja) de `start` a `end` Hz en `length` s, con ataque corto y caída."""
+    out = []
+    phase = 0.0
+    for i in range(int(RATE * length)):
+        t = i / RATE
+        f = start + (end - start) * (t / length) ** curve
+        phase += 2 * math.pi * f / RATE
+        env = min(1.0, t / 0.004) * math.exp(-t * 3.0 / length)
+        out.append(math.sin(phase) * env * gain)
+    return out
+
+
+def _knock(rng, freq, gain, length=0.12):
+    """Toque de madera: ruido suavizado muy corto y una resonancia que se apaga enseguida."""
+    out = []
+    low = 0.0
+    for i in range(int(RATE * length)):
+        t = i / RATE
+        low += 0.3 * (rng.uniform(-1.0, 1.0) - low)
+        out.append((low * math.exp(-t * 70.0) * 1.4 + math.sin(2 * math.pi * freq * t) * math.exp(-t * 45.0) * 0.6) * gain)
+    return out
+
+
+def move_lift_pneumatic():
+    """A · Levantar, neumático: el cerrojo se suelta (clic) y un soplido que sube, como una ventosa que tira."""
+    rng = random.Random(51)
+    out = [0.0] * int(RATE * 0.3)
+    _add(out, 0, _click(rng, 3000.0, 0.35))
+    suck = []
+    prev = 0.0
+    length = 0.2
+    for i in range(int(RATE * length)):
+        t = i / RATE
+        noise = rng.uniform(-1.0, 1.0)
+        high = noise - prev
+        prev = noise
+        env = math.sin(math.pi * t / length)
+        suck.append(high * env * 0.25)
+    _add(out, int(RATE * 0.02), suck)
+    _add(out, int(RATE * 0.02), _sweep(320.0, 1000.0, 0.2, 0.25, 1.5))
+    return out
+
+
+def move_drop_pneumatic():
+    """A · Soltar, neumático: un soplido corto y un golpe ligero, más agudo y corto que el de construir."""
+    rng = random.Random(53)
+    out = [0.0] * int(RATE * 0.4)
+    hiss = []
+    prev = 0.0
+    for i in range(int(RATE * 0.08)):
+        t = i / RATE
+        noise = rng.uniform(-1.0, 1.0)
+        hiss.append((noise - prev) * min(1.0, t / 0.01) * math.exp(-t * 30.0) * 0.3)
+        prev = noise
+    _add(out, 0, hiss)
+    _add(out, int(RATE * 0.06), _clank(rng, 0.3, low=130.0, metal=(1200.0, 1900.0, 2700.0), decay=16.0, gain=0.6))
+    return out
+
+
+def move_lift_toy():
+    """B · Levantar, de juguete: un «bup» que sube y otro más agudo, como coger una pieza."""
+    rng = random.Random(57)
+    out = [0.0] * int(RATE * 0.25)
+    _add(out, 0, _click(rng, 2200.0, 0.2))
+    _add(out, 0, _sweep(420.0, 980.0, 0.09, 0.5))
+    _add(out, int(RATE * 0.07), _sweep(700.0, 1300.0, 0.08, 0.3))
+    return out
+
+
+def move_drop_toy():
+    """B · Soltar, de juguete: dos toques de madera, el segundo más suave (la pieza se asienta)."""
+    rng = random.Random(59)
+    out = [0.0] * int(RATE * 0.3)
+    _add(out, 0, _knock(rng, 520.0, 1.0))
+    _add(out, int(RATE * 0.07), _knock(rng, 640.0, 0.45))
+    return out
+
+
+def write_move_sounds(assets_folder, preview_folder=None, choice="a"):
+    """Escribe move_lift.wav y move_drop.wav (la versión `choice`) y, si se da, las dos versiones para escuchar."""
+    versions = {"a": (move_lift_pneumatic, move_drop_pneumatic), "b": (move_lift_toy, move_drop_toy)}
+    lift, drop = versions[choice]
+    write_wav(os.path.join(assets_folder, "move_lift.wav"), lift())
+    write_wav(os.path.join(assets_folder, "move_drop.wav"), drop())
+    if preview_folder:
+        os.makedirs(preview_folder, exist_ok=True)
+        for key, (lift, drop) in versions.items():
+            write_wav(os.path.join(preview_folder, "move_%s_lift.wav" % key), lift())
+            write_wav(os.path.join(preview_folder, "move_%s_drop.wav" % key), drop())
+
+
 if __name__ == "__main__":
     folder = sys.argv[1] if len(sys.argv) > 1 else "."
     os.makedirs(folder, exist_ok=True)

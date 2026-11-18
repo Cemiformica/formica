@@ -84,7 +84,7 @@ INPUT_MOUSE_MIDDLE,Clic central,Clic central,Middle click
 BUILD_HINT_PLACE,Colocar,Col·locar,Place
 BUILD_HINT_ROTATE,Girar,Girar,Rotate
 BUILD_HINT_FLIP,Reflejar,Reflectir,Mirror
-BUILD_HINT_TURN,Cambiar salida,Canviar sortida,Change output
+BUILD_HINT_TURN,Cambiar entrada y salida,Canviar entrada i sortida,Change input and output
 BUILD_HINT_PICK,Copiar,Copiar,Copy
 BUILD_HINT_EXIT,Salir,Sortir,Exit
 BUILD_HINT_CABLE_START,Empezar cable,Començar cable,Start cable
@@ -130,4 +130,8 @@ BUILD_HINT_MOVE,Mover,Moure,Move
 BUILD_HINT_DROP,Soltar,Deixar,Drop
 BUILD_HINT_RETURN,Devolver,Retornar,Put back
 BUILD_HINT_CARRYING,Moviendo: %s,Movent: %s,Moving: %s
+INPUT_DRAG,arrastrar,arrossegar,drag
+BUILD_HINT_BELT_LINE,Tramo,Tram,Line
+BUILD_HINT_BELT_RELEASE,Suelta para poner %d,Deixa anar per posar-ne %d,Release to place %d
+BUILD_HINT_BELT_TURN,Cambiar el giro,Canviar el gir,Switch the turn
 BUILD_CABLES_LOST,Algún cable quedaba demasiado largo y se ha quitado,Algun cable quedava massa llarg i s'ha tret,A cable was too long and was removed

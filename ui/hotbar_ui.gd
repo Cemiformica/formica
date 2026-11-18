@@ -32,9 +32,10 @@ var _hint_label: Label
 
 func _ready() -> void:
 	layer = 4
+	# Todo el ancho de abajo (C2b, César): así la barra queda siempre centrada y con su tamaño, aunque el
+	# texto de ayuda de encima cambie de largo (antes la columna se ensanchaba y no volvía a encoger).
 	var bottom := MarginContainer.new()
-	bottom.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	bottom.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	bottom.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	bottom.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	bottom.add_theme_constant_override("margin_bottom", 14)
 	bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -53,6 +54,7 @@ func _ready() -> void:
 	_hint_label.visible = false
 	column.add_child(_hint_label)
 	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	row.add_theme_constant_override("separation", 4)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(row)
@@ -208,6 +210,11 @@ func _build_hint() -> String:
 			parts.append(_key_hint(&"build_flip", "BUILD_HINT_FLIP"))
 		parts.append(_key_hint(&"build_move", "BUILD_HINT_RETURN"))
 		return "  ·  ".join(parts)
+	if _builder.is_dragging():
+		# Tramo de cintas (C2b): soltar construye y clic derecho cancela.
+		parts.append(tr("BUILD_HINT_BELT_RELEASE") % _builder.drag_count())
+		parts.append(_key_hint(&"build_move", "BUILD_HINT_CANCEL"))
+		return "  ·  ".join(parts)
 	if _builder.holding_cable():
 		if _builder.cable_started():
 			parts.append(_key_hint(&"build_place", "BUILD_HINT_CABLE_END"))
@@ -220,6 +227,8 @@ func _build_hint() -> String:
 			if _builder.is_held_picked():
 				parts.append(tr("BUILD_HINT_HELD") % tr(held.name_key))
 			parts.append(_key_hint(&"build_place", "BUILD_HINT_PLACE"))
+			if held.belt_speed > 0.0:
+				parts.append("[%s + %s] %s" % [InputLabels.action_text(&"build_place"), tr("INPUT_DRAG"), tr("BUILD_HINT_BELT_LINE")])
 			parts.append(_key_hint(&"build_rotate", "BUILD_HINT_ROTATE"))
 			if held.output_turns:
 				parts.append(_key_hint(&"build_flip", "BUILD_HINT_TURN"))

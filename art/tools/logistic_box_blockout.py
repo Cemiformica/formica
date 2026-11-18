@@ -4,7 +4,9 @@
 # oscuros abombados con anillos naranjas) y las antenas con las luces de estado. Mirillas hundidas que se
 # llenan y el emblema pintado en los costados de la casilla de atrás.
 # La caja es la PROPIA cámara (ya no hay túnel): ocupa las dos casillas y queda a ras de los dos puertos.
-# Tiene TRES versiones y Godot enseña solo la de la salida elegida con F (los nodos conservan los nombres
+# Tiene NUEVE versiones (C2b: entrada detrás, a la derecha o a la izquierda de la casilla de atrás × salida
+# recta, a la derecha o a la izquierda de la de delante) y Godot enseña solo la elegida con F. Las tres
+# primeras son las de siempre, con la entrada detrás (los nodos conservan los nombres
 # tunnel_straight / tunnel_right / tunnel_left, que ya usa el código): recta (caja entera, a ras del puerto
 # norte) y derecha / izquierda (en la casilla de delante, la caja se retira del lado del puerto lateral
 # hasta su cara trasera y se alarga hacia el norte hasta cubrirla: «mordisco», elección de César).
@@ -262,15 +264,18 @@ def arch_segment_y(y0: float, y1: float, half_x: float, z0: float, rise: float, 
     return bm
 
 
-def outline(turn: int):
-    # Planta de la caja (antihoraria). turn: 0 = recta; 1 = salida al este (derecha); −1 = al oeste.
-    if turn == 0:
-        return [(-HALF_X, -END_Y), (HALF_X, -END_Y), (HALF_X, END_Y), (-HALF_X, END_Y)]
-    pts = [(-HALF_X, -END_Y), (HALF_X, -END_Y), (HALF_X, SIDE_Y0), (SIDE_X, SIDE_Y0), (SIDE_X, SIDE_Y1),
-           (-HALF_X, SIDE_Y1)]
-    if turn < 0:
-        pts = [(-x, y) for (x, y) in reversed(pts)]
-    return pts
+def outline(out: int, inn: int = 0):
+    # Planta de la caja (antihoraria). out: salida 0 = recta (norte), 1 = derecha (este), −1 = izquierda (oeste).
+    # inn: entrada 0 = detrás (sur), 1 = derecha (este), −1 = izquierda (oeste) (C2b, dibujo de César). Del lado
+    # de un puerto lateral, la caja se retira hasta su cara trasera («mordisco») y, si no hay puerto en ese
+    # extremo, se alarga hasta cubrirlo.
+    y0 = -END_Y if inn == 0 else -SIDE_Y1
+    y1 = END_Y if out == 0 else SIDE_Y1
+    east = [(SIDE_X, y0), (SIDE_X, -SIDE_Y0), (HALF_X, -SIDE_Y0)] if inn == 1 else [(HALF_X, y0)]
+    east += [(HALF_X, SIDE_Y0), (SIDE_X, SIDE_Y0), (SIDE_X, y1)] if out == 1 else [(HALF_X, y1)]
+    west = [(-SIDE_X, y1), (-SIDE_X, SIDE_Y0), (-HALF_X, SIDE_Y0)] if out == -1 else [(-HALF_X, y1)]
+    west += [(-HALF_X, -SIDE_Y0), (-SIDE_X, -SIDE_Y0), (-SIDE_X, y0)] if inn == -1 else [(-HALF_X, y0)]
+    return east + west
 
 
 def grow(points, d: float):
@@ -310,48 +315,68 @@ def window_parts(tag: str, sx: float, y: float, root, mat) -> list:
     return parts
 
 
-def build_chamber(name: str, turn: int, root, mat):
+def build_chamber(name: str, out: int, inn: int, root, mat):
+    # Una versión de la cámara: planta con sus mordiscos, base, franja y reborde, mirillas y emblema en los
+    # costados sin puerto, y el caparazón (más estrecho sobre un puerto lateral).
     objs = []
-    pts = outline(turn)
+    pts = outline(out, inn)
     body = finish(name + "_body", slab(pts, BODY_Z0, BODY_Z1), METAL, root, mat, 0.02)
     objs.append(body)
     # Base, franja y reborde: sobresalen por los lados y se meten un poco en los marcos de los puertos.
     objs.append(finish(name + "_base", slab(grow(pts, 0.02), 0.0, BODY_Z0 + 0.02), METAL_DEEP, root, mat, 0.01))
     objs.append(finish(name + "_band", slab(grow(pts, 0.01), BODY_Z0 + 0.075, BODY_Z0 + 0.125), ACCENT, root, mat, 0.006))
     objs.append(finish(name + "_rim", slab(grow(pts, 0.02), BODY_Z1 - 0.005, BODY_Z1 + 0.045), METAL_DARK, root, mat, 0.01))
-    # Mirillas: las de atrás (comunes, fuera de las versiones) y, en la casilla de delante, una más en cada
-    # costado largo (César): en las dos en la recta y solo en el costado sin puerto en las laterales.
-    front_sides = (1.0, -1.0) if turn == 0 else (-float(turn),)
-    for sx in (1.0, -1.0):
+    # Mirillas en los costados SIN puerto: delante (César: en las dos en la recta) y detrás.
+    front_sides = [sx for sx in (1.0, -1.0) if sx != out]
+    back_sides = [sx for sx in (1.0, -1.0) if sx != inn]
+    for sx in back_sides:
         cut_recess(body, (0.1, WIN_W, WIN_H), (sx * HALF_X, WIN_Y, WIN_Z), METAL_DEEP)
     for sx in front_sides:
         cut_recess(body, (0.1, WIN_W, WIN_H), (sx * HALF_X, FRONT_WIN_Y, WIN_Z), METAL_DEEP)
     suffix = name.split("_")[1]
-    fill_pos = Vector((0.0, FRONT_WIN_Y, WIN_Z - WIN_H / 2))
-    fill = empty("store_fill_pivot_" + suffix, fill_pos, root, "ARROWS", 0.06)
-    objs.append(fill)
-    for sx in front_sides:
-        tag = "%s_%s" % (suffix, "e" if sx > 0 else "w")
-        objs.extend(window_parts(tag, sx, FRONT_WIN_Y, root, mat))
-        ore = finish("store_ore_" + tag, box((0.012, WIN_W, WIN_H), (sx * (HALF_X - 0.044), FRONT_WIN_Y, WIN_Z)), ORE, root, mat, 0.0)
-        hang(ore, fill, fill_pos)
-    # Caparazón: los dos segmentos de atrás son iguales en las tres versiones; delante, dos segmentos a todo
-    # lo ancho (recta) o uno más estrecho que deja libre el lado del puerto (laterales).
-    segs = [(-END_Y - 0.02, -0.37, 0.8), (-0.33, 0.06, 1.0)]
-    rings = [(-0.38, -0.32), (0.05, 0.11)]
-    x0, x1 = -HALF_X, HALF_X
-    if turn == 0:
-        segs += [(0.1, 0.42, 1.0), (0.46, END_Y + 0.02, 0.75)]
-        rings.append((0.41, 0.47))
+    for row_y, sides, tag_row in ((FRONT_WIN_Y, front_sides, ""), (WIN_Y, back_sides, "back_")):
+        fill_pos = Vector((0.0, row_y, WIN_Z - WIN_H / 2))
+        fill = empty("store_fill_pivot_%s%s" % (tag_row, suffix), fill_pos, root, "ARROWS", 0.06)
+        objs.append(fill)
+        for sx in sides:
+            tag = "%s%s_%s" % (tag_row, suffix, "e" if sx > 0 else "w")
+            objs.extend(window_parts(tag, sx, row_y, root, mat))
+            ore = finish("store_ore_" + tag, box((0.012, WIN_W, WIN_H), (sx * (HALF_X - 0.044), row_y, WIN_Z)), ORE, root, mat, 0.0)
+            hang(ore, fill, fill_pos)
+    # Emblema de la colonia pintado, entre la mirilla de atrás y el reborde (como en el extractor).
+    for sx in back_sides:
+        objs.extend(crest.add_crest(finish, root, mat, (sx * HALF_X, WIN_Y, 0.5), (sx, 0.0, 0.0), scale=0.5, style="painted",
+                                    prefix="crest_%s_%s" % (suffix, "e" if sx > 0 else "w")))
+    # Caparazón: dos segmentos detrás y, delante, dos a todo lo ancho (salida recta) o uno; los que quedan
+    # sobre un puerto lateral, más estrechos, para dejarlo libre. Anillos naranjas entre segmentos.
+    narrow_out = (-HALF_X, SIDE_X) if out > 0 else (-SIDE_X, HALF_X)
+    narrow_in = (-HALF_X, SIDE_X) if inn > 0 else (-SIDE_X, HALF_X)
+    back_start = -END_Y - 0.02 if inn == 0 else -SIDE_Y1 - 0.02
+    segs = [(back_start, -0.37, 0.8, True), (-0.33, 0.06, 1.0, True)]
+    rings = [(-0.38, -0.32, True), (0.05, 0.11, False)]
+    if out == 0:
+        segs += [(0.1, 0.42, 1.0, False), (0.46, END_Y + 0.02, 0.75, False)]
+        rings.append((0.41, 0.47, False))
     else:
-        segs.append((0.1, SIDE_Y1 + 0.02, 0.85))
-    for k, (y0, y1, scale) in enumerate(segs):
-        if turn != 0 and y0 >= 0.1:
-            x0, x1 = (-HALF_X, SIDE_X) if turn > 0 else (-SIDE_X, HALF_X)
+        segs.append((0.1, SIDE_Y1 + 0.02, 0.85, False))
+    for k, (y0, y1, scale, back) in enumerate(segs):
+        x0, x1 = -HALF_X, HALF_X
+        if back and inn != 0:
+            x0, x1 = narrow_in
+        elif not back and out != 0:
+            x0, x1 = narrow_out
         objs.append(shell("%s_shell_%d" % (name, k), y0, y1, x0, x1, scale, root, mat))
-    for k, (y0, y1) in enumerate(rings):
-        objs.append(shell("%s_ring_%d" % (name, k), y0, y1, -HALF_X, HALF_X, 1.0, root, mat, ring=True))
+    for k, (y0, y1, back) in enumerate(rings):
+        x0, x1 = (narrow_in if back and inn != 0 else (-HALF_X, HALF_X))
+        objs.append(shell("%s_ring_%d" % (name, k), y0, y1, x0, x1, 1.0, root, mat, ring=True))
     return objs
+
+
+# Las 9 versiones (C2b): F en Godot las recorre en este orden; turn = entrada × 3 + salida. Las tres primeras
+# conservan sus nombres de siempre (son las de antes, con la entrada detrás).
+OUTS = (0, 1, -1)   # recta, derecha, izquierda
+INS = (0, 1, -1)    # detrás, derecha, izquierda
+VERSION_NAMES = ["tunnel_straight", "tunnel_right", "tunnel_left"] + ["tunnel_v%d" % k for k in range(3, 9)]
 
 
 def build() -> None:
@@ -359,26 +384,13 @@ def build() -> None:
     mat = get_material()
     root = empty(ROOT, (0, 0, 0), None, "PLAIN_AXES", 0.3)
 
-    # --- Cámara: tres versiones (recta, derecha, izquierda); Godot enseña la de la salida elegida ---
-    for name, turn in (("tunnel_straight", 0), ("tunnel_right", 1), ("tunnel_left", -1)):
+    # --- Cámara: nueve versiones (entrada detrás, derecha o izquierda × salida recta, derecha o izquierda);
+    #     Godot enseña la elegida con F. Cada una lleva sus mirillas y su emblema. ---
+    for turn, name in enumerate(VERSION_NAMES):
         pivot_pos = Vector((0.0, BEND_Y, 0.0))
         pivot = empty(name, pivot_pos, root, "PLAIN_AXES", 0.1)
-        for obj in build_chamber(name, turn, root, mat):
+        for obj in build_chamber(name, OUTS[turn % 3], INS[turn // 3], root, mat):
             hang(obj, pivot, pivot_pos)
-
-    # --- Mirillas hundidas en los costados de la casilla de atrás, con lo que guarda dentro ---
-    for side, sx in (("east", 1.0), ("west", -1.0)):
-        window_parts(side, sx, WIN_Y, root, mat)
-    fill_pos = Vector((0.0, WIN_Y, WIN_Z - WIN_H / 2))
-    fill = empty("store_fill_pivot", fill_pos, root, "ARROWS", 0.08)
-    for side, sx in (("east", 1.0), ("west", -1.0)):
-        ore = finish("store_ore_" + side, box((0.012, WIN_W, WIN_H), (sx * (HALF_X - 0.044), WIN_Y, WIN_Z)), ORE, root, mat, 0.0)
-        hang(ore, fill, fill_pos)
-
-    # --- Emblema de la colonia pintado, entre la mirilla y el reborde (como en el extractor) ---
-    for side, sx in (("east", 1.0), ("west", -1.0)):
-        crest.add_crest(finish, root, mat, (sx * HALF_X, WIN_Y, 0.5), (sx, 0.0, 0.0), scale=0.5, style="painted",
-                        prefix="crest_" + side)
 
     # --- Antenas sobre el segmento grande del caparazón, con la luz de estado en la punta ---
     for side, sx in (("east", 1.0), ("west", -1.0)):

@@ -114,6 +114,205 @@ def prism_x_profile(profile, y0, y1):
     return bm
 
 
+def prism_y_profile(profile, x0, x1):
+    # Como prism_x_profile, pero el perfil son puntos (Y, Z) y se extruye a lo largo de X (garganta).
+    bm = bmesh.new()
+    back = [bm.verts.new((x0, y, z)) for y, z in profile]
+    front = [bm.verts.new((x1, y, z)) for y, z in profile]
+    bm.faces.new(back)
+    bm.faces.new(list(reversed(front)))
+    for i in range(len(profile)):
+        j = (i + 1) % len(profile)
+        bm.faces.new((back[i], back[j], front[j], front[i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return bm
+
+
+def band_strip_x(x0, x1):
+    # Banda recta a lo ancho (a lo largo de X), de x0 a x1: la de la garganta.
+    bm = bmesh.new()
+    v = [bm.verts.new((x0, -BAND_HALF, BAND_TOP)), bm.verts.new((x1, -BAND_HALF, BAND_TOP)),
+         bm.verts.new((x1, BAND_HALF, BAND_TOP)), bm.verts.new((x0, BAND_HALF, BAND_TOP))]
+    face = bm.faces.new(v)
+    face.normal_update()
+    if face.normal.z < 0.0:
+        face.normal_flip()
+    return bm
+
+
+def join_parts(name, objects, parent, material):
+    # Une varias piezas (de colores distintos de la paleta) en una sola malla: Godot la enseña o la
+    # esconde entera y la dibuja en una sola llamada.
+    bm = bmesh.new()
+    for obj in objects:
+        bm.from_mesh(obj.data)
+    for obj in objects:
+        mesh = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        bpy.data.meshes.remove(mesh)
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.materials.append(material)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj.parent = parent
+    for poly in mesh.polygons:
+        poly.use_smooth = True
+    mesh.set_sharp_from_angle(angle=math.radians(30))
+    return obj
+
+
+# --- Curvas en L (C2b): la cinta recta doblada un cuarto de vuelta ---
+# Una cinta con una sola entrada y una sola salida que no están en línea se dibuja como una curva (César:
+# como en Alchemy Factory). Se modelan dos, con la entrada por detrás (sur) y la salida a la izquierda
+# (oeste, «left») o a la derecha (este, «right»); Godot las gira para los demás casos. Se construyen las
+# piezas rectas con cortes a lo largo y luego se doblan: el eje de la cinta pasa a ser un arco de radio
+# 0,5 alrededor de la esquina de la casilla, y lo que estaba a la derecha queda por fuera.
+CORNER_SEGMENTS = 6     # cortes del cuarto de vuelta (15° cada uno: por debajo de los 30° del suavizado)
+
+
+def seg_prism(profile, y0, y1, n):
+    # Perfil (X, Z) extruido a lo largo de Y con n tramos (para poder doblarlo).
+    bm = bmesh.new()
+    rings = []
+    for k in range(n + 1):
+        y = y0 + (y1 - y0) * k / n
+        rings.append([bm.verts.new((x, y, z)) for x, z in profile])
+    bm.faces.new(rings[0])
+    bm.faces.new(list(reversed(rings[-1])))
+    for k in range(n):
+        a, b = rings[k], rings[k + 1]
+        for i in range(len(profile)):
+            j = (i + 1) % len(profile)
+            bm.faces.new((a[i], a[j], b[j], b[i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return bm
+
+
+def rect_profile(cx, cz, w, h):
+    return [(cx - w / 2, cz - h / 2), (cx + w / 2, cz - h / 2), (cx + w / 2, cz + h / 2), (cx - w / 2, cz + h / 2)]
+
+
+def bevel_sharp(bm, offset):
+    # Bisel solo en las aristas vivas (no en los cortes planos que se añaden para doblar).
+    edges = [e for e in bm.edges if len(e.link_faces) == 2 and e.calc_face_angle(0.0) > math.radians(10)]
+    bmesh.ops.bevel(bm, geom=edges, offset=offset, segments=1, affect="EDGES", profile=0.5, clamp_overlap=True)
+    return bm
+
+
+def bend(bm, turn):
+    # Dobla la cinta recta (de y = −0,5 a 0,5) un cuarto de vuelta: turn = 1 gira a la izquierda (sale
+    # por el oeste), −1 a la derecha (sale por el este). La entrada sigue en el borde sur.
+    for v in bm.verts:
+        x, y, z = v.co
+        angle = (y + 0.5) * math.pi / 2
+        if turn > 0:
+            r = 0.5 + x
+            v.co = Vector((-0.5 + r * math.cos(angle), -0.5 + r * math.sin(angle), z))
+        else:
+            r = 0.5 - x
+            v.co = Vector((0.5 - r * math.cos(angle), -0.5 + r * math.sin(angle), z))
+    bm.normal_update()
+    return bm
+
+
+def add_band_uv(bm):
+    # UV de la banda ANTES de doblarla: u a lo ancho, v a lo largo (por casilla, como la recta, para que
+    # la banda vaya al paso de los ítems).
+    uv = bm.loops.layers.uv.new("UVMap")
+    for f in bm.faces:
+        for loop in f.loops:
+            co = loop.vert.co
+            loop[uv].uv = Vector(((co.x + BAND_HALF) / (2 * BAND_HALF), (co.y + 0.5) * TEX_PER_M))
+    return bm
+
+
+def band_strip_segments(y0, y1, n):
+    bm = bmesh.new()
+    rows = [[bm.verts.new((-BAND_HALF, y0 + (y1 - y0) * k / n, BAND_TOP)),
+             bm.verts.new((BAND_HALF, y0 + (y1 - y0) * k / n, BAND_TOP))] for k in range(n + 1)]
+    for k in range(n):
+        bm.faces.new((rows[k][0], rows[k][1], rows[k + 1][1], rows[k + 1][0]))
+    bm.normal_update()
+    for face in bm.faces:
+        if face.normal.z < 0.0:
+            face.normal_flip()
+    return bm
+
+
+def build_corner(root, pal, band, turn, wall_profiles):
+    # Curva completa: cuerpo (paredes, largueros, remaches, fondo y traviesa en una malla), banda (de la
+    # entrada hasta donde empieza el extremo de salida) y, en la salida, la vuelta de banda o el tramo de
+    # unión. La entrada siempre está conectada (por eso es una L), así que no tiene vuelta de banda.
+    name = "belt_corner_" + ("left" if turn > 0 else "right")
+    n = CORNER_SEGMENTS
+    bx, bz = SHELL_BOTTOM
+    floor_z = BAND_TOP - BAND_THICK
+    xo = WALL_TOP_X + LIP
+    parts = []
+    for sx, wall in wall_profiles:
+        parts.append(make("tmp_corner_wall", bend(bevel_sharp(seg_prism(wall, -0.5, 0.5, n), 0.008), turn), root, pal, FRAME))
+        # Larguero sin bisel y sin remaches: en la curva apenas se ven y ahorran ~300 triángulos.
+        rail = seg_prism(rect_profile(sx * (xo + 0.012), 0.175, 0.03, 0.055), -0.5, 0.5, n)
+        parts.append(make("tmp_corner_rail", bend(rail, turn), root, pal, ACCENT))
+    floor = seg_prism(rect_profile(0.0, (floor_z + bz) / 2, 2 * BAND_HALF, floor_z - bz), -0.5, 0.5 - 2 * ROLLER_R, n)
+    parts.append(make("tmp_corner_floor", bend(floor, turn), root, pal, FRAME))
+    # Una traviesa en el centro de la curva, con sus pies.
+    sleeper = seg_prism(rect_profile(0.0, (bz + 0.02) / 2, 2 * xo + 0.1, bz + 0.02), -0.05, 0.05, 1)
+    parts.append(make("tmp_corner_sleeper", bend(bevel_sharp(sleeper, 0.008), turn), root, pal, FOOT))
+    for sx in (-1, 1):
+        parts.append(make("tmp_corner_foot", bend(hex_rivet((sx * (xo + 0.035), 0.0, (bz + 0.02) + 0.012), (0, 0, 1), 0.03, 0.025), turn),
+                          root, pal, RIVET))
+    body = join_parts(name, parts, root, pal)
+    edge = 0.5 - ROLLER_R
+    pieces = [body,
+              make(name + "_band", bend(add_band_uv(band_strip_segments(-0.5, edge, n)), turn), root, band, uv_mode="keep"),
+              make(name + "_join", bend(add_band_uv(band_strip(edge, 0.5)), turn), root, band, uv_mode="keep"),
+              make(name + "_end", bend(roller_band(True), turn), root, band, uv_mode="keep")]
+    # En Blender se esconden para que no tapen la cinta recta (Godot elige qué enseñar).
+    for piece in pieces:
+        piece.hide_set(True)
+    return pieces
+
+
+# --- Cruce (C2b): la cinta de una T o una X, como en Alchemy Factory ---
+# Estructura del cruce: centro con su base y, en cada lado, una boca abierta o una pared. Las piezas de los
+# lados se modelan solo para el lado NORTE (+Y); Godot las copia y las gira para los otros tres. La banda
+# del cruce NO está aquí: la crea Godot según el camino (dividida en zonas que avanzan cada una hacia su
+# lado, dibujo de César), con el mismo material «belt_band».
+def build_hub(root, pal, band, wall_profiles):
+    bx, bz = SHELL_BOTTOM
+    floor_z = BAND_TOP - BAND_THICK
+    xo = WALL_TOP_X + LIP
+    pieces = []
+    # Centro: fondo bajo la banda y una base con cuatro pies.
+    base = [make("tmp_hub_floor", box((2 * BAND_HALF, 2 * BAND_HALF, floor_z - bz), (0.0, 0.0, (floor_z + bz) / 2)), root, pal, FRAME),
+            make("tmp_hub_base", box((2 * xo - 0.08, 2 * xo - 0.08, bz + 0.02), (0.0, 0.0, (bz + 0.02) / 2)), root, pal, FOOT, 0.008)]
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            base.append(make("tmp_hub_foot", hex_rivet((sx * (xo - 0.06), sy * (xo - 0.06), (bz + 0.02) + 0.012), (0, 0, 1), 0.03, 0.025),
+                             root, pal, RIVET))
+    pieces.append(join_parts("belt_hub", base, root, pal))
+    # Boca abierta al norte: dos paredes (el perfil de la cinta) desde el borde del centro hasta el borde de
+    # la casilla, sus largueros donde se ven y el fondo bajo la banda.
+    arm = []
+    for sx, wall in wall_profiles:
+        arm.append(make("tmp_arm_wall", prism_x_profile(wall, BAND_HALF, 0.5), root, pal, FRAME, 0.008))
+        arm.append(make("tmp_arm_rail", box((0.03, 0.5 - xo, 0.055), (sx * (xo + 0.012), (xo + 0.5) / 2, 0.175)), root, pal, ACCENT, 0.006))
+    arm.append(make("tmp_arm_floor", box((2 * BAND_HALF, 0.5 - BAND_HALF, floor_z - bz), (0.0, (BAND_HALF + 0.5) / 2, (floor_z + bz) / 2)),
+                    root, pal, FRAME))
+    pieces.append(join_parts("belt_hub_arm_open", arm, root, pal))
+    # Lado cerrado al norte: pared a lo ancho, con su larguero por fuera.
+    profile = [(xo, WALL_TOP_Z), (WALL_TOP_X, WALL_TOP_Z), (BAND_HALF, floor_z), (BAND_HALF, bz), (bx, bz), (xo, OUTER_KNEE_Z)]
+    closed = [make("tmp_closed_wall", prism_y_profile(profile, -xo, xo), root, pal, FRAME, 0.008),
+              make("tmp_closed_rail", box((2 * xo, 0.03, 0.055), (0.0, xo + 0.012, 0.175)), root, pal, ACCENT, 0.006)]
+    pieces.append(join_parts("belt_hub_arm_closed", closed, root, pal))
+    for piece in pieces:
+        piece.hide_set(True)
+    return pieces
+
+
 def band_strip(y0, y1):
     # Banda recta: una sola cara hacia arriba (sin grosor, así no tiene cantos), de y0 a y1.
     bm = bmesh.new()
@@ -176,6 +375,14 @@ def make(name, bm, parent, material, color=None, bevel=0.0, uv_mode="palette"):
                     # u: a lo ancho (0–1); v: a lo largo, TEX_PER_M repeticiones por metro.
                     co = loop.vert.co
                     loop[uv].uv = Vector(((co.x + BAND_HALF) / (2 * BAND_HALF), (co.y + 0.5) * TEX_PER_M))
+                elif isinstance(uv_mode, tuple):
+                    # ("dir", dx, dy): banda que avanza hacia (dx, dy). u crece hacia la derecha del avance
+                    # y v hacia el avance, como en la banda principal (derecha = +X, avance = +Y).
+                    _, dx, dy = uv_mode
+                    co = loop.vert.co
+                    along = co.x * dx + co.y * dy
+                    across = co.x * dy - co.y * dx
+                    loop[uv].uv = Vector(((across + BAND_HALF) / (2 * BAND_HALF), (along + 0.5) * TEX_PER_M))
                 else:
                     loop[uv].uv = swatch_uv(*color)
     mesh = bpy.data.meshes.new(name)
@@ -210,12 +417,15 @@ def build():
     bx, bz = SHELL_BOTTOM
     floor_z = BAND_TOP - BAND_THICK
     xo = WALL_TOP_X + LIP   # cara exterior de la pared
-    # Paredes gruesas (perfil de medio hexágono por dentro, cara exterior vertical), de borde a borde.
+    wall_profiles = []      # (lado, perfil) de cada pared, para las curvas
+    # Paredes gruesas (perfil de medio hexágono por dentro, cara exterior vertical), de borde a borde. Una
+    # cinta recta nunca tiene uniones por los costados: si las tiene, Godot la dibuja como curva o cruce.
     for side, sx in (("east", 1), ("west", -1)):
         wall = [(sx * xo, WALL_TOP_Z), (sx * WALL_TOP_X, WALL_TOP_Z), (sx * BAND_HALF, floor_z),
                 (sx * BAND_HALF, bz), (sx * bx, bz), (sx * xo, OUTER_KNEE_Z)]
         if sx < 0:
             wall.reverse()
+        wall_profiles.append((sx, wall))
         make("wall_" + side, prism_x_profile(wall, -0.5, 0.5), root, pal, FRAME, 0.008)
         # Larguero naranja a lo largo de la cara exterior, con dos remaches hexagonales grandes.
         make("rail_" + side, box((0.03, 1.0, 0.055), (sx * (xo + 0.012), 0.0, 0.175)), root, pal, ACCENT, 0.006)
@@ -238,6 +448,11 @@ def build():
     make("belt_join_back", band_strip(-0.5, -edge), root, band, uv_mode="band")
     make("belt_end_front", roller_band(True), root, band, uv_mode="keep")
     make("belt_end_back", roller_band(False), root, band, uv_mode="keep")
+    # Curvas en L (C2b).
+    for turn in (1, -1):
+        build_corner(root, pal, band, turn, wall_profiles)
+    # Cruce (C2b).
+    build_hub(root, pal, band, wall_profiles)
 
     tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in root.children if o.type == "MESH")
     print("piezas:", len(root.children), "triángulos:", tris)

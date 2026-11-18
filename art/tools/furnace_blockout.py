@@ -20,6 +20,7 @@ import math
 import os
 import sys
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
 
 # Emblema de la colonia: pieza común en art/tools/crest.py (sin dejar __pycache__ en el proyecto).
 sys.dont_write_bytecode = True
@@ -191,6 +192,68 @@ def ring(sides: int, r_in: float, r_out: float, z0: float, z1: float, angle: flo
             bm.faces.new((a_ring[i], a_ring[j], b_ring[j], b_ring[i]))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     return bm
+
+
+def hoop_ring(r_in: float, r_out: float, z0: float, z1: float, angle: float) -> bmesh.types.BMesh:
+    # Fleje: aro fino sin bisel (guía §2), salvo en las seis esquinas de fuera, para seguir la silueta
+    # biselada de la cuba. Con el bisel en todas las aristas pasaba de 192 triángulos (sesión 18).
+    bm = ring(6, r_in, r_out, z0, z1, angle)
+    mid = (r_in + r_out) / 2
+    outer = [e for e in bm.edges
+             if all(math.hypot(v.co.x, v.co.y) > mid for v in e.verts)
+             and abs(e.verts[0].co.z - e.verts[1].co.z) > 1e-4]
+    bmesh.ops.bevel(bm, geom=outer, offset=0.008, segments=1, affect="EDGES", profile=0.5, clamp_overlap=True)
+    return bm
+
+
+def drop_hidden_bottoms(root) -> None:
+    # Quita las caras de abajo que se apoyan en otra pieza del horno o en el suelo: nunca se ven
+    # (presupuesto, guía §4). Una cara se quita si debajo de su centro y de sus esquinas hay algo a menos
+    # de 2 cm. No cuentan los puertos de referencia (no se exportan) ni las piezas del fuelle, que se
+    # mueven en Godot.
+    pivot = bpy.data.objects.get("bellows_pivot")
+    moving = {c.name for c in pivot.children_recursive} if pivot else set()
+    down = Vector((0.0, 0.0, -1.0))
+    # Un árbol de búsqueda por pieza, en coordenadas del mundo. Se busca en las demás piezas una a una:
+    # con un solo rayo por la escena, el rayo choca primero con la propia pieza o empieza dentro del apoyo.
+    trees = {}
+    for obj in root.children_recursive:
+        if obj.type == "MESH":
+            mw = obj.matrix_world
+            trees[obj.name] = BVHTree.FromPolygons([mw @ v.co for v in obj.data.vertices],
+                                                   [tuple(q.vertices) for q in obj.data.polygons])
+
+    def supported(point: Vector, own) -> bool:
+        if point.z <= 0.015:
+            return True
+        start = point - down * 0.003
+        return any(tree.ray_cast(start, down, 0.023)[0] is not None
+                   for name, tree in trees.items() if name != own.name)
+
+    removed = 0
+    for obj in root.children_recursive:
+        if obj.type != "MESH" or obj.name in moving:
+            continue
+        mw = obj.matrix_world
+        rot = mw.to_3x3()
+        z_min = min((mw @ v.co).z for v in obj.data.vertices)
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        doomed = []
+        for f in bm.faces:
+            center = mw @ f.calc_center_median()
+            if (rot @ f.normal).normalized().z > -0.95 or abs(center.z - z_min) > 0.005:
+                continue
+            points = [center] + [center.lerp(mw @ v.co, 0.9) for v in f.verts]
+            if all(supported(pt, obj) for pt in points):
+                doomed.append(f)
+        if doomed:
+            removed += sum(len(f.verts) - 2 for f in doomed)
+            bmesh.ops.delete(bm, geom=doomed, context="FACES")
+            bm.to_mesh(obj.data)
+            obj.data.update()
+        bm.free()
+    print("caras de abajo quitadas:", removed, "triángulos")
 
 
 def sloped_slab(x0, x1, y_half, y, z_start, z_end, thickness) -> bmesh.types.BMesh:
@@ -420,6 +483,7 @@ def build() -> None:
         finish("drive_bearing_bolt_%d" % int((x + 1) * 100), hex_rivet((x, -0.85, 1.04), (0, 0, 1), r=0.012, depth=0.012), (3, 1), root, mat, 0.0)
 
     add_details(root, mat, body_stone)
+    drop_hidden_bottoms(root)
 
     tris = 0
     for child in root.children_recursive:
@@ -463,7 +527,7 @@ def add_details(root, mat, body_stone) -> None:
     # Dos flejes de metal alrededor de la arcilla (radio en ese punto + 2 cm).
     for i, z in enumerate((1.5, 1.8)):
         r_here = 0.71 - 0.13 * (z - 1.4) / 0.55
-        finish("hoop_%d" % i, ring(6, r_here - 0.01, r_here + 0.025, z - 0.03, z + 0.03, HEX), METAL_DARK, root, mat, 0.008, 1)
+        finish("hoop_%d" % i, hoop_ring(r_here - 0.01, r_here + 0.025, z - 0.03, z + 0.03, HEX), METAL_DARK, root, mat, 0.0)
 
     # Remaches del motor (caja de 0,28 × 0,26 × 0,24 en (0,42, −0,74, 1,0)): cara sur y cara este.
     for dx in (-0.1, 0.1):

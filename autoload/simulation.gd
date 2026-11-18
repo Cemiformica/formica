@@ -68,9 +68,20 @@ func _step() -> void:
 					_step_extractor(placed)
 			elif placed.is_belt():
 				placed.advance_belt(TICK)
-		# 3) Por cada conexión, pasa como mucho un ítem por paso.
-		for link: Dictionary in island.get_links():
-			_transfer(link)
+		# 3) Conexiones, recorridas por destino: como mucho un ítem por conexión y paso. Una cinta con
+		#    varias entradas (T o X que junta, C2b) toma uno por paso, por turnos entre las que tienen algo.
+		#    Solo se recorren los destinos que tienen conexiones (no todas las construcciones).
+		for target: PlacedBuilding in island.get_link_targets():
+			var incoming: Array = target.links_in
+			if target.is_belt() and incoming.size() > 1:
+				for k: int in incoming.size():
+					var index: int = (target.in_turn + k) % incoming.size()
+					if _transfer(incoming[index]):
+						target.in_turn = (index + 1) % incoming.size()
+						break
+			else:
+				for link: Dictionary in incoming:
+					_transfer(link)
 	tick_count += 1
 
 
@@ -138,11 +149,24 @@ func _tree_wood() -> Dictionary[ItemData, int]:
 
 
 ## Pasa un ítem de una salida a la entrada conectada, si hay algo listo y el destino lo acepta.
-func _transfer(link: Dictionary) -> void:
+## Devuelve si lo pasó. Una cinta con varias salidas (L, T o X que divide, C2b, D-118) reparte por turnos:
+## el ítem espera a la salida a la que le toca, salvo que esa no pueda aceptarlo ahora (entonces vale
+## cualquier otra, para que una rama llena no pare la cinta).
+func _transfer(link: Dictionary) -> bool:
 	var from: PlacedBuilding = link["from"]
 	var to: PlacedBuilding = link["to"]
 	var item: ItemData = from.peek_output(link["out"])
-	if item != null and to.can_accept(item, link["in"]):
-		var start: float = from.belt_overflow if from.is_belt() else 0.0
-		from.take_output(item)
-		to.accept(item, start)
+	if item == null or not to.can_accept(item, link["in"]):
+		return false
+	if from.is_belt():
+		var outgoing: Array = from.links_out
+		if outgoing.size() > 1:
+			var preferred: Dictionary = outgoing[from.out_turn % outgoing.size()]
+			if preferred != link and (preferred["to"] as PlacedBuilding).can_accept(item, preferred["in"]):
+				return false
+			from.out_turn = (outgoing.find(link) + 1) % outgoing.size()
+	var start: float = from.belt_overflow if from.is_belt() else 0.0
+	from.take_output(item)
+	var in_port: PortData = link["in"]
+	to.accept(item, start, in_port.side)
+	return true

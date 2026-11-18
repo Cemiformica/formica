@@ -51,6 +51,15 @@ const PLACE_SOUND: AudioStream = preload("res://assets/audio/build_place.wav")
 const LINK_SOUND: AudioStream = preload("res://assets/audio/link_pneumatic.wav")
 const CABLE_SOUND: AudioStream = preload("res://assets/audio/link_electric.wav")
 const LINK_SOUND_DELAY: float = 0.3
+## Mover (C2b, César): sonidos propios para levantar y soltar (art/tools/make_sounds.py) y la construcción en
+## la mano con sus colores, levantada y balanceándose; teñida de rojo si ahí no cabe.
+const LIFT_SOUND: AudioStream = preload("res://assets/audio/move_lift.wav")
+const DROP_SOUND: AudioStream = preload("res://assets/audio/move_drop.wav")
+const CARRY_HEIGHT: float = 0.2
+const CARRY_BOB: float = 0.03
+## Construir cintas arrastrando (C2b, como en Alchemy Factory): tope de casillas por tramo.
+const DRAG_MAX_CELLS: int = 64
+enum DragCell { OK, EXISTING_BELT, BLOCKED, NO_MATERIALS }
 
 ## ¿Estamos en el modo construcción?
 var active: bool = false
@@ -96,6 +105,26 @@ var _ghost_model: Node3D = null
 var _ghost_body: Node3D = null
 var _ghost_ports: Array[Node3D] = []
 var _ghost_data: BuildingData = null
+## ¿Es el fantasma de algo que se mueve? (entonces lleva sus colores, no el material translúcido)
+var _ghost_carried: bool = false
+var _ghost_meshes: Array[MeshInstance3D] = []
+var _carry_blocked_material: StandardMaterial3D
+## Arrastrar cintas (C2b): pulsar empieza el tramo en `_drag_start`; soltar construye. El tramo sigue el
+## camino del ratón (César): cada casilla por la que pasa se añade y, si vuelve sobre el tramo, se recorta.
+## Un fantasma por casilla.
+var _drag_active: bool = false
+var _drag_start: Vector2i = Vector2i.ZERO
+var _drag_cells: Array[Vector2i] = []
+var _drag_rotations: Array[int] = []
+var _drag_states: Array[DragCell] = []
+## Fantasmas del tramo: vistas de cinta de verdad (sin colisión y translúcidas) sobre una isla de prueba
+## con el tramo y lo que lo rodea, para que cada una enseñe su forma real (recta, curva o cruce). Se
+## rehacen solo cuando cambia el tramo; las que no cambian de casilla ni de giro se reutilizan.
+var _drag_views: Dictionary[String, BuildingView] = {}
+var _drag_view_at: Array = []
+var _drag_preview_key: String = ""
+var _drag_ok_material: StandardMaterial3D
+var _drag_bad_material: StandardMaterial3D
 
 
 func _ready() -> void:
@@ -112,6 +141,9 @@ func _ready() -> void:
 	_ghost.material_override = _ghost_material
 	add_child(_ghost)
 	_area_material = _make_material(Color(1.0, 0.85, 0.2, 0.3), true)
+	_carry_blocked_material = _make_material(COLOR_BAD, true)
+	_drag_ok_material = _make_material(COLOR_OK, true)
+	_drag_bad_material = _make_material(COLOR_BAD, true)
 	_cable_ok_material = _make_material(COLOR_OK, false)
 	_cable_bad_material = _make_material(COLOR_BAD, false)
 	_cable_preview = MeshInstance3D.new()
@@ -164,6 +196,9 @@ func is_carrying() -> bool:
 
 ## Devuelve a su sitio lo que se está moviendo (al salir del modo, cambiar de casilla o guardar).
 func cancel_carry() -> void:
+	# Un tramo de cintas a medias también se cancela (al salir, cambiar de casilla, cuentagotas…).
+	if _drag_active:
+		_cancel_drag()
 	if _carried == null:
 		return
 	var island: IslandState = WorldState.get_island(island_id)
@@ -200,6 +235,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if not active:
 		return
+	# Arrastrando cintas: soltar construye; clic derecho o Esc cancelan.
+	if _drag_active:
+		if event.is_action_released("build_place"):
+			_finish_drag()
+		elif event.is_action_pressed("build_move") or event.is_action_pressed("ui_cancel"):
+			_cancel_drag()
+		return
 	# Clic derecho: levantar la construcción que miras para moverla, o devolverla si ya la llevas (C2.5).
 	if event.is_action_pressed("build_move") and Aim.pointer_ready():
 		if _carried != null:
@@ -230,11 +272,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("build_rotate"):
 		rotation_steps = (rotation_steps + 1) % 4
 	elif event.is_action_pressed("build_flip") and get_held() != null and get_held().output_turns:
-		output_turn = (output_turn + 1) % 3 # recta → derecha → izquierda → recta (César)
+		output_turn = (output_turn + 1) % BuildingData.TURN_COUNT # las 9 combinaciones de entrada y salida (C2b, César)
 	elif event.is_action_pressed("build_flip") and get_held() != null and get_held().can_flip():
 		flipped = not flipped
 	elif event.is_action_pressed("build_place") and Aim.pointer_ready():
-		_try_place()
+		var held: BuildingData = get_held()
+		if _carried == null and held != null and held.belt_speed > 0.0 and _has_target:
+			_start_drag()
+		else:
+			_try_place()
 
 
 func _process(_delta: float) -> void:
@@ -270,6 +316,15 @@ func _process(_delta: float) -> void:
 		var head_offset: Vector2i = PlacedBuilding.head_cell_for(building, Vector2i.ZERO, rotation_steps)
 		_target_origin = GridMath.world_to_cell(hit_pos) - head_offset
 	_has_target = true
+	if _drag_active:
+		_update_drag(building, hit_pos.y)
+		_ghost.visible = false
+		if _ghost_model != null:
+			_ghost_model.visible = false
+		for marker: MeshInstance3D in _port_markers:
+			marker.visible = false
+		visible = true
+		return
 
 	# Fantasma: el modelo si lo tiene; si no, una caja del tamaño de la huella girada. Verde o rojo.
 	if building.scene != null:
@@ -281,10 +336,14 @@ func _process(_delta: float) -> void:
 		_ghost.visible = true
 		_ghost_box.size = Vector3(s.x - 0.05, GHOST_HEIGHT, s.y - 0.05)
 		_ghost.global_position = GridMath.footprint_center(_target_origin, building.size, rotation_steps, hit_pos.y + GHOST_HEIGHT * 0.5)
-	if _can_place_here(building):
+	var can_place: bool = _can_place_here(building)
+	if can_place:
 		_ghost_material.albedo_color = COLOR_OK
 	else:
 		_ghost_material.albedo_color = COLOR_BAD
+	if _ghost_carried:
+		for mesh: MeshInstance3D in _ghost_meshes:
+			mesh.material_overlay = null if can_place else _carry_blocked_material
 	_update_port_markers(building, hit_pos.y)
 	_update_area_markers(building, hit_pos.y)
 	visible = true
@@ -398,7 +457,7 @@ func _lift_aimed() -> void:
 	rotation_steps = _carried_rotation
 	flipped = _carried_flipped
 	output_turn = _carried_turn
-	_play_sound(PLACE_SOUND, view.global_position)
+	_play_sound(LIFT_SOUND, view.global_position)
 	selection_changed.emit()
 
 
@@ -423,7 +482,7 @@ func _drop_carried() -> void:
 	_carried_cables.clear()
 	if lost > 0:
 		place_failed.emit("BUILD_CABLES_LOST")
-	_play_sound(PLACE_SOUND, BuildingView.cable_anchor(moving))
+	_play_sound(DROP_SOUND, BuildingView.cable_anchor(moving))
 	_play_link_sounds(island, moving)
 	selection_changed.emit()
 
@@ -511,10 +570,14 @@ func _aim_hit() -> Dictionary:
 
 ## Coloca el fantasma con forma de modelo en la huella apuntada, con el giro y el reflejo actuales.
 func _update_ghost_model(building: BuildingData, ground_y: float) -> void:
-	if _ghost_data != building:
-		_build_ghost_model(building)
+	var carrying: bool = _carried != null
+	if _ghost_data != building or _ghost_carried != carrying:
+		_build_ghost_model(building, carrying)
 	_ghost_model.visible = true
-	_ghost_model.global_position = GridMath.footprint_center(_target_origin, building.size, rotation_steps, ground_y)
+	var lift: float = 0.0
+	if carrying:
+		lift = CARRY_HEIGHT + sin(Time.get_ticks_msec() * 0.004) * CARRY_BOB
+	_ghost_model.global_position = GridMath.footprint_center(_target_origin, building.size, rotation_steps, ground_y + lift)
 	_ghost_body.rotation.y = GridMath.rotation_to_yaw(rotation_steps)
 	if flipped:
 		_ghost_body.scale.z = -1.0
@@ -525,13 +588,14 @@ func _update_ghost_model(building: BuildingData, ground_y: float) -> void:
 	for i: int in _ghost_ports.size():
 		var port: PortData = ghost_ports[i]
 		var cell: Vector2i = port.get_grid_cell(_target_origin, building.size, rotation_steps, flipped)
-		_ghost_ports[i].global_position = GridMath.cell_center(cell, ground_y)
+		_ghost_ports[i].global_position = GridMath.cell_center(cell, ground_y + lift)
 		_ghost_ports[i].rotation.y = GridMath.rotation_to_yaw(port.get_grid_side(rotation_steps, flipped))
 
 
 ## Crea el fantasma de una construcción: su modelo y sus puertos, todo con el material translúcido
-## del fantasma, sin sombra y sin la lengüeta de cinta.
-func _build_ghost_model(building: BuildingData) -> void:
+## del fantasma, sin sombra y sin la lengüeta de cinta. Si se está moviendo (`carried`, C2b), con sus
+## colores y su sombra.
+func _build_ghost_model(building: BuildingData, carried: bool = false) -> void:
 	if _ghost_model != null:
 		_ghost_model.queue_free()
 	_ghost_model = Node3D.new()
@@ -550,13 +614,20 @@ func _build_ghost_model(building: BuildingData) -> void:
 		var port_node := scene.instantiate() as Node3D
 		_ghost_model.add_child(port_node)
 		_ghost_ports.append(port_node)
+	_ghost_meshes.clear()
 	for node: Node in _ghost_model.find_children("*", "MeshInstance3D", true, false):
 		var mesh := node as MeshInstance3D
-		mesh.material_override = _ghost_material
-		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_ghost_meshes.append(mesh)
+		if not carried:
+			mesh.material_override = _ghost_material
+			mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		if mesh.name.begins_with("belt_tongue") or mesh.name.begins_with("belt_join"):
 			mesh.visible = false
+		# Cinta (C2b): en el fantasma, siempre recta (sin curvas ni cruce).
+		if mesh.name.begins_with("belt_corner") or mesh.name.begins_with("belt_hub"):
+			mesh.visible = false
 	_ghost_data = building
+	_ghost_carried = carried
 
 
 ## Un cubito por puerto en la casilla a la que apunta (sale de los datos: así se ve si R y F van bien).
@@ -644,6 +715,204 @@ func _play_link_sounds(island: IslandState, placed_building: PlacedBuilding) -> 
 		var cell: Vector2i = port.get_grid_cell(placed_building.origin, placed_building.data.size, placed_building.rotation, placed_building.flipped)
 		var at := GridMath.cell_center(cell, 0.3)
 		get_tree().create_timer(LINK_SOUND_DELAY).timeout.connect(_play_sound.bind(LINK_SOUND, at))
+
+
+# --- Construir cintas arrastrando (C2b) ---
+
+## ¿Se está arrastrando un tramo de cintas? Y cuántas se pondrían al soltar (para la ayuda de teclas).
+func is_dragging() -> bool:
+	return _drag_active
+
+
+func drag_count() -> int:
+	return _drag_states.count(DragCell.OK)
+
+
+func _start_drag() -> void:
+	_drag_active = true
+	_drag_start = _target_origin
+	_drag_cells = [_drag_start]
+	_drag_rotations = [rotation_steps]
+	_drag_states = []
+
+
+func _cancel_drag() -> void:
+	_drag_active = false
+	for view: BuildingView in _drag_views.values():
+		view.queue_free()
+	_drag_views.clear()
+	_drag_view_at.clear()
+	_drag_preview_key = ""
+
+
+## Sigue al ratón (C2b, César): si `to` es una casilla nueva, añade el camino hasta ella (con pasos rectos si
+## el ratón ha saltado varias casillas de golpe); si es una del tramo, lo recorta hasta ahí. Cada cinta mira
+## hacia la siguiente; la última, en la dirección del último paso. Sin moverse, una sola cinta con el giro
+## elegido con R.
+func _drag_path(to: Vector2i) -> void:
+	if _drag_cells.is_empty():
+		_drag_cells.append(_drag_start)
+	var last: Vector2i = _drag_cells[_drag_cells.size() - 1]
+	while last != to and _drag_cells.size() < DRAG_MAX_CELLS:
+		var delta: Vector2i = to - last
+		var step: Vector2i = Vector2i(signi(delta.x), 0) if absi(delta.x) >= absi(delta.y) else Vector2i(0, signi(delta.y))
+		var next: Vector2i = last + step
+		var index: int = _drag_cells.find(next)
+		if index >= 0:
+			_drag_cells.resize(index + 1) # vuelve sobre el tramo: se recorta
+		else:
+			_drag_cells.append(next)
+		last = next
+	_drag_rotations.clear()
+	if _drag_cells.size() == 1:
+		_drag_rotations.append(rotation_steps)
+		return
+	for i: int in _drag_cells.size():
+		var step: Vector2i
+		if i + 1 < _drag_cells.size():
+			step = _drag_cells[i + 1] - _drag_cells[i]
+		else:
+			step = _drag_cells[i] - _drag_cells[i - 1]
+		_drag_rotations.append(_rotation_for_step(step))
+
+
+## Giro de la cuadrícula para mirar hacia `step`: norte 0, este 1, sur 2, oeste 3.
+static func _rotation_for_step(step: Vector2i) -> int:
+	if step.y < 0:
+		return 0
+	if step.x > 0:
+		return 1
+	if step.y > 0:
+		return 2
+	return 3
+
+
+## Rehace el tramo y sus fantasmas: verde si se puede poner; rojo si está ocupado o ya no llegan los
+## materiales; sin fantasma si ahí ya hay una cinta (se respeta y la nueva se empalma con ella).
+func _update_drag(building: BuildingData, ground_y: float) -> void:
+	_drag_path(_target_origin)
+	var island: IslandState = WorldState.get_island(island_id)
+	var inventory: Inventory = WorldState.player_inventory
+	var affordable: int = DRAG_MAX_CELLS
+	for item: ItemData in building.cost:
+		affordable = mini(affordable, floori(float(inventory.get_total(item)) / building.cost[item]))
+	_drag_states.clear()
+	var used: int = 0
+	for i: int in _drag_cells.size():
+		var cell: Vector2i = _drag_cells[i]
+		var existing: PlacedBuilding = island.get_at(cell)
+		var state: DragCell = DragCell.OK
+		if existing != null and existing.is_belt():
+			state = DragCell.EXISTING_BELT
+		elif not island.can_place(building, cell, _drag_rotations[i]):
+			state = DragCell.BLOCKED
+		elif used >= affordable:
+			state = DragCell.NO_MATERIALS
+		else:
+			used += 1
+		_drag_states.append(state)
+	var key: String = "%s|%s|%s" % [str(_drag_cells), str(_drag_rotations), str(_drag_states)]
+	if key != _drag_preview_key:
+		_drag_preview_key = key
+		_rebuild_drag_preview(building, island)
+	for i: int in _drag_view_at.size():
+		var view: BuildingView = _drag_view_at[i]
+		if view == null:
+			continue
+		# En coordenadas del mundo y sin heredar giro: este nodo es `top_level`, pero conserva el sitio y el giro
+		# que tenía el jugador al empezar, y la vista se coloca relativa a su padre.
+		view.global_transform = Transform3D(Basis.IDENTITY, GridMath.cell_center(_drag_cells[i], ground_y))
+		var material: StandardMaterial3D = _drag_ok_material if _drag_states[i] == DragCell.OK else _drag_bad_material
+		for node: Node in view.find_children("*", "MeshInstance3D", true, false):
+			(node as MeshInstance3D).material_override = material
+
+
+## Isla de prueba con lo que rodea el tramo y las cintas que se pondrían (también las rojas por falta de
+## materiales, para que la forma sea la que tendrá), y una vista por cinta que calcula su forma con ella.
+func _rebuild_drag_preview(building: BuildingData, island: IslandState) -> void:
+	var preview := IslandState.new()
+	var planned: Dictionary[Vector2i, bool] = {}
+	for i: int in _drag_cells.size():
+		if _drag_states[i] == DragCell.OK or _drag_states[i] == DragCell.NO_MATERIALS:
+			planned[_drag_cells[i]] = true
+	var copied: Dictionary[int, bool] = {}
+	for cell: Vector2i in _drag_cells:
+		for offset: Vector2i in [Vector2i.ZERO, Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]:
+			var neighbor: PlacedBuilding = island.get_at(cell + offset)
+			if neighbor != null and not copied.has(neighbor.id):
+				copied[neighbor.id] = true
+				preview.add_for_preview(neighbor.data, neighbor.origin, neighbor.rotation, neighbor.flipped, neighbor.output_turn)
+	var preview_belts: Array = []
+	preview_belts.resize(_drag_cells.size())
+	for i: int in _drag_cells.size():
+		if planned.has(_drag_cells[i]):
+			preview_belts[i] = preview.add_for_preview(building, _drag_cells[i], _drag_rotations[i])
+	preview.get_links()
+	var views: Dictionary[String, BuildingView] = {}
+	_drag_view_at.clear()
+	_drag_view_at.resize(_drag_cells.size())
+	for i: int in _drag_cells.size():
+		if preview_belts[i] == null:
+			continue
+		var view_key: String = "%d,%d,%d" % [_drag_cells[i].x, _drag_cells[i].y, _drag_rotations[i]]
+		var view: BuildingView = _drag_views.get(view_key)
+		if view == null:
+			view = BuildingView.new()
+			view.setup(preview_belts[i], preview)
+			view.collision_layer = 0
+			view.collision_mask = 0
+			add_child(view)
+			for node: Node in view.find_children("*", "MeshInstance3D", true, false):
+				(node as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		else:
+			_drag_views.erase(view_key)
+			view.placed = preview_belts[i]
+			view.island = preview
+		view.set_linked_ports([])
+		views[view_key] = view
+		_drag_view_at[i] = view
+	for old: BuildingView in _drag_views.values():
+		old.queue_free()
+	_drag_views = views
+
+
+## Soltar: pone las cintas verdes del tramo (cobrando cada una) y suena una vez. Un clic sin arrastrar
+## pone una sola, como siempre.
+func _finish_drag() -> void:
+	_cancel_drag()
+	if _drag_cells.size() <= 1 or _drag_states.size() != _drag_cells.size():
+		_try_place()
+		return
+	var building: BuildingData = get_held()
+	if building == null:
+		return
+	var island: IslandState = WorldState.get_island(island_id)
+	var inventory: Inventory = WorldState.player_inventory
+	var built: Array[PlacedBuilding] = []
+	var short_of_materials: bool = false
+	for i: int in _drag_cells.size():
+		if _drag_states[i] == DragCell.NO_MATERIALS:
+			short_of_materials = true
+		if _drag_states[i] != DragCell.OK:
+			continue
+		if not inventory.has_items(building.cost):
+			short_of_materials = true
+			break
+		var result: PlacedBuilding = island.place(building, _drag_cells[i], _drag_rotations[i])
+		if result == null:
+			continue
+		for item: ItemData in building.cost:
+			inventory.remove_item(item, building.cost[item])
+		built.append(result)
+		placed.emit(result)
+	if short_of_materials:
+		place_failed.emit("BUILD_NO_MATERIALS")
+	if built.is_empty():
+		return
+	_play_sound(PLACE_SOUND, BuildingView.cable_anchor(built[floori(built.size() * 0.5)]))
+	_play_link_sounds(island, built[0])
+	if built.size() > 1:
+		_play_link_sounds(island, built[built.size() - 1])
 
 
 ## Sonido de una sola vez en un punto del mundo, con un poco de variación de tono para que no canse.

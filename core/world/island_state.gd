@@ -25,7 +25,11 @@ var buildings: Dictionary[int, PlacedBuilding] = {}
 ## {"from": PlacedBuilding, "out": PortData, "to": PlacedBuilding, "in": PortData}.
 ## Se recalculan solo cuando algo cambia (colocar, quitar, cargar), no en cada paso.
 var _links: Array[Dictionary] = []
+## Construcciones a las que entra alguna conexión, en orden (las recorre `Simulation`, C2b).
+## Cada construcción guarda además sus conexiones en `links_out` y `links_in`.
+var _link_targets: Array[PlacedBuilding] = []
 var _links_dirty: bool = true
+var _dropping: bool = false
 ## Madera que dan los árboles (B2.7, D-057); la semilla depende de la especie (NatureState.SEED_ITEMS).
 const TREE_WOOD: int = 4
 const STUMP_WOOD: int = 1
@@ -117,6 +121,17 @@ func place(data: BuildingData, origin: Vector2i, rotation: int = 0, flipped: boo
 	return placed
 
 
+## Solo para vistas previas (C2b: el fantasma de un tramo de cintas, en una isla de prueba que no se ve):
+## pone una construcción SIN comprobar si cabe ni buscar su veta, y sin avisar a ninguna vista.
+func add_for_preview(data: BuildingData, origin: Vector2i, rotation: int = 0, flipped: bool = false, turn: int = 0) -> PlacedBuilding:
+	var placed := PlacedBuilding.new(_next_id, data, origin, rotation, flipped, turn)
+	grid.place(_next_id, origin, data.size, rotation)
+	buildings[_next_id] = placed
+	_next_id += 1
+	_links_dirty = true
+	return placed
+
+
 ## Vuelve a poner una construcción que se había quitado para moverla (C2.5), la MISMA, con su id y todo lo
 ## que lleva dentro, en otro sitio y con otro giro. Devuelve false si ahí no cabe (y no la pone).
 func drop(placed: PlacedBuilding, origin: Vector2i, rotation: int = 0, flipped: bool = false, turn: int = 0) -> bool:
@@ -128,15 +143,24 @@ func drop(placed: PlacedBuilding, origin: Vector2i, rotation: int = 0, flipped: 
 	placed.rotation = posmod(rotation, 4)
 	placed.flipped = flipped and placed.data.can_flip()
 	if placed.data.output_turns:
-		placed.output_turn = posmod(turn, 3)
+		placed.output_turn = posmod(turn, BuildingData.TURN_COUNT)
 	placed.moved()
 	if placed.is_extractor():
 		placed.set_vein_item(vein_at(PlacedBuilding.head_cell_for(placed.data, origin, rotation)).item)
 	buildings[placed.id] = placed
 	_links_dirty = true
 	_networks_dirty = true
+	# La vista distingue soltar de construir (C2b): al soltar no hay efecto de construir.
+	_dropping = true
 	building_placed.emit(placed)
+	_dropping = false
 	return true
+
+
+## ¿Se está avisando de una construcción que se SUELTA tras moverla (no de una nueva)? Solo es true
+## mientras se emite `building_placed` desde `drop()`.
+func is_dropping() -> bool:
+	return _dropping
 
 
 ## Cables de una construcción (pares de ids), p. ej. para recuperarlos después de moverla.
@@ -305,27 +329,117 @@ func get_links() -> Array[Dictionary]:
 	return _links
 
 
+## Lista vacía compartida (solo lectura) para un id que no existe.
+const _NO_LINKS: Array = []
+
+
+## Conexiones que salen de la construcción `id` (vacío si ninguna). No modificar la lista devuelta.
+func get_links_from(id: int) -> Array:
+	if _links_dirty:
+		_rebuild_links()
+	var placed: PlacedBuilding = buildings.get(id)
+	return placed.links_out if placed != null else _NO_LINKS
+
+
+## Conexiones que entran en la construcción `id` (vacío si ninguna). No modificar la lista devuelta.
+func get_links_into(id: int) -> Array:
+	if _links_dirty:
+		_rebuild_links()
+	var placed: PlacedBuilding = buildings.get(id)
+	return placed.links_in if placed != null else _NO_LINKS
+
+
+## Construcciones a las que entra alguna conexión. Lo recorre `Simulation` en cada paso. No modificar.
+func get_link_targets() -> Array[PlacedBuilding]:
+	if _links_dirty:
+		_rebuild_links()
+	return _link_targets
+
+
 ## Una salida conecta con una entrada si están frente a frente: la salida apunta a la casilla de la
 ## entrada y la entrada apunta a la casilla de la salida. Vale para máquina, cinta y máquina pegada.
+## Cintas en L, T y X (C2b, D-118): los costados de una cinta son puertos flexibles que se conectan con
+## un puerto FIJO de enfrente (salida fija → costado como entrada; costado como salida → entrada fija).
+## Un costado nunca se conecta con otro costado: las cintas paralelas no se mezclan.
 func _rebuild_links() -> void:
 	_links.clear()
+	_link_targets.clear()
+	for placed: PlacedBuilding in buildings.values():
+		placed.links_out = []
+		placed.links_in = []
 	for from: PlacedBuilding in buildings.values():
 		for out_port: PortData in from.get_ports():
-			if out_port.kind != PortData.Kind.OUTPUT:
-				continue
-			var out_cell: Vector2i = out_port.get_grid_cell(from.origin, from.data.size, from.rotation, from.flipped)
-			var target_cell: Vector2i = out_port.get_target_cell(from.origin, from.data.size, from.rotation, from.flipped)
-			var to: PlacedBuilding = get_at(target_cell)
-			if to == null or to == from:
-				continue
-			for in_port: PortData in to.get_ports():
-				if in_port.kind != PortData.Kind.INPUT:
-					continue
-				if in_port.get_grid_cell(to.origin, to.data.size, to.rotation, to.flipped) == target_cell \
-						and in_port.get_target_cell(to.origin, to.data.size, to.rotation, to.flipped) == out_cell:
-					_links.append({"from": from, "out": out_port, "to": to, "in": in_port})
-					break
+			if out_port.kind == PortData.Kind.OUTPUT:
+				_try_link(from, out_port, true)
+		for out_port: PortData in from.get_flexible_ports():
+			if out_port.kind == PortData.Kind.OUTPUT:
+				_try_link(from, out_port, false)
+	_link_back_to_back()
 	_links_dirty = false
+
+
+## Traseras enfrentadas (C2b, como en Alchemy Factory: da igual hacia dónde mire la cinta de un cruce).
+## Si una cinta recibe algo y su trasera da a la trasera de otra cinta que no recibe nada, le pasa los
+## ítems por ahí. Si las dos reciben, o ninguna, no se unen.
+func _link_back_to_back() -> void:
+	for from: PlacedBuilding in buildings.values():
+		if not from.is_belt() or from.links_in.is_empty() or _belt_back_used(from):
+			continue
+		var to: PlacedBuilding = get_at(_belt_back_cell(from))
+		if to == null or to == from or not to.is_belt() or not to.links_in.is_empty() or _belt_back_used(to):
+			continue
+		if _belt_back_cell(to) != from.origin:
+			continue
+		for in_port: PortData in to.get_ports():
+			if in_port.kind == PortData.Kind.INPUT:
+				_add_link(from, PlacedBuilding.belt_back_output_port(), to, in_port)
+				break
+
+
+## Casilla que queda detrás de una cinta (las cintas son de 1×1).
+func _belt_back_cell(belt: PlacedBuilding) -> Vector2i:
+	return belt.origin + PortData.side_offset(PortData.transform_side(PortData.PortSide.SOUTH, belt.rotation, false))
+
+
+## ¿Tiene ya la cinta alguna conexión por su trasera?
+func _belt_back_used(belt: PlacedBuilding) -> bool:
+	for link: Dictionary in belt.links_in:
+		if (link["in"] as PortData).side == PortData.PortSide.SOUTH:
+			return true
+	for link: Dictionary in belt.links_out:
+		if (link["out"] as PortData).side == PortData.PortSide.SOUTH:
+			return true
+	return false
+
+
+## Busca enfrente de `out_port` una entrada que lo mire. Si la salida es fija, también vale un costado
+## de cinta (`allow_flexible`); si la salida es un costado, solo una entrada fija.
+func _try_link(from: PlacedBuilding, out_port: PortData, allow_flexible: bool) -> void:
+	var out_cell: Vector2i = out_port.get_grid_cell(from.origin, from.data.size, from.rotation, from.flipped)
+	var target_cell: Vector2i = out_port.get_target_cell(from.origin, from.data.size, from.rotation, from.flipped)
+	var to: PlacedBuilding = get_at(target_cell)
+	if to == null or to == from:
+		return
+	var candidates: Array[PortData] = []
+	candidates.append_array(to.get_ports())
+	if allow_flexible:
+		candidates.append_array(to.get_flexible_ports())
+	for in_port: PortData in candidates:
+		if in_port.kind != PortData.Kind.INPUT:
+			continue
+		if in_port.get_grid_cell(to.origin, to.data.size, to.rotation, to.flipped) == target_cell \
+				and in_port.get_target_cell(to.origin, to.data.size, to.rotation, to.flipped) == out_cell:
+			_add_link(from, out_port, to, in_port)
+			return
+
+
+func _add_link(from: PlacedBuilding, out_port: PortData, to: PlacedBuilding, in_port: PortData) -> void:
+	var link: Dictionary = {"from": from, "out": out_port, "to": to, "in": in_port}
+	_links.append(link)
+	from.links_out.append(link)
+	if to.links_in.is_empty():
+		_link_targets.append(to)
+	to.links_in.append(link)
 
 
 # --- Energía (B2.6a, D-068) ---

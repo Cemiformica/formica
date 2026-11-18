@@ -19,7 +19,8 @@ PALETTE = os.path.join(PROJECT, "assets", "textures", "palette.png")
 SURFACE = os.path.join(PROJECT, "assets", "textures", "palette_surface.png")
 ## Piezas que Godot enseña solo en algunos casos y que no salen en el icono: los tramos de unión de la cinta
 ## (se ve la vuelta de banda) y los túneles girados de la caja logística (se ve el recto).
-HIDDEN = ("belt_join_", "tunnel_left", "tunnel_right")
+HIDDEN = ("belt_join_", "tunnel_left", "tunnel_right", "tunnel_v", "belt_side_east_open", "belt_side_west_open",
+          "belt_side_east_band", "belt_side_west_band", "belt_corner", "belt_hub")  # cinta: recta y costados cerrados (C2b)
 BUILDINGS = ["workbench", "water_wheel", "solar_panel", "power_pole", "conveyor", "tree_cutter",
         "charcoal_kiln", "furnace", "extractor", "storage_chest", "logistic_box"]
 

@@ -125,8 +125,32 @@ var _belt_join_back: Node3D = null
 var _belt_join_front: Node3D = null
 var _belt_in_port: int = -1
 var _belt_out_port: int = -1
-## ¿Está conectada la salida de la cinta? (el ítem de delante puede asomar por ella al dibujarlo)
+## ¿Tiene la cinta alguna salida conectada? (el ítem de delante puede asomar por ella al dibujarlo)
 var _belt_out_linked: bool = false
+## Solo cintas (C2b, D-118): dirección en el mundo de cada lado SIN girar (índice = `PortData.PortSide`).
+var _belt_side_dirs: Array[Vector3] = []
+## Solo cintas con modelo. Forma (como en Alchemy Factory): recta, curva en L o cruce (T o X).
+## Cuerpo recto; curvas «left» y «right» ({"body", "band", "join", "end"}); cruce: centro, triángulo y,
+## por cada lado sin girar, sus piezas ({"open", "in", "out", "closed"}, giradas hacia ese lado).
+enum BeltShape { STRAIGHT, CORNER, HUB }
+var _belt_shape: BeltShape = BeltShape.STRAIGHT
+var _belt_body: Node3D = null
+var _belt_corners: Dictionary[String, Dictionary] = {}
+var _belt_hub: Node3D = null
+var _belt_hub_arms: Dictionary[int, Dictionary] = {}
+## Banda del cruce, creada por código según el camino (dibujo de César): una malla por combinación de
+## lados, compartida por todos los cruces iguales.
+var _belt_hub_band: MeshInstance3D = null
+static var _hub_band_meshes: Dictionary[String, ArrayMesh] = {}
+static var _hub_seam_material: StandardMaterial3D = null
+const BELT_BAND_MATERIAL: StandardMaterial3D = preload("res://assets/materials/belt_band.tres")
+## Medidas de la banda (las de conveyor_blockout.py): media anchura, altura y repeticiones por metro.
+const HUB_BAND_HALF: float = 0.19
+const HUB_BAND_Y: float = 0.125
+const HUB_BAND_TEX_PER_M: float = 2.0
+## Si es una curva: lados sin girar por los que entra y sale.
+var _belt_corner_entry: int = -1
+var _belt_corner_exit: int = -1
 ## Solo con modelo: lengüeta de cada puerto (mismo orden que `placed.get_ports()`; null si no tiene) y aislante del borne.
 var _port_tongues: Array[Node3D] = []
 var _insulator: MeshInstance3D = null
@@ -190,6 +214,10 @@ var _lid_tween: Tween = null
 ## Piezas que rebotan al colocar y su escala original (B5.4).
 var _pop_nodes: Array[Node3D] = []
 var _pop_scales: Array[Vector3] = []
+var _pop_positions: Array[Vector3] = []
+## Soltar tras mover (C2b): cae desde la altura a la que se lleva (`BuildController.CARRY_HEIGHT`).
+const DROP_HEIGHT: float = 0.2
+const DROP_FALL_TIME: float = 0.12
 
 
 ## Altura de la construcción: la de `BuildingData.height` si la tiene (modelos reales); si no, la de la
@@ -222,16 +250,18 @@ static func cable_anchor(p_placed: PlacedBuilding) -> Vector3:
 	return center + Vector3(0.0, body_height(p_placed.data) - 0.1, 0.0)
 
 
-## Caja logística (D-093): el modelo trae tres versiones del túnel de salida; enseña solo la del lado
-## elegido (0 = recta, 1 = derecha, 2 = izquierda). En otros modelos no hace nada. La usa también el fantasma.
-const OUTPUT_TUNNELS: Array[String] = ["tunnel_straight", "tunnel_right", "tunnel_left"]
+## Caja logística (D-093; C2b): el modelo trae nueve versiones de la cámara, una por combinación de entrada
+## y salida (`BuildingData.ports_for`); enseña solo la elegida. En otros modelos no hace nada. La usa también
+## el fantasma.
+const OUTPUT_TUNNELS: Array[String] = ["tunnel_straight", "tunnel_right", "tunnel_left", "tunnel_v3", "tunnel_v4",
+		"tunnel_v5", "tunnel_v6", "tunnel_v7", "tunnel_v8"]
 
 
 static func show_output_tunnel(model: Node3D, turn: int) -> void:
 	for i: int in OUTPUT_TUNNELS.size():
 		var tunnel := model.find_child(OUTPUT_TUNNELS[i], true, false) as Node3D
 		if tunnel != null:
-			tunnel.visible = i == posmod(turn, 3)
+			tunnel.visible = i == posmod(turn, OUTPUT_TUNNELS.size())
 
 
 ## Posición de «cable_anchor» dentro del modelo (sin girar), o null. Instancia el modelo una sola vez.
@@ -350,6 +380,33 @@ func play_place_effect() -> void:
 	tween.tween_method(_set_grow, 0.0, 1.0, PLACE_GROW_TIME)
 	tween.tween_callback(_land)
 	tween.tween_method(_set_pop, 0.0, 1.0, PLACE_POP_TIME)
+
+
+## Efecto al SOLTAR una construcción que se movía (C2b): cae desde donde se llevaba, rebota y suelta polvo,
+## sin crecer (eso es de construir). Lo llama `IslandView`.
+func play_drop_effect() -> void:
+	_pop_nodes.clear()
+	_pop_scales.clear()
+	_pop_positions.clear()
+	for child: Node in get_children():
+		var visual := child as Node3D
+		if visual == null or visual is CollisionShape3D or visual is Label3D or visual is GPUParticles3D:
+			continue
+		_pop_nodes.append(visual)
+		_pop_scales.append(visual.scale)
+		_pop_positions.append(visual.position)
+	_set_fall(0.0)
+	var tween: Tween = create_tween()
+	tween.tween_method(_set_fall, 0.0, 1.0, DROP_FALL_TIME)
+	tween.tween_callback(_land)
+	tween.tween_method(_set_pop, 0.0, 1.0, PLACE_POP_TIME)
+
+
+## Caer: de DROP_HEIGHT al suelo, acelerando.
+func _set_fall(t: float) -> void:
+	for i: int in _pop_nodes.size():
+		if is_instance_valid(_pop_nodes[i]):
+			_pop_nodes[i].position = _pop_positions[i] + Vector3(0.0, DROP_HEIGHT * (1.0 - t * t), 0.0)
 
 
 ## Crecer: de PLACE_GROW_START a casi su tamaño, acelerando (como si cayera en su sitio).
@@ -500,11 +557,49 @@ func _setup_belt() -> void:
 		_belt_join_back = model.find_child("belt_join_back", true, false) as Node3D
 		_belt_join_front = model.find_child("belt_join_front", true, false) as Node3D
 		_show_belt_ends(false, false)
+		# Curvas en L y cruce (C2b): ocultos hasta que las conexiones digan qué forma tiene.
+		_belt_body = model.find_child("conveyor_body", true, false) as Node3D
+		for turn: String in ["left", "right"]:
+			var corner: Dictionary = {}
+			for key: String in ["body", "band", "join", "end"]:
+				var node_name: String = "belt_corner_" + turn + ("" if key == "body" else "_" + key)
+				corner[key] = model.find_child(node_name, true, false)
+				_set_piece_visible(corner[key], false)
+			_belt_corners[turn] = corner
+		_belt_hub = model.find_child("belt_hub", true, false) as Node3D
+		_set_piece_visible(_belt_hub, false)
+		_belt_hub_band = MeshInstance3D.new()
+		_belt_hub_band.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_belt_hub_band.visible = false
+		model.add_child(_belt_hub_band)
+		# Las piezas de un lado están modeladas para el norte: se copian y se giran para los otros tres.
+		var originals: Dictionary = {}
+		originals["open"] = model.find_child("belt_hub_arm_open", true, false)
+		originals["closed"] = model.find_child("belt_hub_arm_closed", true, false)
+		for side: int in 4:
+			var arm: Dictionary = {}
+			for key: String in originals:
+				var original: Node3D = originals[key] as Node3D
+				if original == null:
+					continue
+				var piece: Node3D = original
+				if side > 0:
+					piece = original.duplicate() as Node3D
+					original.get_parent().add_child(piece)
+				piece.rotation.y = GridMath.rotation_to_yaw(side)
+				piece.visible = false
+				arm[key] = piece
+			_belt_hub_arms[side] = arm
 	else:
 		_add_box(Vector3(0.9, BELT_HEIGHT, 0.9), Vector3(0.0, BELT_HEIGHT * 0.5, 0.0), BELT_COLOR)
 		# Flecha: un palo y una punta, sobre la losa.
 		_add_box(_arrow_size(0.08, 0.5), _belt_forward * -0.05 + Vector3(0.0, BELT_HEIGHT + 0.01, 0.0), ARROW_COLOR)
 		_add_box(_arrow_size(0.3, 0.08), _belt_forward * 0.22 + Vector3(0.0, BELT_HEIGHT + 0.01, 0.0), ARROW_COLOR)
+
+	for side: PortData.PortSide in [PortData.PortSide.NORTH, PortData.PortSide.EAST, PortData.PortSide.SOUTH,
+			PortData.PortSide.WEST]:
+		var offset: Vector2i = PortData.side_offset(PortData.transform_side(side, placed.rotation, false))
+		_belt_side_dirs.append(Vector3(offset.x, 0.0, offset.y))
 
 	for i: int in placed.data.belt_capacity:
 		var cube := MeshInstance3D.new()
@@ -538,9 +633,47 @@ func _update_belt_items() -> void:
 			cube.visible = false
 			continue
 		var item: ItemData = placed.belt_items[i]
-		cube.position = _belt_forward * (shown[i] - 0.5) + Vector3(0.0, BELT_HEIGHT + 0.125, 0.0)
+		# Cintas en L, T y X (C2b): la primera mitad viene del lado por el que entró y la segunda va hacia
+		# la salida, girando en el centro. Solo el de delante pasa de la mitad (los ítems van separados
+		# media casilla), así que solo él necesita saber por dónde saldrá.
+		var t: float = shown[i]
+		var offset: Vector3
+		if _belt_shape == BeltShape.CORNER:
+			offset = _corner_offset(t)
+		elif t <= 0.5:
+			var entry: int = placed.belt_entries[i] if i < placed.belt_entries.size() else PortData.PortSide.SOUTH
+			offset = _belt_side_dirs[entry] * (0.5 - t)
+		else:
+			offset = _belt_side_dirs[_belt_exit_side(item)] * (t - 0.5)
+		cube.position = offset + Vector3(0.0, BELT_HEIGHT + 0.125, 0.0)
 		cube.material_override = _material_for(item)
 		cube.visible = true
+
+
+## Curva en L: punto del arco (radio 0,5 alrededor de la esquina que comparten la entrada y la salida)
+## para el avance `t`; pasado el final, sigue recto hacia la salida.
+func _corner_offset(t: float) -> Vector3:
+	var entry: Vector3 = _belt_side_dirs[_belt_corner_entry]
+	var exit: Vector3 = _belt_side_dirs[_belt_corner_exit]
+	if t > 1.0:
+		return exit * (t - 0.5)
+	var center: Vector3 = (entry + exit) * 0.5
+	var angle: float = t * PI * 0.5
+	return center - exit * 0.5 * cos(angle) - entry * 0.5 * sin(angle)
+
+
+## Lado SIN girar por el que saldrá el ítem de delante: el de la salida a la que le toca, o, si esa no
+## puede aceptarlo, el de la primera que sí (como hace `Simulation`). Sin salidas, por delante.
+func _belt_exit_side(item: ItemData) -> int:
+	var outgoing: Array = island.get_links_from(placed.id)
+	if outgoing.is_empty():
+		return PortData.PortSide.NORTH
+	var count: int = outgoing.size()
+	for k: int in count:
+		var link: Dictionary = outgoing[(placed.out_turn + k) % count]
+		if count == 1 or (link["to"] as PlacedBuilding).can_accept(item, link["in"]):
+			return (link["out"] as PortData).side
+	return (outgoing[placed.out_turn % count]["out"] as PortData).side
 
 
 static func _material_for(item: ItemData) -> StandardMaterial3D:
@@ -851,12 +984,190 @@ func _add_port_models() -> void:
 ## En una cinta con modelo, decide en cada extremo si se ve la vuelta de banda o el tramo de unión.
 func set_linked_ports(linked: Array[int]) -> void:
 	if placed.is_belt():
-		_belt_out_linked = linked.has(_belt_out_port)
-		_show_belt_ends(linked.has(_belt_in_port), _belt_out_linked)
+		# Cintas (C2b): se mira en las conexiones de la isla qué hay en cada lado (los costados y la salida
+		# por la trasera no están en `get_ports()`).
+		var sides: Dictionary[int, int] = {}
+		for link: Dictionary in island.get_links_into(placed.id):
+			sides[(link["in"] as PortData).side] = PortData.Kind.INPUT
+		for link: Dictionary in island.get_links_from(placed.id):
+			sides[(link["out"] as PortData).side] = PortData.Kind.OUTPUT
+		_belt_out_linked = not island.get_links_from(placed.id).is_empty()
+		_update_belt_shape(sides)
 		return
 	for i: int in _port_tongues.size():
 		if _port_tongues[i] != null:
 			_port_tongues[i].visible = linked.has(i)
+
+
+## Forma de la cinta (C2b, como en Alchemy Factory). `sides`: lado sin girar → `PortData.Kind`.
+## - Recta: entra (si entra) por detrás y sale (si sale) por delante.
+## - Curva en L: una sola entrada y una sola salida que no están en línea (o una entrada de lado y la
+##   salida de delante libre).
+## - Cruce (T o X): todo lo demás. El triángulo apunta a la entrada si divide y a la salida si junta.
+func _update_belt_shape(sides: Dictionary[int, int]) -> void:
+	var inputs: Array[int] = []
+	var outputs: Array[int] = []
+	for side: int in sides:
+		if sides[side] == PortData.Kind.INPUT:
+			inputs.append(side)
+		else:
+			outputs.append(side)
+	var straight: bool = inputs.all(func(side: int) -> bool: return side == PortData.PortSide.SOUTH) \
+			and outputs.all(func(side: int) -> bool: return side == PortData.PortSide.NORTH)
+	_belt_shape = BeltShape.STRAIGHT if straight else BeltShape.HUB
+	if not straight and inputs.size() == 1 and outputs.size() <= 1:
+		var exit: int = outputs[0] if outputs.size() == 1 else PortData.PortSide.NORTH
+		if (inputs[0] + exit) % 2 == 1:
+			_belt_shape = BeltShape.CORNER
+			_belt_corner_entry = inputs[0]
+			_belt_corner_exit = exit
+	if _belt_body == null:
+		return # cinta sin modelo (pruebas): solo cambia el camino de los ítems
+
+	_set_piece_visible(_belt_body, _belt_shape == BeltShape.STRAIGHT)
+	if _belt_shape == BeltShape.STRAIGHT:
+		_show_belt_ends(sides.has(PortData.PortSide.SOUTH), sides.has(PortData.PortSide.NORTH))
+	else:
+		for piece: Node3D in [_belt_end_back, _belt_end_front, _belt_join_back, _belt_join_front]:
+			_set_piece_visible(piece, false)
+
+	# Curva: los modelos entran por detrás (sur) y salen al oeste («left») o al este («right»). Se giran
+	# para que la entrada quede en su lado.
+	var turn: String = ""
+	var quarter: int = 0
+	if _belt_shape == BeltShape.CORNER:
+		quarter = (_belt_corner_entry + 2) % 4
+		turn = "left" if (PortData.PortSide.WEST + quarter) % 4 == _belt_corner_exit else "right"
+	for key: String in _belt_corners:
+		var corner: Dictionary = _belt_corners[key]
+		var active: bool = key == turn
+		var exit_linked: bool = active and outputs.size() == 1
+		_set_piece_visible(corner["body"], active)
+		_set_piece_visible(corner["band"], active)
+		_set_piece_visible(corner["join"], active and exit_linked)
+		_set_piece_visible(corner["end"], active and not exit_linked)
+		if active:
+			for piece_key: String in corner:
+				if corner[piece_key] is Node3D:
+					(corner[piece_key] as Node3D).rotation.y = GridMath.rotation_to_yaw(quarter)
+
+	# Cruce: boca abierta donde hay unión, pared donde no, y la banda según el camino.
+	var hub: bool = _belt_shape == BeltShape.HUB
+	_set_piece_visible(_belt_hub, hub)
+	for side: int in _belt_hub_arms:
+		var arm: Dictionary = _belt_hub_arms[side]
+		var linked: bool = hub and sides.has(side)
+		_set_piece_visible(arm.get("open"), linked)
+		_set_piece_visible(arm.get("closed"), hub and not linked)
+	if _belt_hub_band != null:
+		_belt_hub_band.visible = hub
+		if hub:
+			_belt_hub_band.mesh = _hub_band_mesh(sides)
+
+
+## Banda del cruce (C2b, dibujos de César), en el espacio del modelo SIN girar (norte = −Z). Cada lado
+## abierto tiene su zona, que avanza hacia dentro si entra por ahí y hacia fuera si sale: su boca y el
+## triángulo del centro que va de ese lado al centro de la casilla. El triángulo de un lado cerrado se
+## parte por la mitad y cada mitad es de su vecino (así una T queda como el dibujo B). Líneas claras entre
+## zonas que van en distinta dirección. Usa el material de la banda («belt_band»), que `IslandView` hace
+## avanzar, con los UV como los de la cinta recta.
+static func _hub_band_mesh(sides: Dictionary[int, int]) -> ArrayMesh:
+	var key: String = ""
+	for side: int in 4:
+		key += "-" if not sides.has(side) else ("I" if sides[side] == PortData.Kind.INPUT else "O")
+	if _hub_band_meshes.has(key):
+		return _hub_band_meshes[key]
+	var normals: Array[Vector2] = [Vector2(0, -1), Vector2(1, 0), Vector2(0, 1), Vector2(-1, 0)]
+	var half: float = HUB_BAND_HALF
+	# Dirección de cada zona abierta (en el plano X, Z). Un lado cerrado sin vecinos abiertos toma la de
+	# la primera entrada (`fallback`).
+	var flow: Dictionary[int, Vector2] = {}
+	for side: int in sides:
+		flow[side] = normals[side] if sides[side] == PortData.Kind.OUTPUT else -normals[side]
+	var fallback: Vector2 = Vector2(0, -1)
+	for side: int in 4:
+		if sides.get(side, -1) == PortData.Kind.INPUT:
+			fallback = flow[side]
+			break
+	var band := SurfaceTool.new()
+	band.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var seams := SurfaceTool.new()
+	seams.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var has_seams: bool = false
+	for side: int in 4:
+		var n: Vector2 = normals[side]
+		var t: Vector2 = Vector2(-n.y, n.x) # hacia el lado siguiente (side + 1)
+		var c1: Vector2 = (n + t) * half    # esquina con el lado siguiente
+		var c2: Vector2 = (n - t) * half    # esquina con el lado anterior
+		var next_flow: Vector2 = flow.get((side + 1) % 4, fallback)
+		var prev_flow: Vector2 = flow.get((side + 3) % 4, fallback)
+		if flow.has(side):
+			_add_band_triangle(band, Vector2.ZERO, c1, c2, flow[side])
+			var o1: Vector2 = n * 0.5 + t * half
+			var o2: Vector2 = n * 0.5 - t * half
+			_add_band_triangle(band, c1, o1, o2, flow[side])
+			_add_band_triangle(band, c1, o2, c2, flow[side])
+		else:
+			var middle: Vector2 = n * half
+			_add_band_triangle(band, Vector2.ZERO, c1, middle, next_flow)
+			_add_band_triangle(band, Vector2.ZERO, middle, c2, prev_flow)
+			if not next_flow.is_equal_approx(prev_flow):
+				_add_seam(seams, Vector2.ZERO, middle)
+				has_seams = true
+		# Diagonal hacia la esquina con el lado siguiente: de un lado, este lado (o su mitad, que es del
+		# siguiente si este está cerrado); del otro, el siguiente (o su mitad, que es de este si está cerrado).
+		var here: Vector2 = flow[side] if flow.has(side) else next_flow
+		var next_side: int = (side + 1) % 4
+		var there: Vector2 = flow[next_side] if flow.has(next_side) else flow.get(side, fallback)
+		if not here.is_equal_approx(there):
+			_add_seam(seams, Vector2.ZERO, c1)
+			has_seams = true
+	var mesh: ArrayMesh = band.commit()
+	mesh.surface_set_material(0, BELT_BAND_MATERIAL)
+	if has_seams:
+		seams.commit(mesh)
+		if _hub_seam_material == null:
+			_hub_seam_material = StandardMaterial3D.new()
+			_hub_seam_material.albedo_color = Color8(0x7f, 0x80, 0x7d) # el nervio de la banda
+			_hub_seam_material.roughness = 0.9
+		mesh.surface_set_material(1, _hub_seam_material)
+	_hub_band_meshes[key] = mesh
+	return mesh
+
+
+## Línea clara de 12 mm entre dos zonas del cruce, de `from` a `to`, un pelo por encima de la banda.
+static func _add_seam(st: SurfaceTool, from: Vector2, to: Vector2) -> void:
+	var along: Vector2 = (to - from).normalized()
+	var across: Vector2 = Vector2(-along.y, along.x) * 0.006
+	var quad: Array[Vector2] = [from + across, to + across, to - across, from - across]
+	for tri: Array in [[0, 1, 2], [0, 2, 3]]:
+		for order: Array in [tri, [tri[0], tri[2], tri[1]]]:
+			for index: int in order:
+				st.set_normal(Vector3.UP)
+				st.add_vertex(Vector3(quad[index].x, HUB_BAND_Y + 0.002, quad[index].y))
+
+
+## Un triángulo de banda que avanza hacia `dir`, por las dos caras (así se ve sea cual sea el orden de
+## los vértices). Devuelve false si no tiene área.
+static func _add_band_triangle(st: SurfaceTool, a: Vector2, b: Vector2, c: Vector2, dir: Vector2) -> bool:
+	if absf((b - a).cross(c - a)) < 0.000001:
+		return false
+	var right: Vector2 = Vector2(-dir.y, dir.x)
+	for order: Array in [[a, b, c], [a, c, b]]:
+		for point: Vector2 in order:
+			# Como la cinta recta: u a lo ancho (hacia la derecha del avance) y v a lo largo; en Godot la v
+			# va al revés que en Blender (el glTF la invierte).
+			var u: float = point.dot(right) / (2.0 * HUB_BAND_HALF) + 0.5
+			var v: float = 1.0 - (point.dot(dir) + 0.5) * HUB_BAND_TEX_PER_M
+			st.set_normal(Vector3.UP)
+			st.set_uv(Vector2(u, v))
+			st.add_vertex(Vector3(point.x, HUB_BAND_Y, point.y))
+	return true
+
+
+static func _set_piece_visible(piece: Variant, value: bool) -> void:
+	if piece is Node3D:
+		(piece as Node3D).visible = value
 
 
 ## Extremo conectado → tramo recto de unión (la banda sigue en la cinta de al lado); libre → vuelta de banda.

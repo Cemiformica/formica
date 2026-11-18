@@ -58,6 +58,23 @@ func _ready() -> void:
 	_check("B saca por la derecha (este)", out_b.belt_items.size() == 1 and b.output.get_total(wood) == 0)
 	_check("C saca por la izquierda (oeste)", out_c.belt_items.size() == 1 and c.output.get_total(wood) == 0)
 
+	# 3b) Versiones nuevas (C2b): entrada por un costado de la casilla de atrás.
+	#     D (15, 0..1), combinación 3: entrada a la derecha (este) y salida recta. Cinta (16, 1) ← que entra.
+	#     G (20, 0..1), combinación 8: entrada y salida a la izquierda (oeste). Cinta (19, 1) → que entra y
+	#     cinta (19, 0) ← que sale.
+	var d: PlacedBuilding = island.place(box_data, Vector2i(15, 0), 0, false, 3)
+	var feed_d: PlacedBuilding = island.place(conveyor, Vector2i(16, 1), 3)
+	var out_d: PlacedBuilding = island.place(conveyor, Vector2i(15, -1), 0)
+	var g: PlacedBuilding = island.place(box_data, Vector2i(20, 0), 0, false, 8)
+	var feed_g: PlacedBuilding = island.place(conveyor, Vector2i(19, 1), 1)
+	var out_g: PlacedBuilding = island.place(conveyor, Vector2i(19, 0), 3)
+	feed_d.accept(wood)
+	feed_g.accept(wood)
+	Simulation.advance(6.0)
+	_check("entrada a la derecha: entra y sale recta", feed_d.belt_items.is_empty() and out_d.belt_items.size() == 1)
+	_check("entrada y salida a la izquierda", feed_g.belt_items.is_empty() and out_g.belt_items.size() == 1)
+	_check("cargada: combinación 8", d.output_turn == 3 and g.output_turn == 8)
+
 	# 4) Llena: no acepta más.
 	var in_port: PortData = box_data.ports[0]
 	a.output.add_item(stone, 99999)

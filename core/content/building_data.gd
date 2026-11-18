@@ -49,8 +49,10 @@ extends Resource
 ## Color del humo de sus «smoke_origin…» mientras trabaja (B3.7): casi negro el horno (carbón), blanco
 ## grisáceo la carbonera (vapor y madera, como en las carboneras reales). El humo se aclara al subir.
 @export var smoke_color: Color = Color(0.12, 0.11, 0.1)
-## Solo cajas logísticas (B3.7, D-093): F no refleja, sino que cambia el lado de la salida: recta →
-## derecha → izquierda → recta (César). La salida es el puerto de tipo salida de `ports`.
+## Solo cajas logísticas (B3.7, D-093; C2b): F no refleja, sino que recorre las 9 combinaciones de entrada
+## (detrás, derecha, izquierda) y salida (recta, derecha, izquierda), dibujo de César. `turn` = entrada × 3 +
+## salida; los tres primeros son los de antes (entrada detrás). La entrada y la salida son los puertos de tipo
+## entrada y salida de `ports` (sin girar: entrada al sur, salida al norte).
 @export var output_turns: bool = false
 ## Rueda hidráulica (D-094): casillas locales (sin girar) que tienen que ser AGUA QUE CORRE a lo largo
 ## del eje Y local (norte-sur sin girar). El resto de la huella, tierra. Vacío = no necesita agua.
@@ -69,24 +71,38 @@ var _turned_ports: Dictionary = {}
 @export var ports: Array[PortData] = []
 
 
-## Puertos con la salida girada `turn` (0 = recta, 1 = derecha, 2 = izquierda), en el mismo orden que
-## `ports`. Solo cambia algo si `output_turns`; los puertos girados se crean una vez y se guardan.
+## Puertos de la combinación `turn` (C2b): salida `turn % 3` (0 = recta, 1 = derecha, 2 = izquierda) y
+## entrada `turn / 3` (0 = detrás, 1 = derecha, 2 = izquierda), en el mismo orden que `ports`. Solo cambia
+## algo si `output_turns`; los puertos girados se crean una vez y se guardan.
 func ports_for(turn: int) -> Array[PortData]:
-	var key: int = posmod(turn, 3)
+	var key: int = posmod(turn, TURN_COUNT)
 	if not output_turns or key == 0:
 		return ports
 	if not _turned_ports.has(key):
+		var out_turn: int = key % 3
+		var in_turn: int = floori(key / 3.0)
 		var list: Array[PortData] = []
 		for port: PortData in ports:
-			if port.kind != PortData.Kind.OUTPUT:
+			# Salida (mira al norte): derecha = un cuarto de vuelta horario; izquierda = tres.
+			# Entrada (mira al sur): derecha (este) = tres cuartos; izquierda (oeste) = uno.
+			var choice: int = out_turn if port.kind == PortData.Kind.OUTPUT else in_turn
+			if choice == 0:
 				list.append(port)
 				continue
+			var steps: int
+			if port.kind == PortData.Kind.OUTPUT:
+				steps = 1 if choice == 1 else 3
+			else:
+				steps = 3 if choice == 1 else 1
 			var turned: PortData = port.duplicate() as PortData
-			var steps: int = 1 if key == 1 else 3 # derecha = un cuarto de vuelta horario; izquierda = tres
 			turned.side = ((port.side + steps) % 4) as PortData.PortSide
 			list.append(turned)
 		_turned_ports[key] = list
 	return _turned_ports[key]
+
+
+## Número de combinaciones de entrada y salida de una caja logística (C2b).
+const TURN_COUNT: int = 9
 
 
 ## ¿Cambia algo al reflejarla (tecla F)? Solo si algún puerto queda distinto: otra casilla, otro lado
