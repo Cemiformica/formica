@@ -4,7 +4,8 @@ extends Node3D
 ## Solo muestra (D-046): los datos los cambian el modo construcción y `Simulation`.
 ## Escucha a su `IslandState` para crear y borrar piezas, y lo rehace todo si se carga una partida.
 ## También dibuja los cables de energía como líneas finas entre sus dos construcciones (B2.6b)
-## y la naturaleza: un `TreeView` por árbol o tocón (B2.7b).
+## y la naturaleza: un `TreeView` por árbol o tocón (B2.7b). Y las estructuras por reparar: una
+## `RepairSiteView` por cada una (C4.3).
 
 const CABLE_COLOR: Color = Color(0.1, 0.1, 0.11)
 ## Grosor de los cables (B3: más gruesos para que se vean bien, petición de César).
@@ -25,6 +26,8 @@ var _views: Dictionary[int, BuildingView] = {}
 var _tree_views: Dictionary[Vector2i, TreeView] = {}
 ## Esquina → vista de su veta.
 var _vein_views: Dictionary[Vector2i, VeinView] = {}
+## Esquina → vista de su estructura por reparar (C4.3).
+var _repair_views: Dictionary[Vector2i, RepairSiteView] = {}
 ## Suelo de la isla con su agua: una sola vista (D-094).
 var _terrain_view: TerrainView = null
 ## Líneas de los cables dibujados.
@@ -70,6 +73,9 @@ func _rebuild() -> void:
 		_island.nature_changed.disconnect(_on_nature_changed)
 		_island.vein_added.disconnect(_on_vein_added)
 		_island.water_changed.disconnect(_on_water_changed)
+		_island.repair_site_added.disconnect(_on_repair_site_added)
+		_island.repair_changed.disconnect(_on_repair_changed)
+		_island.repair_completed.disconnect(_on_repair_completed)
 	for view: BuildingView in _views.values():
 		view.queue_free()
 	_views.clear()
@@ -79,6 +85,9 @@ func _rebuild() -> void:
 	for vein: VeinView in _vein_views.values():
 		vein.queue_free()
 	_vein_views.clear()
+	for repair: RepairSiteView in _repair_views.values():
+		repair.queue_free()
+	_repair_views.clear()
 
 	_island = WorldState.get_island(island_id)
 	_island.building_placed.connect(_on_building_placed)
@@ -87,9 +96,14 @@ func _rebuild() -> void:
 	_island.nature_changed.connect(_on_nature_changed)
 	_island.vein_added.connect(_on_vein_added)
 	_island.water_changed.connect(_on_water_changed)
+	_island.repair_site_added.connect(_on_repair_site_added)
+	_island.repair_changed.connect(_on_repair_changed)
+	_island.repair_completed.connect(_on_repair_completed)
 	_on_water_changed()
 	for vein_origin: Vector2i in _island.veins:
 		_on_vein_added(vein_origin)
+	for site_origin: Vector2i in _island.repair_sites:
+		_on_repair_site_added(site_origin)
 	_rebuilding = true
 	for placed: PlacedBuilding in _island.buildings.values():
 		_on_building_placed(placed)
@@ -128,6 +142,27 @@ func _on_vein_added(vein_origin: Vector2i) -> void:
 	view.setup(vein_origin, _island.veins[vein_origin], _island)
 	add_child(view)
 	_vein_views[vein_origin] = view
+
+
+## Hay una estructura por reparar nueva: crea su vista (C4.3).
+func _on_repair_site_added(site_origin: Vector2i) -> void:
+	if _repair_views.has(site_origin):
+		return
+	var view := RepairSiteView.new()
+	view.setup(_island.repair_sites[site_origin], _island)
+	add_child(view)
+	_repair_views[site_origin] = view
+
+
+## Se entregó algo a una pieza: la vista la pone al día (y la hace crecer si se completó).
+func _on_repair_changed(site_origin: Vector2i, piece_index: int) -> void:
+	if _repair_views.has(site_origin):
+		_repair_views[site_origin].on_piece_changed(piece_index)
+
+
+func _on_repair_completed(site_origin: Vector2i) -> void:
+	if _repair_views.has(site_origin):
+		_repair_views[site_origin].on_completed()
 
 
 ## El agua cambió: el suelo y el agua se rehacen enteros (pasa al empezar o al cargar, no en cada

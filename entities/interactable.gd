@@ -48,3 +48,14 @@ func get_progress_text() -> String:
 ## No hace nada; quien quiera reaccionar lo sobrescribe.
 func set_focused(_focused: bool) -> void:
 	pass
+
+
+## Lo que pide este objeto, para la fila de iconos del letrero (C4): una lista de {"item": ItemData,
+## "done": lo entregado, "need": lo que hace falta}. Vacía si no pide nada (lo normal).
+func get_needs() -> Array[Dictionary]:
+	return []
+
+
+## Nota para el letrero, ya traducida (p. ej. «Necesitas: Madero»); vacía si nada (C4).
+func get_note_text() -> String:
+	return ""

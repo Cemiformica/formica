@@ -121,6 +121,7 @@ CATALOG_STORAGE,Almacenes,Magatzems,Storage
 CATALOG_LOCKED,Bloqueada,Bloquejada,Locked
 CATALOG_HELP,"Clic: coger · Arrastrar a la barra (o ratón encima + 1–0): fijar · Clic derecho en la barra: vaciar · Mayús + rueda: otra barra","Clic: agafar · Arrossegar a la barra (o ratolí a sobre + 1–0): fixar · Clic dret a la barra: buidar · Maj + roda: una altra barra","Click: pick · Drag to the bar (or hover + 1–0): pin · Right-click on the bar: clear · Shift + wheel: next bar"
 CATALOG_IN_BAR,Barra %s,Barra %s,Bar %s
+CATALOG_NO_COST,Sin coste,Sense cost,No cost
 BUILD_HINT_CATALOG,Catálogo,Catàleg,Catalog
 INVENTORY_TITLE,Mochila de Mira,Motxilla de la Mira,Mira's backpack
 INVENTORY_BACKPACK_ONE,Mochila · 1 módulo,Motxilla · 1 mòdul,Backpack · 1 module
@@ -139,3 +140,12 @@ BUILD_HINT_BELT_LINE,Tramo,Tram,Line
 BUILD_HINT_BELT_RELEASE,Suelta para poner %d,Deixa anar per posar-ne %d,Release to place %d
 BUILD_HINT_BELT_TURN,Cambiar el giro,Canviar el gir,Switch the turn
 BUILD_CABLES_LOST,Algún cable quedaba demasiado largo y se ha quitado,Algun cable quedava massa llarg i s'ha tret,A cable was too long and was removed
+ITEM_TIMBER,Madero,Fusta escairada,Timber
+ITEM_STONE_TILE,Baldosa,Rajola,Stone tile
+REPAIR_TEST_RUIN,Ruina de prueba,Ruïna de prova,Test ruin
+REPAIR_PIECE_PILLAR,Pilar,Pilar,Pillar
+REPAIR_PIECE_LINTEL,Dintel,Llinda,Lintel
+HINT_DELIVER,Entregar,Lliurar,Deliver
+REPAIR_PIECE_BED,Camastro,Jaç,Cot
+HINT_REST,Descansar,Descansar,Rest
+REST_DONE,Has descansado: aquí reaparecerás y la partida está guardada,Has descansat: reapareixeràs aquí i la partida està desada,You rested: you will respawn here and the game is saved

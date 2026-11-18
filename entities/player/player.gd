@@ -27,7 +27,7 @@ signal building_opened(view: BuildingView)
 @export var tool_reach: float = 2.5 ## Alcance para talar y picar con una herramienta (m); la E sigue llegando a 3 m (C3).
 
 @export_group("Seguridad")
-@export var fall_limit_y: float = -10.0 ## Por debajo de esta altura, vuelve al punto de inicio.
+@export var fall_limit_y: float = -10.0 ## Por debajo de esta altura, reaparece (en la cama, si la hay).
 
 @onready var head: Node3D = $Head
 @onready var camera: Camera3D = $Head/Camera3D
@@ -136,7 +136,7 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 	if global_position.y < fall_limit_y:
-		global_transform = spawn_transform
+		respawn()
 		velocity = Vector3.ZERO
 		reset_physics_interpolation() # salto instantáneo: sin «volar» desde donde caía
 
@@ -268,3 +268,26 @@ func _update_focus() -> void:
 		if focused_interactable != null:
 			focused_interactable.set_focused(true)
 		focus_changed.emit(focused_interactable)
+
+
+## Vuelve al punto de reaparición: la cama del refugio si se ha descansado en ella en esta isla (C4) o, si
+## no, el sitio donde empezó la escena.
+func respawn() -> void:
+	if WorldState.has_respawn(build_controller.island_id):
+		global_position = WorldState.respawn_position
+		rotation.y = WorldState.respawn_rotation_y
+	else:
+		global_transform = spawn_transform
+	velocity = Vector3.ZERO
+	reset_physics_interpolation() # salto instantáneo: sin «volar» desde donde caía
+
+
+## Descansar en una cama (C4, César): ahí reaparecerás y se guarda la partida. Devuelve lo que dijo el
+## guardado ("SAVE_DONE" o "SAVE_ERROR").
+func rest_at(spot: Transform3D) -> String:
+	WorldState.set_respawn(build_controller.island_id, spot.origin, spot.basis.get_euler().y)
+	store_to_world()
+	var result: String = SaveSystem.save_game()
+	if result == "SAVE_DONE":
+		SaveSystem.notification_requested.emit("REST_DONE")
+	return result

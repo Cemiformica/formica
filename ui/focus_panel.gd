@@ -18,6 +18,10 @@ const COLOR_PREVIEW_CELL: Color = Color(1.0, 1.0, 1.0, 0.07)
 ## Casillas de la primera fila de un almacén (las mismas que una fila de su ventana).
 const STORAGE_PREVIEW: int = 8
 const PREVIEW_SLOT: Vector2 = Vector2(36, 36)
+## Lo que pide una estructura por reparar (C4): icono y «entregado/necesario» por material.
+const NEED_ICON: Vector2 = Vector2(28, 28)
+const COLOR_NEED_DONE: Color = Color(0.45, 0.85, 0.4)
+const COLOR_NEED_LEFT: Color = Color(0.91, 0.87, 0.82)
 
 var _player: Player = null
 var _top: MarginContainer
@@ -28,6 +32,9 @@ var _preview_cells: Array[ColorRect] = []
 var _preview_icons: Array[TextureRect] = []
 var _preview_amounts: Array[Label] = []
 var _hint_label: Label
+var _needs_row: HBoxContainer
+## Lo que enseña ahora la fila de lo que pide (para rehacerla solo si cambia).
+var _needs_key: String = ""
 
 
 ## Jugador del que se lee qué se está mirando.
@@ -92,6 +99,11 @@ func _ready() -> void:
 		_preview_cells.append(cell)
 		_preview_icons.append(icon)
 		_preview_amounts.append(amount)
+	_needs_row = HBoxContainer.new()
+	_needs_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_needs_row.add_theme_constant_override("separation", 12)
+	_needs_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(_needs_row)
 	_hint_label = _make_label(column, 13, COLOR_HINT)
 
 
@@ -121,6 +133,7 @@ func _process(_delta: float) -> void:
 		view = null
 	_update_status(view)
 	_update_storage(view)
+	_update_needs(target)
 	_update_hint(target)
 
 
@@ -161,6 +174,32 @@ func _update_storage(view: BuildingView) -> void:
 		_preview_amounts[i].text = str(stack.amount) if stack != null else ""
 
 
+## Lo que pide una estructura por reparar (C4): «[icono] 1/2   [icono] 0/3». Se rehace solo si cambia.
+func _update_needs(target: Interactable) -> void:
+	var needs: Array[Dictionary] = target.get_needs()
+	var key: String = ""
+	for need: Dictionary in needs:
+		key += "%s:%d/%d;" % [(need["item"] as ItemData).id, need["done"], need["need"]]
+	_needs_row.visible = not needs.is_empty()
+	if key == _needs_key:
+		return
+	_needs_key = key
+	for child: Node in _needs_row.get_children():
+		child.queue_free()
+	for need: Dictionary in needs:
+		var item: ItemData = need["item"]
+		var pair := HBoxContainer.new()
+		pair.add_theme_constant_override("separation", 4)
+		pair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var icon: TextureRect = SlotUI.make_icon_rect()
+		icon.custom_minimum_size = NEED_ICON
+		icon.texture = item.icon
+		pair.add_child(icon)
+		var amount: Label = _make_label(pair, 15, COLOR_NEED_DONE if int(need["done"]) >= int(need["need"]) else COLOR_NEED_LEFT)
+		amount.text = "%d/%d" % [need["done"], need["need"]]
+		_needs_row.add_child(pair)
+
+
 ## "[E] Abrir", "[Clic] Talar"…: qué hacen la E y el clic sobre lo que miras.
 func _update_hint(target: Interactable) -> void:
 	var parts: PackedStringArray = []
@@ -180,5 +219,8 @@ func _update_hint(target: Interactable) -> void:
 			if progress != "":
 				text += "  " + progress
 			parts.append(text)
+	var note: String = target.get_note_text()
+	if note != "":
+		parts.append(note)
 	_hint_label.text = "    ".join(parts)
 	_hint_label.visible = not parts.is_empty()

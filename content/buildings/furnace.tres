@@ -11,6 +11,7 @@
 [ext_resource type="PackedScene" uid="uid://cnvywy31bhmqg" path="res://assets/models/buildings/furnace.glb" id="9_model"]
 [ext_resource type="Resource" path="res://content/items/iron_ingot.tres" id="10_iron"]
 [ext_resource type="Texture2D" path="res://assets/textures/icons/buildings/furnace.png" id="90_icon"]
+[ext_resource type="Resource" path="res://content/items/stone_tile.tres" id="90_tile"]
 
 [sub_resource type="Resource" id="Resource_in_north"]
 script = ExtResource("3_portscript")
@@ -46,7 +47,8 @@ size = Vector2i(2, 2)
 height = 3
 cost = Dictionary[ExtResource("2_itemscript"), int]({
 ExtResource("4_wood"): 4,
-ExtResource("5_stone"): 14,
+ExtResource("90_tile"): 4,
+ExtResource("5_stone"): 2,
 ExtResource("10_iron"): 2
 })
 recipe = ExtResource("8_smelt")

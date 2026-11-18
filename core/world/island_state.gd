@@ -16,6 +16,10 @@ signal nature_changed(cell: Vector2i)
 signal vein_added(origin: Vector2i)
 ## Cambió el agua de la isla (B3.7, D-094).
 signal water_changed
+## Estructuras por reparar (C4, D-115): se añadió una, se entregó algo a una pieza o se completó entera.
+signal repair_site_added(origin: Vector2i)
+signal repair_changed(origin: Vector2i, piece_index: int)
+signal repair_completed(origin: Vector2i)
 
 ## Qué casilla ocupa cada construcción. Se reconstruye al cargar a partir de las construcciones.
 var grid: OccupancyGrid = OccupancyGrid.new()
@@ -67,6 +71,11 @@ var veins: Dictionary[Vector2i, VeinData] = {}
 var water: Dictionary[Vector2i, Vector2i] = {}
 ## Casilla → esquina de la veta que la cubre (para preguntar rápido «¿hay veta aquí?»).
 var _vein_cells: Dictionary[Vector2i, Vector2i] = {}
+## Estructuras por reparar (C4, D-115): esquina → estructura. Ocupan sus casillas como el terreno (no se
+## desmontan ni se mueven) y se guardan con la isla, con lo entregado a cada pieza.
+var repair_sites: Dictionary[Vector2i, RepairSite] = {}
+## Casilla → esquina de la estructura que la ocupa.
+var _repair_cells: Dictionary[Vector2i, Vector2i] = {}
 
 ## Longitud máxima de un cable (m), entre los centros de las dos construcciones.
 const MAX_CABLE_LENGTH: float = 12.0
@@ -108,7 +117,8 @@ func placement_problem(data: BuildingData, origin: Vector2i, rotation: int = 0) 
 				return "BUILD_NEEDS_WATER"
 			wet[cell] = true
 	for cell: Vector2i in OccupancyGrid.footprint_cells(origin, data.size, rotation):
-		if nature.has(cell) or (_vein_cells.has(cell) and cell != head) or (water.has(cell) and not wet.has(cell)):
+		if nature.has(cell) or (_vein_cells.has(cell) and cell != head) or (water.has(cell) and not wet.has(cell)) \
+				or _repair_cells.has(cell):
 			return "BUILD_NO_ROOM"
 	return ""
 
@@ -249,8 +259,11 @@ func to_data() -> Dictionary:
 	var water_list: Array = []
 	for cell: Vector2i in water:
 		water_list.append([cell.x, cell.y, water[cell].x, water[cell].y])
+	var repair_list: Array = []
+	for site_origin: Vector2i in repair_sites:
+		repair_list.append(repair_sites[site_origin].to_data())
 	return {"next_id": _next_id, "buildings": list, "cables": cable_list, "nature": nature_list, "veins": vein_list,
-			"water": water_list, "rock_timer": _rock_timer, "sticks_timer": _sticks_timer}
+			"water": water_list, "repair_sites": repair_list, "rock_timer": _rock_timer, "sticks_timer": _sticks_timer}
 
 
 ## Datos del guardado → estado. Ignora con aviso lo dañado, lo desconocido y lo que se solape.
@@ -262,6 +275,8 @@ func load_data(data: Dictionary) -> void:
 	nature.clear()
 	veins.clear()
 	_vein_cells.clear()
+	repair_sites.clear()
+	_repair_cells.clear()
 	water.clear()
 	# El agua y las vetas primero: son parte del terreno.
 	var water_list: Variant = data.get("water", [])
@@ -282,6 +297,13 @@ func load_data(data: Dictionary) -> void:
 			var vein_data: VeinData = Content.find_vein(StringName(str(entry.get("id", ""))))
 			if vein_data == null or not add_vein(vein_data, Vector2i(int(entry.get("x", 0)), int(entry.get("y", 0)))):
 				push_warning("IslandState: veta desconocida o solapada ignorada: %s" % str(entry))
+	# Las estructuras por reparar, también antes que las construcciones (C4).
+	var repair_list: Variant = data.get("repair_sites", [])
+	if repair_list is Array:
+		for entry: Variant in repair_list:
+			var site: RepairSite = RepairSite.from_data(entry) if entry is Dictionary else null
+			if site == null or not _add_repair_site(site):
+				push_warning("IslandState: estructura por reparar desconocida o solapada ignorada: %s" % str(entry))
 	_rock_timer = clampf(float(data.get("rock_timer", 0.0)), 0.0, ROCK_SPAWN_TIME)
 	_sticks_timer = clampf(float(data.get("sticks_timer", 0.0)), 0.0, STICKS_SPAWN_TIME)
 	_networks_dirty = true
@@ -580,7 +602,7 @@ func _rebuild_networks() -> void:
 
 ## ¿Se puede plantar aquí? (no hay construcción, ni naturaleza, ni veta, ni agua)
 func can_plant(cell: Vector2i) -> bool:
-	return not nature.has(cell) and grid.get_occupant(cell) == 0 and not _vein_cells.has(cell) and not water.has(cell)
+	return _is_free_ground(cell)
 
 
 ## Planta un árbol en la fase indicada. `species` vacía = árbol salvaje (la especie la decide su casilla).
@@ -626,7 +648,7 @@ func uproot_stump(cell: Vector2i) -> Dictionary[ItemData, int]:
 
 ## Pone una roca. Devuelve false si la casilla tiene una construcción o ya hay algo.
 func add_rock(cell: Vector2i) -> bool:
-	if nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell) or water.has(cell):
+	if not _is_free_ground(cell):
 		return false
 	nature[cell] = NatureState.new(NatureState.Kind.ROCK)
 	nature_changed.emit(cell)
@@ -675,7 +697,8 @@ func sticks_count() -> int:
 
 ## ¿Casilla de suelo libre (sin naturaleza, construcción, veta ni agua)?
 func _is_free_ground(cell: Vector2i) -> bool:
-	return not nature.has(cell) and grid.get_occupant(cell) == 0 and not _vein_cells.has(cell) and not water.has(cell)
+	return not nature.has(cell) and grid.get_occupant(cell) == 0 and not _vein_cells.has(cell) and not water.has(cell) \
+			and not _repair_cells.has(cell)
 
 
 ## Una casilla libre al azar dentro de `bounds`, o (-1, -1) si no queda ninguna.
@@ -725,8 +748,7 @@ func step_nature(dt: float) -> void:
 	for x: int in range(bounds.position.x, bounds.end.x):
 		for y: int in range(bounds.position.y, bounds.end.y):
 			var cell := Vector2i(x, y)
-			if not nature.has(cell) and grid.get_occupant(cell) == 0 and not _vein_cells.has(cell) \
-					and not water.has(cell):
+			if _is_free_ground(cell):
 				free_cells.append(cell)
 	if not free_cells.is_empty():
 		add_rock(free_cells[rng.randi_range(0, free_cells.size() - 1)])
@@ -741,7 +763,7 @@ func add_vein(data: VeinData, origin: Vector2i) -> bool:
 		return false
 	var cells: Array[Vector2i] = vein_cells(origin)
 	for cell: Vector2i in cells:
-		if nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell) or water.has(cell):
+		if not _is_free_ground(cell):
 			return false
 	veins[origin] = data
 	for cell: Vector2i in cells:
@@ -757,7 +779,7 @@ func add_vein(data: VeinData, origin: Vector2i) -> bool:
 func add_water(cells: Array[Vector2i], flow: Vector2i) -> int:
 	var added: int = 0
 	for cell: Vector2i in cells:
-		if water.has(cell) or nature.has(cell) or grid.get_occupant(cell) != 0 or _vein_cells.has(cell):
+		if not _is_free_ground(cell):
 			continue
 		water[cell] = flow
 		added += 1
@@ -792,3 +814,50 @@ static func vein_cells(origin: Vector2i) -> Array[Vector2i]:
 		for y: int in VeinData.SIZE:
 			cells.append(origin + Vector2i(x, y))
 	return cells
+
+
+# --- Estructuras por reparar (C4, D-115) ---
+
+## Pone una estructura por reparar, sin nada entregado. Devuelve la estructura, o null si alguna de sus
+## casillas no está libre (construcción, naturaleza, veta, agua u otra estructura).
+func add_repair_site(data: RepairSiteData, origin: Vector2i, rotation: int = 0) -> RepairSite:
+	if data == null:
+		return null
+	var site := RepairSite.new(data, origin, rotation)
+	return site if _add_repair_site(site) else null
+
+
+func _add_repair_site(site: RepairSite) -> bool:
+	if repair_sites.has(site.origin):
+		return false
+	var cells: Array[Vector2i] = site.cells()
+	for cell: Vector2i in cells:
+		if not _is_free_ground(cell):
+			return false
+	repair_sites[site.origin] = site
+	for cell: Vector2i in cells:
+		_repair_cells[cell] = site.origin
+	repair_site_added.emit(site.origin)
+	return true
+
+
+## Estructura por reparar que ocupa esa casilla, o null.
+func repair_site_at(cell: Vector2i) -> RepairSite:
+	if not _repair_cells.has(cell):
+		return null
+	return repair_sites[_repair_cells[cell]]
+
+
+## Entrega a la pieza `piece_index` de la estructura que ocupa `cell` lo que le falte y haya en `from`.
+## Devuelve cuántas unidades entregó (0 = nada). Avisa con `repair_changed` y, si con esto queda
+## completa, con `repair_completed` (una sola vez).
+func deliver_repair(cell: Vector2i, piece_index: int, from: Inventory) -> int:
+	var site: RepairSite = repair_site_at(cell)
+	if site == null or site.is_complete():
+		return 0
+	var given: int = site.deliver(piece_index, from)
+	if given > 0:
+		repair_changed.emit(site.origin, piece_index)
+		if site.is_complete():
+			repair_completed.emit(site.origin)
+	return given

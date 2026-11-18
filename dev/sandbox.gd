@@ -16,11 +16,18 @@ const START_CELLS: int = 14
 const START_COPPER_INGOTS: int = 10
 ## Bobinas de cobre para el talador (2 cada uno, D-092). En el juego se harán en el banco de trabajo.
 const START_COILS: int = 10
+## Componentes del banco (C4.2, D-150), para probar el horno, la rueda, el talador y las estructuras por
+## reparar sin fabricarlos antes.
+const START_TIMBER: int = 10
+const START_TILES: int = 10
 ## Arboleda de 3×3 ya plantada (B2.7b), desde esta esquina noroeste: casillas x 3–5, y −9…−7.
 ## Para probar el talador (3×1): colócalo en x 3–5, y −6, justo al sur de la arboleda, mirando al norte.
 const GROVE_ORIGIN: Vector2i = Vector2i(3, -9)
 ## Esquina noroeste de la veta de malaquita de prueba (B3.7).
 const VEIN_ORIGIN: Vector2i = Vector2i(6, -4)
+## Ruina de prueba (C4.3): estructura por reparar de 3×1 en las casillas x −7…−5, y 0, delante a la izquierda
+## del inicio. Pide 2 maderos por pilar y 1 madero + 3 baldosas para el dintel.
+const RUIN_ORIGIN: Vector2i = Vector2i(-7, 0)
 ## Canal de agua de prueba (D-094): una columna de casillas en x = −12, de norte a sur, que corre al sur.
 ## Para probar la rueda hidráulica (2×3, tecla 5): con la rueda sobre el canal y la dinamo en x = −11.
 const CANAL_X: int = -12
@@ -51,6 +58,8 @@ func _ready() -> void:
 	inventory.add_item(Content.find_item(&"solar_cell"), START_CELLS)
 	inventory.add_item(Content.find_item(&"copper_ingot"), START_COPPER_INGOTS)
 	inventory.add_item(Content.find_item(&"copper_coil"), START_COILS)
+	inventory.add_item(Content.find_item(&"timber"), START_TIMBER)
+	inventory.add_item(Content.find_item(&"stone_tile"), START_TILES)
 	print("Inventario inicial: ", inventory.debug_string())
 	# Naturaleza de prueba: una arboleda de 3×3 madura y unos árboles sueltos en distintas fases.
 	var island: IslandState = WorldState.get_island(player.build_controller.island_id)
@@ -83,6 +92,7 @@ func _ready() -> void:
 	# Veta de malaquita de 3×3 (B3.7): casillas x 6–8, y −4…−2, al este del inicio. E sobre los cristales
 	# del centro: un golpe por segundo; 4 golpes = 1 mineral.
 	island.add_vein(Content.find_vein(&"malachite_vein"), VEIN_ORIGIN)
+	island.add_repair_site(Content.find_repair_site(&"test_ruin"), RUIN_ORIGIN)
 
 	var builder: BuildController = player.build_controller
 	player.focus_changed.connect(_on_player_focus_changed)

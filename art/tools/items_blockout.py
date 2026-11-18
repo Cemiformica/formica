@@ -34,9 +34,10 @@ IRON, IRON_LIGHT, IRON_DARK = (5, 3), (5, 2), (5, 5)
 CHARCOAL, CHARCOAL_LIGHT = (5, 7), (5, 6)
 CELL, CELL_LIGHT, CELL_DEEP = (7, 3), (7, 2), (7, 4)
 SEED, SEED_CAP = (0, 4), (0, 6)
+PLANK, PLANK_GRAIN = (0, 2), (0, 4)   # madera labrada del madero (C4.2)
 
 ITEMS = ["wood", "stone", "acorn", "copper_ore", "charcoal", "copper_ingot", "slag", "copper_coil",
-        "iron_ingot", "solar_cell", "gravel", "pine_cone"]
+        "iron_ingot", "solar_cell", "gravel", "pine_cone", "timber", "stone_tile"]
 
 
 def swatch_uv(row: int, col: int) -> Vector:
@@ -296,6 +297,39 @@ def gravel(root, mat, rng):
         z = -0.012 + height * (1.0 - r / radius) * rng.uniform(0.75, 1.0)
         color = (STONE, STONE_LIGHT, STONE_DARK, STONE)[k % 4]
         finish("gravel_%d" % k, blob((r * math.cos(a), r * math.sin(a), z), rng.uniform(0.009, 0.014), 0.8, rng, 0.2), color, root, mat)
+
+def timber(root, mat, rng):
+    # Madero (C4.2, D-115; antes «viga», D-150): madero escuadrado y tumbado en X, con los cantos achaflanados, testas claras con su
+    # anillo, vetas oscuras a lo largo y el hexágono de la colonia marcado a fuego en la cara de arriba.
+    lying = Matrix.Rotation(math.radians(90), 4, "Y")
+    half_len, r = 0.13, 0.05
+    top = r * math.cos(math.radians(45))   # media anchura de la sección cuadrada
+    finish("timber_body", place(prism(4, r, r, -half_len, half_len, math.radians(45)), rotation=lying), PLANK, root, mat, 0.008)
+    for side in (-1, 1):
+        turn = Matrix.Rotation(math.radians(90 * side), 4, "Y")
+        cap = place(prism(4, r * 0.84, r * 0.84, 0.0, 0.005, math.radians(45)), (side * half_len, 0, 0), turn)
+        finish("timber_end_%d" % (side + 1), cap, WOOD_END, root, mat)
+        ring = place(prism(6, 0.016, 0.016, 0.0, 0.007), (side * half_len, 0, 0), turn)
+        finish("timber_ring_%d" % (side + 1), ring, WOOD_RING, root, mat)
+    # Vetas: listones finísimos encima y en el costado de delante, de largos distintos.
+    for k, (x, y, length) in enumerate(((0.0, -0.012, 0.2), (0.03, 0.014, 0.12), (-0.06, 0.004, 0.08))):
+        finish("timber_grain_top_%d" % k, box((length, 0.003, 0.002), (x, y, top + 0.0005)), PLANK_GRAIN, root, mat)
+    for k, (x, z, length) in enumerate(((-0.02, 0.01, 0.17), (0.05, -0.014, 0.1))):
+        finish("timber_grain_side_%d" % k, box((length, 0.002, 0.003), (x, -top - 0.0005, z)), PLANK_GRAIN, root, mat)
+    finish("timber_mark", prism(6, 0.013, 0.013, top - 0.0005, top + 0.0015, math.radians(30)), BARK_DARK, root, mat)
+
+
+def stone_tile(root, mat, rng):
+    # Baldosa (C4.2, D-115; antes «losa», D-150): baldosa hexagonal de piedra labrada, como una celda del panal. Cara de arriba más
+    # clara con un surco hexagonal y un par de desconchones oscuros en el canto.
+    finish("tile_body", prism(6, 0.1, 0.1, -0.018, 0.018, math.radians(30)), STONE, root, mat, 0.006)
+    finish("tile_top", prism(6, 0.088, 0.088, 0.018, 0.021, math.radians(30)), STONE_LIGHT, root, mat, 0.002)
+    finish("tile_groove", prism(6, 0.062, 0.062, 0.021, 0.0222, math.radians(30)), STONE_DARK, root, mat)
+    finish("tile_inner", prism(6, 0.054, 0.054, 0.021, 0.0226, math.radians(30)), STONE_LIGHT, root, mat)
+    for k, a in enumerate((50, 215)):
+        c = (0.088 * math.cos(math.radians(a)), 0.088 * math.sin(math.radians(a)), 0.012)
+        finish("tile_chip_%d" % k, blob(c, 0.014, 0.6, rng, 0.2), STONE_DARK, root, mat)
+
 
 # --- Construir ---
 

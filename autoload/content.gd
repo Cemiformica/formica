@@ -14,6 +14,7 @@ var _items_by_id: Dictionary[StringName, ItemData] = {}
 var _recipes_by_id: Dictionary[StringName, RecipeData] = {}
 var _buildings_by_id: Dictionary[StringName, BuildingData] = {}
 var _veins_by_id: Dictionary[StringName, VeinData] = {}
+var _repair_sites_by_id: Dictionary[StringName, RepairSiteData] = {}
 
 
 func _ready() -> void:
@@ -25,6 +26,8 @@ func _ready() -> void:
 		_register(_buildings_by_id, building, building.id, "edificio")
 	for vein: VeinData in CATALOG.veins:
 		_register(_veins_by_id, vein, vein.id, "veta")
+	for site: RepairSiteData in CATALOG.repair_sites:
+		_register(_repair_sites_by_id, site, site.id if site != null else &"", "estructura por reparar")
 
 
 ## Ítem con ese id (null si no existe).
@@ -63,6 +66,11 @@ func find_building(id: StringName) -> BuildingData:
 ## Veta con ese id (null si no existe).
 func find_vein(id: StringName) -> VeinData:
 	return _veins_by_id.get(id, null)
+
+
+## Estructura por reparar con ese id (null si no existe).
+func find_repair_site(id: StringName) -> RepairSiteData:
+	return _repair_sites_by_id.get(id, null)
 
 
 ## Añade `resource` a `index` con su id. Avisa (y lo salta) si el id está vacío o repetido.

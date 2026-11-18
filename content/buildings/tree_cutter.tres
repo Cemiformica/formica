@@ -8,6 +8,7 @@
 [ext_resource type="Resource" path="res://content/items/copper_coil.tres" id="6_coil"]
 [ext_resource type="PackedScene" uid="uid://csch8g7lhyykf" path="res://assets/models/buildings/tree_cutter.glb" id="7_model"]
 [ext_resource type="Texture2D" path="res://assets/textures/icons/buildings/tree_cutter.png" id="90_icon"]
+[ext_resource type="Resource" path="res://content/items/timber.tres" id="90_timber"]
 
 [sub_resource type="Resource" id="Resource_out"]
 script = ExtResource("3_portscript")
@@ -26,7 +27,8 @@ scene = ExtResource("7_model")
 size = Vector2i(3, 1)
 height = 2
 cost = Dictionary[ExtResource("2_itemscript"), int]({
-ExtResource("4_wood"): 8,
+ExtResource("90_timber"): 2,
+ExtResource("4_wood"): 2,
 ExtResource("5_stone"): 4,
 ExtResource("6_coil"): 2
 })

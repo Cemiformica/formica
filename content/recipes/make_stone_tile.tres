@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="RecipeData" format=3]
+
+[ext_resource type="Script" path="res://core/content/recipe_data.gd" id="1_recipe"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="2_itemscript"]
+[ext_resource type="Resource" path="res://content/items/stone.tres" id="3_input"]
+[ext_resource type="Resource" path="res://content/items/stone_tile.tres" id="4_output"]
+
+[resource]
+script = ExtResource("1_recipe")
+id = &"make_stone_tile"
+inputs = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("3_input"): 3
+})
+outputs = Dictionary[ExtResource("2_itemscript"), int]({
+ExtResource("4_output"): 1
+})
+duration = 3.0

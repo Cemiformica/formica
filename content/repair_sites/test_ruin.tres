@@ -1,0 +1,55 @@
+[gd_resource type="Resource" script_class="RepairSiteData" format=3]
+
+[ext_resource type="Script" path="res://core/content/repair_site_data.gd" id="1_site"]
+[ext_resource type="Script" path="res://core/content/repair_piece_data.gd" id="2_piece"]
+[ext_resource type="Script" path="res://core/content/item_data.gd" id="3_itemscript"]
+[ext_resource type="Resource" path="res://content/items/timber.tres" id="4_timber"]
+[ext_resource type="Resource" path="res://content/items/stone_tile.tres" id="5_tile"]
+[ext_resource type="PackedScene" path="res://assets/models/props/test_ruin.glb" id="6_model"]
+
+[sub_resource type="Resource" id="Resource_pillar_left"]
+script = ExtResource("2_piece")
+id = &"pillar_left"
+name_key = "REPAIR_PIECE_PILLAR"
+node_name = &"piece_pillar_left"
+cost = Dictionary[ExtResource("3_itemscript"), int]({
+ExtResource("4_timber"): 2
+})
+
+[sub_resource type="Resource" id="Resource_pillar_right"]
+script = ExtResource("2_piece")
+id = &"pillar_right"
+name_key = "REPAIR_PIECE_PILLAR"
+node_name = &"piece_pillar_right"
+cost = Dictionary[ExtResource("3_itemscript"), int]({
+ExtResource("4_timber"): 2
+})
+
+[sub_resource type="Resource" id="Resource_lintel"]
+script = ExtResource("2_piece")
+id = &"lintel"
+name_key = "REPAIR_PIECE_LINTEL"
+node_name = &"piece_lintel"
+cost = Dictionary[ExtResource("3_itemscript"), int]({
+ExtResource("4_timber"): 1,
+ExtResource("5_tile"): 3
+})
+
+[sub_resource type="Resource" id="Resource_bed"]
+script = ExtResource("2_piece")
+id = &"bed"
+name_key = "REPAIR_PIECE_BED"
+node_name = &"piece_bed"
+cost = Dictionary[ExtResource("3_itemscript"), int]({
+ExtResource("4_timber"): 2
+})
+action = &"bed"
+
+[resource]
+script = ExtResource("1_site")
+id = &"test_ruin"
+name_key = "REPAIR_TEST_RUIN"
+scene = ExtResource("6_model")
+size = Vector2i(3, 1)
+pieces = Array[ExtResource("2_piece")]([SubResource("Resource_pillar_left"), SubResource("Resource_pillar_right"), SubResource("Resource_lintel"), SubResource("Resource_bed")])
+purpose = &"test"
