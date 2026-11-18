@@ -35,6 +35,7 @@ const CABLE_LIGHT_COLOR: Color = Color(0.6, 0.95, 0.3)
 ## Brasa: color encendido, color apagado, brillo máximo y velocidad de encendido y apagado (por segundo).
 const EMBER_COLOR: Color = Color(1.0, 0.5, 0.15)
 const EMBER_DARK: Color = Color(0.18, 0.08, 0.05)
+const EMBER_AMBER: Color = Color(1.0, 0.72, 0.22)
 const EMBER_ENERGY: float = 1.2
 const EMBER_FADE_IN: float = 1.5
 const EMBER_FADE_OUT: float = 0.5
@@ -131,6 +132,11 @@ var _port_tongues: Array[Node3D] = []
 var _insulator: MeshInstance3D = null
 ## Solo máquinas con modelo: material propio de la brasa, humo, pivote del fuelle y estado del calor.
 var _ember_material: StandardMaterial3D = null
+## Brasas de juguete (César): un material por grupo («ember_window_…_0…2»), cada uno con su ritmo y su tono,
+## para que unas se aviven mientras otras se apagan, como un fuego visto por una mirilla.
+var _ember_materials: Array[StandardMaterial3D] = []
+var _ember_rates: PackedFloat32Array = []
+var _ember_phases: PackedFloat32Array = []
 ## Humo de cada «smoke_origin…» del modelo (una o varias columnas).
 var _smokes: Array[GPUParticles3D] = []
 var _bellows: Node3D = null
@@ -141,6 +147,9 @@ var _dust_origin: Node3D = null
 var _dust_timer: float = 0.0
 ## Solo extractores con modelo: mineral de las mirillas, que sube según lo lleno que esté el almacén.
 var _store_fill: Node3D = null
+## Todos los grupos de mirillas («store_fill_pivot…»): la caja logística tiene los de atrás y los de delante
+## de cada versión (César); los de las versiones ocultas se escalan igual, pero no se ven.
+var _store_fills: Array[Node3D] = []
 var _store_fill_painted: bool = false
 ## Solo almacenes: ítem del que están pintadas las mirillas ahora.
 var _store_fill_item: ItemData = null
@@ -430,12 +439,25 @@ func _update_storage_visuals() -> void:
 			if first == null:
 				first = stack.item
 	var ratio: float = float(used) / maxf(placed.output.slots.size(), 1)
-	_store_fill.visible = ratio > 0.0
-	_store_fill.scale.y = maxf(ratio, 0.01)
+	_set_store_fill(ratio)
 	if first != null and first != _store_fill_item:
 		_store_fill_item = first
-		for mesh: Node in _store_fill.find_children("*", "MeshInstance3D", true, false):
-			(mesh as MeshInstance3D).material_override = _material_for(first)
+		_paint_store_fill(first)
+
+
+## Sube el contenido de todas las mirillas hasta `ratio` (0 = vacías, ocultas).
+func _set_store_fill(ratio: float) -> void:
+	for fill: Node3D in _store_fills:
+		fill.visible = ratio > 0.0
+		fill.scale.y = maxf(ratio, 0.01)
+
+
+## Pinta el contenido de todas las mirillas del color de `item`.
+func _paint_store_fill(item: ItemData) -> void:
+	var material: StandardMaterial3D = _material_for(item)
+	for fill: Node3D in _store_fills:
+		for mesh: Node in fill.find_children("*", "MeshInstance3D", true, false):
+			(mesh as MeshInstance3D).material_override = material
 
 
 ## Ítems que guarda en su salida, de cualquier tipo.
@@ -552,14 +574,18 @@ func _setup_machine_visuals(model: Node3D) -> void:
 	_last_progress = placed.progress
 	_phase = randf() * TAU
 	var embers: Array[Node] = model.find_children("ember_window*", "MeshInstance3D", true, false)
-	if not embers.is_empty():
-		_ember_material = StandardMaterial3D.new()
-		_ember_material.albedo_color = EMBER_DARK
-		_ember_material.emission_enabled = true
-		_ember_material.emission = EMBER_COLOR
-		_ember_material.emission_energy_multiplier = 0.0
-		for ember: Node in embers:
-			(ember as MeshInstance3D).material_override = _ember_material
+	for k: int in embers.size():
+		var material := StandardMaterial3D.new()
+		material.albedo_color = EMBER_DARK
+		material.emission_enabled = true
+		material.emission = EMBER_COLOR if k % 2 == 0 else EMBER_AMBER
+		material.emission_energy_multiplier = 0.0
+		(embers[k] as MeshInstance3D).material_override = material
+		_ember_materials.append(material)
+		_ember_rates.append(randf_range(1.1, 2.4))
+		_ember_phases.append(randf() * TAU)
+	if not _ember_materials.is_empty():
+		_ember_material = _ember_materials[0]
 	for smoke_origin: Node in model.find_children("smoke_origin*", "Node3D", true, false):
 		var smoke: GPUParticles3D = _make_smoke(placed.data.smoke_color)
 		smoke_origin.add_child(smoke)
@@ -569,9 +595,12 @@ func _setup_machine_visuals(model: Node3D) -> void:
 	if _drill != null:
 		_drill_rest = _drill.position
 	_dust_origin = model.find_child("dust_origin", true, false) as Node3D
-	_store_fill = model.find_child("store_fill_pivot", true, false) as Node3D
-	if _store_fill != null:
-		_store_fill.visible = false # vacío hasta que saque algo
+	for node: Node in model.find_children("store_fill_pivot*", "Node3D", true, false):
+		if not node is MeshInstance3D:
+			_store_fills.append(node as Node3D)
+			(node as Node3D).visible = false # vacío hasta que guarde algo
+	if not _store_fills.is_empty():
+		_store_fill = _store_fills[0]
 	for side: String in ["east", "west"]:
 		var jaw := model.find_child("jaw_pivot_" + side, true, false) as Node3D
 		if jaw != null:
@@ -641,10 +670,12 @@ func _update_machine_visuals(delta: float) -> void:
 		rate = EMBER_FADE_IN
 	_heat = move_toward(_heat, target, rate * delta)
 	_time += delta
-	if _ember_material != null:
-		var flicker: float = 0.85 + 0.1 * sin(_time * 7.3 + _phase) + 0.05 * sin(_time * 17.9 + _phase * 2.0)
-		_ember_material.emission_energy_multiplier = EMBER_ENERGY * _heat * flicker
-		_ember_material.albedo_color = EMBER_DARK.lerp(EMBER_COLOR, _heat * 0.6)
+	for k: int in _ember_materials.size():
+		# Respiración lenta de cada grupo (se aviva y se apaga) y un temblor pequeño encima.
+		var breath: float = 0.5 + 0.5 * sin(_time * _ember_rates[k] + _ember_phases[k])
+		var flicker: float = 0.45 + 0.5 * breath + 0.05 * sin(_time * 13.7 + _ember_phases[k] * 3.0)
+		_ember_materials[k].emission_energy_multiplier = EMBER_ENERGY * _heat * flicker
+		_ember_materials[k].albedo_color = EMBER_DARK.lerp(_ember_materials[k].emission, _heat * (0.35 + 0.3 * breath))
 	for smoke: GPUParticles3D in _smokes:
 		smoke.emitting = _heat > 0.5
 	if _bellows != null:
@@ -656,13 +687,11 @@ func _update_machine_visuals(delta: float) -> void:
 		_drill.position = _drill_rest + Vector3(0.0, -DRILL_BOB * _heat * (0.5 + 0.5 * sin(_time * TAU * DRILL_BOB_RATE + _phase)), 0.0)
 	if _store_fill != null and placed.vein_item != null and placed.data.output_capacity > 0:
 		var ratio: float = clampf(float(placed.output.get_total(placed.vein_item)) / placed.data.output_capacity, 0.0, 1.0)
-		_store_fill.visible = ratio > 0.0
-		_store_fill.scale.y = maxf(ratio, 0.01)
+		_set_store_fill(ratio)
 		if not _store_fill_painted:
 			# Del color del mineral que saca (el mismo material que sus cubitos en las cintas).
 			_store_fill_painted = true
-			for mesh: Node in _store_fill.find_children("*", "MeshInstance3D", true, false):
-				(mesh as MeshInstance3D).material_override = _material_for(placed.vein_item)
+			_paint_store_fill(placed.vein_item)
 	if not _jaws.is_empty():
 		# Muerde JAW_RATE veces por segundo; con el «calor» la mordida crece o se apaga y se queda abierta.
 		var bite: float = 0.5 - 0.5 * cos(_time * TAU * JAW_RATE + _phase)
@@ -855,12 +884,17 @@ func _setup_status_lights(model: Node3D) -> void:
 
 
 ## Ámbar sin cable, verde con cable, rojo parpadeando con el fusible saltado (dato del propio generador).
+## Almacenes y extractores: verde con sitio, ámbar llenos.
 func _update_status_lights(delta: float) -> void:
 	var color: Color = STATUS_COLOR
 	var lit: bool = true
 	if placed.is_storage():
 		# Almacén (caja logística): verde si le cabe algo más, ámbar si está llena.
 		color = STATUS_OK_COLOR if _storage_has_space() else STATUS_COLOR
+	elif _drill != null:
+		# Extractor (antenas, César): verde si al almacén le cabe más mineral, ámbar si está lleno.
+		var full: bool = placed.vein_item != null and placed.output.get_total(placed.vein_item) >= placed.data.output_capacity
+		color = STATUS_COLOR if full else STATUS_OK_COLOR
 	elif placed.fuse_tripped:
 		color = STATUS_TRIPPED_COLOR
 		_status_time += delta

@@ -37,6 +37,9 @@ WOOD, WOOD_DARK, WOOD_END = (0, 3), (0, 4), (0, 2)
 METAL_LIGHT, METAL, METAL_DARK, METAL_DEEP = (5, 2), (5, 3), (5, 4), (5, 5)
 GLASS = (7, 6)
 ACCENT = (4, 2)           # naranja oscuro, el de las máquinas del vertical slice
+COPPER = (3, 2)           # arandelas de las bisagras (brilla: fila del cobre, D-105)
+EYE_GLASS = (7, 7)        # ojos de cristal oscuro (brilla, D-105)
+GRILLE_DEEP = (5, 6)      # fondo de la rejilla
 
 BODY_Y0, BODY_Y1 = -0.25, 0.22   # fondo del cuerpo: por detrás, a ras de la cara del puerto
 BODY_TOP = 0.49
@@ -240,6 +243,20 @@ def jaw_outline(sx: float):
     return pts
 
 
+def grow_outline(pts, d: float):
+    # Agranda `d` un contorno antihorario (cada vértice sale por la media de las normales de sus lados).
+    out = []
+    n = len(pts)
+    for i in range(n):
+        a, b, c = Vector(pts[i - 1]), Vector(pts[i]), Vector(pts[(i + 1) % n])
+        e0, e1 = (b - a).normalized(), (c - b).normalized()
+        normal = Vector((e0.y, -e0.x)) + Vector((e1.y, -e1.x))
+        if normal.length > 1e-6:
+            normal.normalize()
+        out.append((b.x + normal.x * d, b.y + normal.y * d))
+    return out
+
+
 def jaw_rib_outline(sx: float):
     # Nervio naranja que sigue el borde de atrás de la hoja, por dentro, y se afila hacia la punta.
     back = [(0.1, -0.075), (0.25, -0.1), (0.42, -0.105), (0.6, -0.09), (0.76, -0.07), (0.9, -0.04),
@@ -269,16 +286,35 @@ def build() -> None:
         finish("foot_%d" % i, prism(6, 0.075, 0.065, 0.0, 0.1, x=fx, y=fy), METAL_DEEP, root, mat, 0.0)
     depth, mid_y = BODY_Y1 - BODY_Y0, (BODY_Y0 + BODY_Y1) / 2
     finish("chassis", box((2.84, depth, 0.36), (0.0, mid_y, 0.27)), METAL, root, mat, 0.02)
-    finish("chassis_skirt", box((2.9, depth + 0.04, 0.06), (0.0, mid_y, 0.11)), METAL_DARK, root, mat, 0.01)
-    finish("chassis_band", box((2.88, depth + 0.03, 0.06), (0.0, mid_y, 0.36)), ACCENT, root, mat, 0.006)
-    finish("chassis_top", box((2.88, depth + 0.04, 0.05), (0.0, mid_y, BODY_TOP - 0.025)), METAL_DARK, root, mat, 0.01)
-    # Remaches en la cara de delante y en la de detrás (detrás, fuera del hueco del puerto).
+    # Faldón, franja y tapa sobresalen alrededor, salvo detrás en la casilla central: ahí está el puerto
+    # de salida y nada puede pasar de y = −0,25 (si no, asoman por su boca; César).
+    def trim_outline(out: float):
+        hx, notch, y_in = 1.42 + out, 0.45, BODY_Y0 + 0.004
+        return [(-hx, BODY_Y0 - out), (-notch, BODY_Y0 - out), (-notch, y_in), (notch, y_in), (notch, BODY_Y0 - out),
+                (hx, BODY_Y0 - out), (hx, BODY_Y1 + out), (-hx, BODY_Y1 + out)]
+    finish("chassis_skirt", slab(trim_outline(0.02), 0.08, 0.14), METAL_DARK, root, mat, 0.0)
+    finish("chassis_band", slab(trim_outline(0.015), 0.33, 0.39), ACCENT, root, mat, 0.0)
+    finish("chassis_top", slab(trim_outline(0.02), BODY_TOP - 0.05, BODY_TOP), METAL_DARK, root, mat, 0.0)
+    # Paneles en los costados largos, uno por casilla (César: que no sea una plancha lisa de 3 m), con dos
+    # tornillos. Detrás, el de en medio no: ahí va el puerto de salida. Delante, en medio, una
+    # rejilla de ventilación junto a la cabeza.
+    PANEL = (5, 2)
     for side, sy in (("n", 1.0), ("s", -1.0)):
         y = BODY_Y1 if sy > 0 else BODY_Y0
-        for x in (-1.3, -0.8, 0.8, 1.3) if sy < 0 else (-1.3, -0.7, 0.7, 1.3):
-            for z in (0.24,):
-                finish("rivet_%s_%d_%d" % (side, int((x + 2) * 100), int(z * 100)),
-                       hex_rivet((x, y + sy * 0.004, z), (0, sy, 0)), METAL_DEEP, root, mat, 0.0)
+        for k, cx in enumerate((-0.97, 0.0, 0.97)):
+            if cx == 0.0 and sy < 0:
+                continue
+            if cx == 0.0:
+                finish("grille_frame", box((0.62, 0.016, 0.17), (0.0, y + 0.008, 0.235)), METAL_DARK, root, mat, 0.004)
+                finish("grille_back", box((0.54, 0.02, 0.12), (0.0, y + 0.01, 0.235)), GRILLE_DEEP, root, mat, 0.0)
+                for j in range(4):
+                    finish("grille_slat_%d" % j, box((0.54, 0.03, 0.014), (0.0, y + 0.012, 0.19 + j * 0.03)), METAL, root, mat, 0.0)
+                continue
+            finish("panel_%s_%d" % (side, k), box((0.86, 0.014, 0.16), (cx, y + sy * 0.007, 0.235)), PANEL, root, mat, 0.0)
+            # Dos tornillos en esquinas opuestas (con cuatro se pasaba del presupuesto de triángulos).
+            for dx, z in ((-0.38, 0.29), (0.38, 0.18)):
+                finish("panel_bolt_%s_%d_%d" % (side, k, dx > 0),
+                       hex_rivet((cx + dx, y + sy * 0.014, z), (0, sy, 0), r=0.013, depth=0.012), METAL_DEEP, root, mat, 0.0)
     for sx in (-1.0, 1.0):
         for z in (0.24,):
             finish("rivet_side_%d_%d" % (sx > 0, int(z * 100)),
@@ -289,13 +325,26 @@ def build() -> None:
     head = prism(6, 0.3, 0.34, 0.55, 0.98, y=0.06)
     finish("head", head, METAL, root, mat, 0.02)
     finish("head_band", prism(6, 0.345, 0.345, 0.78, 0.83, y=0.06), ACCENT, root, mat, 0.006)
-    finish("head_cap", prism(6, 0.31, 0.19, 0.98, 1.08, y=0.06), METAL_DARK, root, mat, 0.01)
-    # Ojos: dos cúpulas hexagonales oscuras a los lados de la cara.
+    # Caparazón oscuro abombado sobre la cabeza, con su reborde naranja (como los almacenes, César).
+    finish("head_rim", prism(6, 0.36, 0.36, 0.965, 1.0, y=0.06), ACCENT, root, mat, 0.006)
+    finish("head_cap", prism(6, 0.35, 0.29, 0.995, 1.07, y=0.06), METAL_DEEP, root, mat, 0.012)
+    finish("head_cap_top", prism(6, 0.29, 0.17, 1.07, 1.13, y=0.06), METAL_DEEP, root, mat, 0.0)
+    finish("head_cap_crown", prism(6, 0.17, 0.08, 1.13, 1.16, y=0.06), METAL_DEEP, root, mat, 0.0)
+    # Ojos compuestos: cúpulas facetadas de cristal oscuro (brillan), más grandes, a los lados de la cara.
     for side, sx in (("east", 1.0), ("west", -1.0)):
-        eye = prism(6, 0.075, 0.05, 0.0, 0.05)
+        eye = prism(6, 0.075, 0.042, -0.02, 0.04, angle=math.radians(30))
         rot = Vector((0, 0, 1)).rotation_difference(Vector((sx * 0.75, 0.66, 0)).normalized()).to_matrix().to_4x4()
-        bmesh.ops.transform(eye, matrix=Matrix.Translation((sx * 0.21, 0.27, 0.9)) @ rot, verts=eye.verts)
-        finish("eye_" + side, eye, METAL_DEEP, root, mat, 0.0)
+        bmesh.ops.transform(eye, matrix=Matrix.Translation((sx * 0.235, 0.268, 0.89)) @ rot, verts=eye.verts)
+        finish("eye_" + side, eye, EYE_GLASS, root, mat, 0.0)
+        ring = prism(6, 0.08, 0.08, -0.012, 0.012, angle=math.radians(30))
+        bmesh.ops.transform(ring, matrix=Matrix.Translation((sx * 0.225, 0.259, 0.89)) @ rot, verts=ring.verts)
+        finish("eye_ring_" + side, ring, METAL_DARK, root, mat, 0.0)
+    # Clípeo: placa de la cara entre las bisagras de la mandíbula, con dos tornillos.
+    face_y = 0.06 + (0.3 + (0.04 / 0.43) * (0.64 - 0.55)) * math.cos(math.radians(30))
+    finish("clypeus", box((0.26, 0.04, 0.14), (0.0, face_y + 0.015, 0.64)), METAL_DARK, root, mat, 0.01)
+    for dx in (-0.08, 0.08):
+        finish("clypeus_bolt_%d" % (dx > 0), hex_rivet((dx, face_y + 0.035, 0.66), (0, 1, 0), r=0.014, depth=0.012),
+               METAL_DEEP, root, mat, 0.0)
 
     # Emblema de la colonia pintado (crest.py) en la nuca: la cara plana de la cabeza que mira al sur (al
     # jugador, sobre el puerto de salida), entre el cuello y la franja naranja. La cabeza se ensancha al
@@ -308,18 +357,19 @@ def build() -> None:
 
     # Antenas con las luces de estado en la punta (ámbar sin cable, verde con cable, rojo con el fusible).
     for side, sx in (("east", 1.0), ("west", -1.0)):
-        p0 = Vector((sx * 0.09, 0.08, 1.06))
-        p1 = Vector((sx * 0.24, 0.02, 1.44))
-        p2 = Vector((sx * 0.42, 0.16, 1.7))
+        p0 = Vector((sx * 0.09, 0.08, 1.15))
+        p1 = Vector((sx * 0.24, 0.02, 1.52))
+        p2 = Vector((sx * 0.42, 0.16, 1.78))
         # Godot balancea «antenna_pivot_…» mientras trabaja, como una hormiga tanteando (César);
         # la luz de estado cuelga de él y se mueve con la antena.
         pivot = empty("antenna_pivot_" + side, p0, root, "ARROWS", 0.08)
-        finish("antenna_%s_socket" % side, prism(6, 0.05, 0.04, p0.z - 0.03, p0.z + 0.02, x=p0.x, y=p0.y), METAL_DEEP, root, mat, 0.0)
+        finish("antenna_%s_socket" % side, prism(6, 0.065, 0.055, p0.z - 0.04, p0.z + 0.02, x=p0.x, y=p0.y), METAL_DARK, root, mat, 0.0)
+        finish("antenna_%s_collar" % side, prism(6, 0.045, 0.045, p0.z + 0.02, p0.z + 0.045, x=p0.x, y=p0.y), ACCENT, root, mat, 0.0)
         for obj in (
             finish("antenna_%s_0" % side, strut(p0, p1, 0.035, 6), METAL_DARK, root, mat, 0.0),
             finish("antenna_%s_1" % side, strut(p1, p2, 0.03, 6), METAL_DARK, root, mat, 0.0),
             finish("antenna_%s_joint" % side, prism(6, 0.03, 0.03, p1.z - 0.025, p1.z + 0.025, x=p1.x, y=p1.y), ACCENT, root, mat, 0.0),
-            finish("status_light_" + side, prism(6, 0.05, 0.035, p2.z - 0.02, p2.z + 0.06, x=p2.x, y=p2.y), GLASS, root, mat, 0.006),
+            finish("status_light_" + side, prism(6, 0.05, 0.035, p2.z - 0.02, p2.z + 0.06, x=p2.x, y=p2.y), GLASS, root, mat, 0.0),
         ):
             hang(obj, pivot, p0)
 
@@ -328,16 +378,23 @@ def build() -> None:
         pivot_pos = Vector((sx * JAW_PIVOT[0], JAW_PIVOT[1], JAW_Z))
         pivot = empty("jaw_pivot_" + side, pivot_pos, root, "ARROWS", 0.12)
         pts = [(pivot_pos.x + x, pivot_pos.y + y) for (x, y) in jaw_outline(sx)]
-        blade = finish("jaw_" + side, slab(pts, JAW_Z - 0.06, JAW_Z + 0.06), METAL_DARK, root, mat, 0.008)
+        blade = finish("jaw_" + side, slab(pts, JAW_Z - 0.075, JAW_Z + 0.075), METAL_DARK, root, mat, 0.0)
         hang(blade, pivot, pivot_pos)
+        # Filo de metal claro que asoma por todo el borde, dientes incluidos (César).
+        edge = slab(grow_outline(pts, 0.014), JAW_Z - 0.022, JAW_Z + 0.022)
+        hang(finish("jaw_edge_" + side, edge, METAL_LIGHT, root, mat, 0.0), pivot, pivot_pos)
         # Filo metálico en el borde de dentro de la punta y nervio por encima.
         rib_pts = [(pivot_pos.x + x, pivot_pos.y + y) for (x, y) in jaw_rib_outline(sx)]
-        rib = slab(rib_pts, JAW_Z + 0.055, JAW_Z + 0.08)
+        rib = slab(rib_pts, JAW_Z + 0.07, JAW_Z + 0.095)
         hang(finish("jaw_rib_" + side, rib, ACCENT, root, mat, 0.0), pivot, pivot_pos)
-        hinge = prism(6, 0.075, 0.075, JAW_Z - 0.08, JAW_Z + 0.08, x=pivot_pos.x, y=pivot_pos.y)
-        finish("jaw_hinge_" + side, hinge, METAL_DARK, root, mat, 0.008)
-        finish("jaw_bolt_" + side, hex_rivet((pivot_pos.x, pivot_pos.y, JAW_Z + 0.09), (0, 0, 1), r=0.04, depth=0.03),
+        hinge = prism(6, 0.08, 0.08, JAW_Z - 0.095, JAW_Z + 0.095, x=pivot_pos.x, y=pivot_pos.y)
+        finish("jaw_hinge_" + side, hinge, METAL_DARK, root, mat, 0.0)
+        finish("jaw_washer_" + side, prism(8, 0.065, 0.065, JAW_Z + 0.095, JAW_Z + 0.112, x=pivot_pos.x, y=pivot_pos.y),
+               COPPER, root, mat, 0.0)
+        finish("jaw_bolt_" + side, hex_rivet((pivot_pos.x, pivot_pos.y, JAW_Z + 0.122), (0, 0, 1), r=0.045, depth=0.035),
                METAL_DEEP, root, mat, 0.0)
+        finish("jaw_washer_low_" + side, prism(8, 0.065, 0.065, JAW_Z - 0.112, JAW_Z - 0.095, x=pivot_pos.x, y=pivot_pos.y),
+               COPPER, root, mat, 0.0)
         # Brazo que une la bisagra a la cabeza.
         finish("jaw_arm_" + side, strut((sx * 0.08, 0.1, JAW_Z), (pivot_pos.x, pivot_pos.y - 0.02, JAW_Z), 0.09),
                METAL_DARK, root, mat, 0.008)
@@ -360,7 +417,17 @@ def build() -> None:
             to_yz = Matrix(((0, 0, 1, 0), (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
             bmesh.ops.transform(cradle, matrix=Matrix.Translation((cx, mid_y, BODY_TOP - 0.005)) @ to_yz, verts=cradle.verts)
             bmesh.ops.recalc_face_normals(cradle, faces=cradle.faces)
-            finish("cradle_%s_%d" % (side, k), cradle, METAL_DARK, root, mat, 0.006)
+            finish("cradle_%s_%d" % (side, k), cradle, METAL_DARK, root, mat, 0.0)
+        # Largueros naranjas por fuera de las cunas y topes en los extremos para que no rueden los troncos.
+        for dy in (-0.285, 0.285):
+            finish("tray_rail_%s_%d" % (side, dy > 0), box((hi - lo - 0.1, 0.025, 0.04), ((lo + hi) / 2, mid_y + dy, BODY_TOP + 0.15)),
+                   ACCENT, root, mat, 0.0)
+        for k, ex in enumerate((lo + 0.005, hi - 0.005)):
+            for dy in (0.0,):
+                finish("tray_stop_%s_%d_%d" % (side, k, dy > 0), prism(6, 0.025, 0.025, BODY_TOP, BODY_TOP + 0.3, x=ex, y=mid_y + dy),
+                       METAL_DARK, root, mat, 0.0)
+                finish("tray_stop_cap_%s_%d_%d" % (side, k, dy > 0), prism(6, 0.032, 0.022, BODY_TOP + 0.3, BODY_TOP + 0.33, x=ex, y=mid_y + dy),
+                       ACCENT, root, mat, 0.0)
         for (ly, row) in slots:
             z = BODY_TOP + 0.035 + log_r + row * (log_r * 1.73)
             log_along_x(lo + 0.03, hi - 0.03, mid_y + ly, z, log_r, root, mat, "store_log_%d" % index)

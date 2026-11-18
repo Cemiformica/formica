@@ -29,7 +29,12 @@ FRAME = (5, 3)         # gris del Nexo
 MOUTH = (5, 6)         # interior oscuro
 ARROW_IN = (2, 2)      # verde: entra
 ARROW_OUT = (6, 2)     # ámbar: sale
-RIVET = (5, 5)         # remaches, gris oscuro
+RIVET = (5, 2)         # tornillos del bisel, gris claro (sobre el bisel oscuro)
+BEZEL = (5, 4)         # bisel hundido alrededor de la boca, anillo del túnel, cantoneras y placa de la flecha
+BEZEL_W = 0.035        # ancho del bisel alrededor de la boca
+BEZEL_D = 0.02         # lo que se hunde el bisel en la cara exterior
+# Detalles v2 (César: «los puertos son lo más básico y lo que más se ve»). Nada sobresale por delante de la
+# casilla (y = 0,5) ni cambia la boca o el fondo: la unión con máquinas y cintas no cambia.
 BAND_TEXTURE = "//../../assets/textures/belt_band.png"
 BAND_TEX_PER_M = 2     # repeticiones de la textura de la banda por metro: el TEX_PER_M de conveyor_blockout.py
 TONGUE_SHELL = (5, 3)  # artesa de la lengüeta: el mismo gris que el marco y que la cinta
@@ -118,6 +123,40 @@ def hex_prism(bm, w: float, h: float, y0: float, y1: float, cz: float) -> list:
     return faces
 
 
+def box_faces(bm, size, center) -> list:
+    # Caja añadida a `bm`; devuelve sus caras.
+    hx, hy, hz = size[0] / 2, size[1] / 2, size[2] / 2
+    cx, cy, cz = center
+    v = [bm.verts.new((cx + sx * hx, cy + sy * hy, cz + sz * hz))
+         for sx, sy, sz in ((-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1), (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1))]
+    faces = [bm.faces.new(f) for f in ((v[0], v[3], v[2], v[1]), (v[4], v[5], v[6], v[7]), (v[0], v[1], v[5], v[4]),
+                                       (v[2], v[3], v[7], v[6]), (v[1], v[2], v[6], v[5]), (v[3], v[0], v[4], v[7]))]
+    return faces
+
+
+def tunnel_ring(bm, y: float) -> list:
+    # Aro dentro del túnel (paredes de arriba y techo): la mitad de arriba del hexágono de la boca, metida
+    # 2 cm hacia dentro, de 3 cm de largo.
+    w, h = MOUTH_W, MOUTH_H
+    k = w - h * math.tan(math.radians(30))
+    outer = [(w, 0.0), (k, h), (-k, h), (-w, 0.0)]
+    inset = 0.02
+    inner = [(w - inset * 1.15, 0.0), (k - inset * 0.58, h - inset), (-k + inset * 0.58, h - inset), (-w + inset * 1.15, 0.0)]
+    faces = []
+    rows = []
+    for yy in (y - 0.015, y + 0.015):
+        rows.append(([bm.verts.new((x, yy, HEX_Z + z)) for x, z in outer], [bm.verts.new((x, yy, HEX_Z + z)) for x, z in inner]))
+    (o0, i0), (o1, i1) = rows
+    for a in range(3):
+        b = a + 1
+        faces.append(bm.faces.new((i0[a], i0[b], i1[b], i1[a])))   # cara de dentro
+        faces.append(bm.faces.new((o0[a], o0[b], i0[b], i0[a])))   # canto de atrás
+        faces.append(bm.faces.new((o1[a], i1[a], i1[b], o1[b])))   # canto de delante
+    for side in (0, 3):
+        faces.append(bm.faces.new((o0[side], i0[side], i1[side], o1[side])))
+    return faces
+
+
 def build_port(name: str, inward: bool, arrow_color: tuple, mat) -> None:
     for child_name in ("belt_tongue_" + name.split("_")[-1],):
         old_child = bpy.data.objects.get(child_name)
@@ -154,6 +193,17 @@ def build_port(name: str, inward: bool, arrow_color: tuple, mat) -> None:
     boolean = obj.modifiers.new("hole", "BOOLEAN")
     boolean.operation = "DIFFERENCE"
     boolean.object = cutter
+    # Bisel: un escalón hexagonal hundido BEZEL_D alrededor de la boca.
+    bezel_bm = bmesh.new()
+    hex_prism(bezel_bm, MOUTH_W + BEZEL_W, MOUTH_H + BEZEL_W, OUTER_Y - BEZEL_D, OUTER_Y + 0.05, HEX_Z)
+    bmesh.ops.recalc_face_normals(bezel_bm, faces=bezel_bm.faces)
+    bezel_mesh = bpy.data.meshes.new("port_bezel_cutter")
+    bezel_bm.to_mesh(bezel_mesh); bezel_bm.free()
+    bezel_cutter = bpy.data.objects.new("port_bezel_cutter", bezel_mesh)
+    bpy.context.collection.objects.link(bezel_cutter)
+    bezel_mod = obj.modifiers.new("bezel", "BOOLEAN")
+    bezel_mod.operation = "DIFFERENCE"
+    bezel_mod.object = bezel_cutter
     bevel = obj.modifiers.new("bevel", "BEVEL")
     bevel.width = 0.015
     bevel.segments = 1   # un solo segmento: compensa los remaches (presupuesto de triángulos)
@@ -169,6 +219,8 @@ def build_port(name: str, inward: bool, arrow_color: tuple, mat) -> None:
     new_mesh.name = name  # después de borrar la vieja, para que no quede «port_input.001»
     bpy.data.objects.remove(cutter, do_unlink=True)
     bpy.data.meshes.remove(cutter_mesh)
+    bpy.data.objects.remove(bezel_cutter, do_unlink=True)
+    bpy.data.meshes.remove(bezel_mesh)
 
     # 2) Añadidos: tapón oscuro al fondo del túnel (no se ve a través) y flecha encima.
     bm = bmesh.new()
@@ -178,29 +230,50 @@ def build_port(name: str, inward: bool, arrow_color: tuple, mat) -> None:
     y_mid = OUTER_Y - DEPTH / 2
     outline = [(-0.05, -0.095), (0.05, -0.095), (0.05, 0.0), (0.14, 0.0), (0.0, 0.095), (-0.14, 0.0), (-0.05, 0.0)]
     sign = -1.0 if inward else 1.0
-    z0, z1 = HEIGHT, HEIGHT + 0.025
+    z0, z1 = HEIGHT + 0.008, HEIGHT + 0.03
+    # Placa oscura bajo la flecha, como si la flecha estuviera encastrada en la tapa.
+    plate = box_faces(bm, (0.34, 0.24, 0.012), (0.0, y_mid, HEIGHT + 0.002))
     low = [bm.verts.new((x, y_mid + sign * y, z0)) for x, y in outline]
     high = [bm.verts.new((x, y_mid + sign * y, z1)) for x, y in outline]
     arrow = [bm.faces.new(low), bm.faces.new(high)]
     for i in range(len(outline)):
         j = (i + 1) % len(outline)
         arrow.append(bm.faces.new((low[i], low[j], high[j], high[i])))
-    # Remaches: cuatro hexagonales en las esquinas de la cara exterior (el toque de juguete).
+    # Seis tornillos hexagonales en las esquinas del bisel, sobre su cara hundida (no pasan de y = 0,5).
     rivets = []
-    for rx in (-WIDTH / 2 + 0.06, WIDTH / 2 - 0.06):
-        for rz in (0.06, HEIGHT - 0.06):
-            rivets.extend(hex_rivet((rx, OUTER_Y, rz), (0, 1, 0), 0.018, 0.03, bm=bm))  # medio hundidos
+    w, h = MOUTH_W + BEZEL_W / 2, MOUTH_H + BEZEL_W / 2
+    k = w - h * math.tan(math.radians(30))
+    for (bx, bz) in ((w, 0.0), (k, h), (-k, h), (-w, 0.0), (-k, -h), (k, -h)):
+        rivets.extend(hex_rivet((bx, OUTER_Y - BEZEL_D, HEX_Z + bz), (0, 1, 0), 0.014, 0.024, bm=bm))
+    # Listón del color de la flecha en la cara exterior, encima del bisel: verde entra, ámbar sale.
+    strip = box_faces(bm, (0.5, 0.012, 0.024), (0.0, OUTER_Y, HEIGHT - 0.045))
+    # Anillo a mitad del túnel, solo en las paredes de arriba y el techo (el suelo, libre para la lengüeta).
+    ring = tunnel_ring(bm, OUTER_Y - DEPTH / 2)
+    # Cantoneras en las dos aristas verticales de delante (sobresalen 1,5 cm por los lados, no por delante).
+    posts = []
+    for sx in (-1.0, 1.0):
+        posts.extend(box_faces(bm, (0.04, 0.04, HEIGHT - 0.03), (sx * (WIDTH / 2 - 0.005), OUTER_Y - 0.02, (HEIGHT - 0.03) / 2)))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 
     # 3) Colores: túnel y tapón oscuros, flecha de su color, el resto del marco gris.
     uv = bm.loops.layers.uv.active or bm.loops.layers.uv.new("UVMap")
     arrow_set, plug_set, rivet_set = set(arrow), set(plug), set(rivets)
+    strip_set, dark_set = set(strip), set(ring) | set(posts) | set(plate)
     for f in bm.faces:
         color = FRAME
         c = f.calc_center_median()
-        in_tunnel = abs(c.x) < MOUTH_W + 0.02 and abs(c.z - HEX_Z) < MOUTH_H + 0.03 and abs(f.normal.y) < 0.5
+        near_mouth = abs(c.x) < MOUTH_W + BEZEL_W + 0.02 and abs(c.z - HEX_Z) < MOUTH_H + BEZEL_W + 0.03
+        # Todo lo que queda por dentro del bisel (paredes y los biseles del borde de la boca) va oscuro.
+        in_tunnel = near_mouth and f.normal.y > -0.5 and c.y < OUTER_Y - BEZEL_D - 0.002
+        in_bezel = near_mouth and c.y > OUTER_Y - BEZEL_D - 0.002 and c.y < OUTER_Y - 0.002
+        if in_bezel:
+            color = BEZEL
         if f in plug_set or in_tunnel:
             color = MOUTH
+        if f in dark_set:
+            color = BEZEL
+        if f in strip_set:
+            color = arrow_color
         if f in plug_set and f.normal.y < -0.5:
             # La cara de DETRÁS del tapón va del gris del marco: así, si el cuerpo de la máquina no tapa
             # del todo el fondo del puerto, no asoma un hexágono oscuro por detrás (César, caja logística).

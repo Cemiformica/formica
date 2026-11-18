@@ -32,6 +32,7 @@ ROOT = "workbench"
 TEXTURE = "//../../assets/textures/palette.png"
 
 WOOD, WOOD_DARK, WOOD_END = (0, 3), (0, 4), (0, 2)
+WOOD_LIGHT, WOOD_DEEP = (0, 2), (0, 5)
 STONE, STONE_DARK = (1, 3), (1, 5)
 COPPER, COPPER_DARK = (3, 1), (3, 2)
 METAL_LIGHT, METAL, METAL_DARK, METAL_DEEP = (5, 2), (5, 3), (5, 4), (5, 5)
@@ -309,7 +310,21 @@ def build() -> None:
     # --- Panel de herramientas al fondo (norte), con agujeros hexagonales y dos herramientas ---
     for k, x in enumerate((-0.82, 0.82)):
         finish("board_post_%d" % k, box((0.06, 0.06, 0.92), (x, HALF_Y - 0.05, TOP_Z + 0.46)), WOOD_DARK, root, mat, 0.008)
-    finish("pegboard", box((1.58, 0.04, 0.62), (0.0, HALF_Y - 0.05, TOP_Z + 0.5)), WOOD, root, mat, 0.008)
+    # Panel de tablas verticales (César: el panel liso parecía plano): un fondo oscuro que asoma por las juntas,
+    # cinco tablas de tonos y gruesos un poco distintos, y dos listones clavados que las sujetan.
+    board_y = HALF_Y - 0.05
+    finish("pegboard_back", box((1.58, 0.02, 0.62), (0.0, board_y + 0.012, TOP_Z + 0.5)), WOOD_DEEP, root, mat, 0.0)
+    plank_w = 1.58 / 5
+    for k in range(5):
+        depth = 0.036 + (0.008 if k % 2 else 0.0) + (0.004 if k == 2 else 0.0)
+        x = -0.79 + plank_w * (k + 0.5)
+        color = (WOOD, WOOD_LIGHT, WOOD, WOOD_DARK, WOOD)[k]
+        finish("pegboard_plank_%d" % k, box((plank_w - 0.012, depth, 0.62 - 0.01 * (k % 2)), (x, board_y + 0.02 - depth * 0.5, TOP_Z + 0.5)), color, root, mat, 0.006)
+    for k, z in enumerate((TOP_Z + 0.24, TOP_Z + 0.78)):
+        finish("pegboard_batten_%d" % k, box((1.52, 0.024, 0.06), (0.0, board_y - 0.036, z)), WOOD_DARK, root, mat, 0.006)
+        for c in range(5):
+            x = -0.79 + plank_w * (c + 0.5)
+            finish("pegboard_nail_%d_%d" % (k, c), hex_rivet((x, board_y - 0.05, z), (0, -1, 0), r=0.011, depth=0.012), METAL_DEEP, root, mat, 0.0)
     finish("pegboard_cap", box((1.72, 0.08, 0.05), (0.0, HALF_Y - 0.05, TOP_Z + 0.94)), METAL_DARK, root, mat, 0.008)
     for x in (-0.7, -0.4, 0.4, 0.7):
         finish("cap_rivet_%d" % int((x + 1) * 100), hex_rivet((x, HALF_Y - 0.09, TOP_Z + 0.94), (0, -1, 0), r=0.014), METAL_DEEP, root, mat, 0.0)

@@ -7,7 +7,7 @@
 # Godot. Aquí solo se colocan copias de referencia (colección «ref_ports», no se exporta) para ver cómo
 # encajan. Regla: donde hay un puerto, el cuerpo llega con una pared plana hasta 0,25 m del borde.
 #
-# Nodos para Godot: ember_window_east/west (brasa), cable_insulator (se ilumina con cable), cable_anchor,
+# Nodos para Godot: ember_window_east_0…2 / west_0…2 (brasas, cada grupo a su ritmo), cable_insulator (se ilumina con cable), cable_anchor,
 # smoke_origin (humo) y bellows_pivot (fuelle animado).
 #
 # Uso: Editor de texto de Blender → abrir → Alt+P. Si ya existe «furnace», lo borra y lo rehace.
@@ -140,6 +140,22 @@ def box(size, center) -> bmesh.types.BMesh:
     bmesh.ops.create_cube(bm, size=1.0)
     bmesh.ops.scale(bm, vec=Vector(size), verts=bm.verts)
     bmesh.ops.translate(bm, vec=Vector(center), verts=bm.verts)
+    return bm
+
+
+def coal_group(pieces, seed: int) -> bmesh.types.BMesh:
+    # Brasas de juguete (César: la ventana entera brillando parecía una pantalla o lava): piedrecitas
+    # facetadas, como el humo y el carbón, juntas en una malla que Godot enciende a su ritmo.
+    import random
+    rng = random.Random(seed)
+    bm = bmesh.new()
+    for center, radius in pieces:
+        verts = bmesh.ops.create_icosphere(bm, subdivisions=1, radius=radius)["verts"]
+        for v in verts:
+            v.co *= 1.0 + rng.uniform(-0.18, 0.18)
+            v.co.z *= 0.8
+        bmesh.ops.rotate(bm, verts=verts, cent=(0, 0, 0), matrix=Matrix.Rotation(rng.uniform(0, math.tau), 3, "Z"))
+        bmesh.ops.translate(bm, vec=Vector(center), verts=verts)
     return bm
 
 
@@ -280,41 +296,89 @@ def build() -> None:
     finish("rim", prism(6, 0.64, 0.64, 1.95, 2.06, angle=HEX), STONE_DEEP, root, mat)
     finish("chimney", prism(6, 0.25, 0.2, 2.06, 2.8, angle=HEX), CLAY_DARK, root, mat)
 
-    # Ventanitas de brasa: centradas en las caras este y oeste (planas, |x| ≈ 0,63 a esa altura) y
-    # HUNDIDAS 4 cm. El cristal usa palette_emissive; Godot enciende todo lo que empiece por «ember_window».
+    # Ventanitas de brasa: centradas en las caras este y oeste (planas, |x| ≈ 0,63 a esa altura) y hundidas.
+    # Dentro, un montón de brasas de juguete en tres grupos (Godot enciende cada «ember_window…» a su ritmo)
+    # tras una rejilla de barrotes de hierro; el fondo queda oscuro (César: antes parecía una pantalla).
+    GRATE = (5, 5)
     for side, sx in (("east", 1.0), ("west", -1.0)):
         cut_recess(body_stone, (0.2, 0.32, 0.24), (sx * 0.69, 0.0, 1.14), STONE_DEEP)
-        finish("ember_window_" + side, box((0.01, 0.32, 0.24), (sx * 0.595, 0.0, 1.14)), EMBER, root, glow, 0.0)
+        finish("ember_back_" + side, box((0.01, 0.32, 0.24), (sx * 0.597, 0.0, 1.14)), (5, 6), root, mat, 0.0) # fondo oscuro
+        for g in range(3):
+            pieces = []
+            for k in range(4):  # cuatro brasas por grupo (con cinco se pasaba del presupuesto)
+                y = -0.12 + g * 0.085 + (k % 3) * 0.028
+                z = 1.05 + (0.045 if k >= 3 else 0.0) + (0.01 if g == 1 else 0.0)
+                x = sx * (0.605 + (0.012 if k % 2 else 0.0))
+                pieces.append(((x, y, z), 0.032 + 0.006 * ((k + g) % 3)))
+            finish("ember_window_%s_%d" % (side, g), coal_group(pieces, 7 + g + (10 if sx > 0 else 0)), EMBER, root, glow, 0.0)
+        for y in (-0.08, 0.0, 0.08):
+            finish("ember_grate_%s_%d" % (side, int((y + 1) * 100)), box((0.018, 0.02, 0.24), (sx * 0.632, y, 1.14)), GRATE, root, mat, 0.0)
+        finish("ember_grate_%s_bar" % side, box((0.018, 0.3, 0.02), (sx * 0.632, 0.0, 1.2)), GRATE, root, mat, 0.0)
 
-    # Fuelle sobre el zócalo, en la esquina suroeste, soplando hacia la cuba (al norte).
+    # Fuelle sobre el zócalo, en la esquina suroeste, soplando hacia la cuba (al norte). César: «que no parezca
+    # de plástico»: cuero oscuro en pliegues que sobresalen y se meten alternos, tablas de madera con flejes
+    # de hierro, boquilla de cobre con su aro y una orejeta en la tabla de arriba donde engancha la biela.
     y_back, y_front, z_mid = -0.93, -0.62, 1.0
-    finish("bellows", wedge(-0.48, y_back, y_front, z_mid, 0.12, 0.04, 0.3), FIBER, root, mat, 0.01)
-    for i, t in enumerate((0.3, 0.6)):
-        y = y_back + (y_front - y_back) * t
-        half = 0.12 + (0.04 - 0.12) * t
-        finish("bellows_pleat_%d" % i, box((0.32, 0.03, half * 2 + 0.02), (-0.48, y, z_mid)), FIBER_DARK, root, mat, 0.005)
-    finish("bellows_board_top", box((0.34, 0.33, 0.025), (-0.48, -0.775, z_mid + 0.095)), WOOD, root, mat, 0.008)
-    finish("bellows_board_bottom", box((0.34, 0.33, 0.025), (-0.48, -0.775, z_mid - 0.095)), WOOD, root, mat, 0.008)
-    finish("bellows_nozzle", box((0.06, 0.16, 0.06), (-0.48, -0.53, z_mid)), WOOD_DARK, root, mat, 0.01)
+    LEATHER, LEATHER_DARK = (4, 6), (4, 7)
+    COPPER, COPPER_DARK = (3, 1), (3, 2)
+    IRON = (5, 4)
+    moving = []
+    folds = 7
+    for k in range(folds):
+        t0, t1 = k / folds, (k + 1) / folds
+        ya, yb = y_back + (y_front - y_back) * t0, y_back + (y_front - y_back) * t1
+        ha, hb = 0.085 + (0.03 - 0.085) * t0, 0.085 + (0.03 - 0.085) * t1
+        out = 0.012 if k % 2 == 0 else 0.0
+        name = "bellows_fold_%d" % k
+        finish(name, wedge(-0.48, ya, yb, z_mid, ha + out, hb + out, 0.3 + 2 * out), LEATHER if k % 2 == 0 else LEATHER_DARK, root, mat, 0.0)
+        moving.append(name)
+    for name, z in (("bellows_board_top", z_mid + 0.1), ("bellows_board_bottom", z_mid - 0.1)):
+        finish(name, box((0.36, 0.34, 0.03), (-0.48, -0.775, z)), WOOD, root, mat, 0.0)
+        for k, y in enumerate((-0.86, -0.69)):
+            strap = name + "_strap_%d" % k
+            finish(strap, box((0.38, 0.03, 0.036), (-0.48, y, z)), IRON, root, mat, 0.0)
+            if name.endswith("top"):
+                moving.append(strap)
+    moving.append("bellows_board_top")
+    nozzle = prism(6, 0.034, 0.024, 0.0, 0.13, angle=math.radians(30))
+    bmesh.ops.transform(nozzle, matrix=Matrix.Translation((-0.48, y_front - 0.01, z_mid)) @ Matrix.Rotation(math.radians(-90), 4, "X"), verts=nozzle.verts)
+    finish("bellows_nozzle", nozzle, COPPER, root, mat, 0.004)
+    collar = prism(6, 0.042, 0.042, 0.0, 0.025, angle=math.radians(30))
+    bmesh.ops.transform(collar, matrix=Matrix.Translation((-0.48, y_front - 0.005, z_mid)) @ Matrix.Rotation(math.radians(-90), 4, "X"), verts=collar.verts)
+    finish("bellows_nozzle_collar", collar, COPPER_DARK, root, mat, 0.0)
+    moving += ["bellows_nozzle", "bellows_nozzle_collar"]
+    # Orejeta en el canto este de la tabla de arriba y la biela que baja a la manivela del eje (se mueve con
+    # la tabla: así el fuelle se ve empujado por el motor).
+    finish("bellows_lug", box((0.03, 0.05, 0.06), (-0.315, -0.85, z_mid + 0.11)), IRON, root, mat, 0.004)
+    finish("bellows_rod", box((0.022, 0.022, 0.09), (-0.29, -0.85, z_mid + 0.08)), METAL, root, mat, 0.0)
+    moving += ["bellows_lug", "bellows_rod"]
 
     # Pivote del fuelle: en la tabla de abajo, del lado de la boquilla. Godot escala el pivote en
     # vertical (aplasta y estira) mientras el horno trabaja. La tabla de abajo no se mueve; la boquilla
     # sí (cuelga del pivote), para que siga al fuelle y no asome al aplastarse (César).
-    pivot_pos = Vector((-0.48, y_front, z_mid - 0.095))
+    pivot_pos = Vector((-0.48, y_front, z_mid - 0.1))
     pivot = bpy.data.objects.new("bellows_pivot", None)
     pivot.empty_display_type = "ARROWS"
     pivot.empty_display_size = 0.1
     pivot.location = pivot_pos
     pivot.parent = root
     bpy.context.collection.objects.link(pivot)
-    for moving in ("bellows", "bellows_pleat_0", "bellows_pleat_1", "bellows_board_top", "bellows_nozzle"):
-        obj = bpy.data.objects[moving]
+    for moving_name in moving:
+        obj = bpy.data.objects[moving_name]
         obj.parent = pivot
         obj.matrix_parent_inverse = Matrix.Translation(pivot_pos).inverted()
 
     # Motor eléctrico del fuelle (gris del Nexo y cristal), en la esquina sureste del zócalo.
     finish("motor", box((0.28, 0.26, 0.24), (0.42, -0.74, 1.0)), METAL, root, mat)
     finish("motor_glass", box((0.14, 0.16, 0.04), (0.37, -0.74, 1.13)), GLASS, root, mat, 0.01)
+    # Detalles del motor (César): aletas de refrigeración en la cara sur, una tapa hexagonal al este con
+    # tornillos y un anillo naranja.
+    for k in range(5):
+        finish("motor_fin_%d" % k, box((0.018, 0.03, 0.18), (0.32 + k * 0.05, -0.885, 1.0)), (5, 4), root, mat, 0.0)
+    cap = prism(6, 0.1, 0.085, 0.0, 0.04, angle=math.radians(30))
+    bmesh.ops.transform(cap, matrix=Matrix.Translation((0.56, -0.74, 1.0)) @ Matrix.Rotation(math.radians(90), 4, "Y"), verts=cap.verts)
+    finish("motor_endcap", cap, (5, 4), root, mat, 0.004)
+    finish("motor_band", box((0.03, 0.27, 0.25), (0.5, -0.74, 1.0)), (4, 2), root, mat, 0.004)
 
     # Borne del cable en el motor: poste y aislante hexagonal. El vacío «cable_anchor», en su punta,
     # le dice a Godot dónde se engancha exactamente el cable.
@@ -336,7 +400,24 @@ def build() -> None:
     bpy.context.collection.objects.link(smoke)
     # Eje del fuelle: del costado oeste del motor (x = 0,28) al fuelle (x = −0,33), por fuera de la
     # esquina sur de la cuba (que está en y = −0,75).
-    finish("drive_shaft", box((0.61, 0.06, 0.06), (-0.025, -0.85, 1.0)), METAL, root, mat, 0.01)
+    # Transmisión (César: la barra lisa parecía de plástico): eje hexagonal, polea naranja en el motor,
+    # cojinete sobre un soporte a mitad de camino y una manivela al final, donde engancha la biela del fuelle.
+    shaft = prism(6, 0.026, 0.026, -0.3, 0.28, angle=math.radians(30))
+    bmesh.ops.transform(shaft, matrix=Matrix.Translation((0.0, -0.85, 1.0)) @ Matrix.Rotation(math.radians(90), 4, "Y"), verts=shaft.verts)
+    finish("drive_shaft", shaft, (5, 2), root, mat, 0.0)
+    # Polea, manivela y tornillos del cojinete en cobre (herrajes: brillan, D-105; César).
+    for name, x, r, w, color in (("drive_pulley", 0.255, 0.075, 0.03, (3, 2)), ("drive_crank", -0.285, 0.06, 0.025, (3, 2))):
+        disc = prism(8, r, r, -w / 2, w / 2)
+        bmesh.ops.transform(disc, matrix=Matrix.Translation((x, -0.85, 1.0)) @ Matrix.Rotation(math.radians(90), 4, "Y"), verts=disc.verts)
+        finish(name, disc, color, root, mat, 0.0)
+        hub = prism(6, 0.03, 0.03, -w, w, angle=math.radians(30))
+        bmesh.ops.transform(hub, matrix=Matrix.Translation((x, -0.85, 1.0)) @ Matrix.Rotation(math.radians(90), 4, "Y"), verts=hub.verts)
+        finish(name + "_hub", hub, (5, 5), root, mat, 0.0)
+    finish("drive_crank_pin", box((0.03, 0.022, 0.022), (-0.285, -0.85, 1.04)), (5, 5), root, mat, 0.0)
+    finish("drive_bearing", box((0.08, 0.09, 0.08), (-0.01, -0.85, 1.0)), (5, 4), root, mat, 0.006)
+    finish("drive_bearing_post", box((0.05, 0.05, 0.1), (-0.01, -0.85, 0.91)), (5, 5), root, mat, 0.0)
+    for x in (-0.04, 0.02):
+        finish("drive_bearing_bolt_%d" % int((x + 1) * 100), hex_rivet((x, -0.85, 1.04), (0, 0, 1), r=0.012, depth=0.012), (3, 1), root, mat, 0.0)
 
     add_details(root, mat, body_stone)
 

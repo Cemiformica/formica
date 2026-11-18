@@ -9,7 +9,8 @@
 # hasta ahí para que el puerto quede pegado.
 # Para ver cómo encaja, se trae una copia de la veta (colección «ref_vein», no se exporta).
 #
-# Nodos para Godot: cable_insulator, cable_anchor, drill_pivot (lo que cuelga de él gira y sube y baja
+# Nodos para Godot: status_light_east / status_light_west (puntas de las antenas: verde con sitio, ámbar
+# lleno), cable_insulator, cable_anchor, drill_pivot (lo que cuelga de él gira y sube y baja
 # mientras trabaja), dust_origin (sale polvo donde excava la broca, César) y store_fill_pivot (el
 # mineral de las mirillas: se escala en vertical según lo lleno que esté el almacén).
 #
@@ -240,6 +241,42 @@ def place_reference_vein() -> None:
         obj.hide_select = True
 
 
+def place_reference_port() -> None:
+    # Copia de referencia del puerto de salida de port.blend al norte (malla enlazada; no se exporta).
+    refs = bpy.data.collections.get("ref_ports")
+    if refs is None:
+        refs = bpy.data.collections.new("ref_ports")
+        bpy.context.scene.collection.children.link(refs)
+    for obj in list(refs.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
+    found = next((o for o in bpy.data.objects if o.name == "port_output" and o.library is not None), None)
+    if found is None:
+        with bpy.data.libraries.load("//port.blend", link=True) as (src, dst):
+            dst.objects = ["port_output"]
+        found = dst.objects[0]
+    obj = bpy.data.objects.new("ref_port_output", found.data)
+    obj.location = (0.0, 0.5, 0.0)
+    refs.objects.link(obj)
+
+
+def arch_segment_y(y0: float, y1: float, half_x: float, z0: float, rise: float, sides: int = 6) -> bmesh.types.BMesh:
+    # Segmento de tapa abombada (como en la caja logística): medio polígono en el plano XZ, de y0 a y1.
+    bm = bmesh.new()
+    rings = []
+    for y in (y0, y1):
+        ring = []
+        for i in range(sides + 1):
+            a = math.pi * i / sides
+            ring.append(bm.verts.new((half_x * math.cos(a), y, z0 + rise * math.sin(a))))
+        rings.append(ring)
+    for i in range(sides):
+        bm.faces.new((rings[0][i], rings[0][i + 1], rings[1][i + 1], rings[1][i]))
+    bm.faces.new(list(reversed(rings[0])))
+    bm.faces.new(rings[1])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return bm
+
+
 def hex_box(r: float, z0: float, z1: float, x=0.0, y=0.0) -> bmesh.types.BMesh:
     # Prisma hexagonal con caras planas al norte y al sur (como el módulo de la placa solar).
     return prism(6, r, r, z0, z1, x, y)
@@ -269,6 +306,17 @@ def build() -> None:
             for dz in (0.74, 1.02):
                 finish("rivet_%s_%d_%d" % (side, dx > 0, dz > 0.9), hex_rivet((dx, hy + sy * apothem, dz), (0, sy, 0)),
                        METAL_DEEP, root, mat, 0.0)
+    # Antenas de hormiga en la cabeza (como las de la caja logística, César), inclinadas hacia la veta, con
+    # la luz de estado en la punta: verde si al almacén le cabe algo más, ámbar si está lleno.
+    for side, sx in (("east", 1.0), ("west", -1.0)):
+        p0 = Vector((sx * 0.13, hy - 0.08, 1.15))
+        p1 = Vector((sx * 0.21, hy - 0.2, 1.3))
+        p2 = Vector((sx * 0.31, hy - 0.33, 1.35))
+        finish("antenna_%s_socket" % side, prism(6, 0.04, 0.032, p0.z - 0.05, p0.z + 0.01, x=p0.x, y=p0.y), METAL_DEEP, root, mat, 0.0)
+        finish("antenna_%s_0" % side, strut(p0, p1, 0.03), METAL_DARK, root, mat, 0.0)
+        finish("antenna_%s_1" % side, strut(p1, p2, 0.026), METAL_DARK, root, mat, 0.0)
+        finish("antenna_%s_joint" % side, prism(6, 0.026, 0.026, p1.z - 0.02, p1.z + 0.02, x=p1.x, y=p1.y), ACCENT, root, mat, 0.0)
+        finish("status_light_" + side, prism(6, 0.04, 0.028, p2.z - 0.015, p2.z + 0.05, x=p2.x, y=p2.y), GLASS, root, mat, 0.006)
     # Borne del cable encima, como el del horno.
     finish("cable_post", box((0.06, 0.06, 0.08), (0.0, hy, 1.2)), METAL, root, mat, 0.008)
     finish("cable_insulator", prism(6, 0.065, 0.048, 1.22, 1.31, y=hy), GLASS, root, mat, 0.008)
@@ -295,46 +343,55 @@ def build() -> None:
     for i, y in enumerate((-0.2, 0.06)):
         finish("duct_band_%d" % i, box((0.21, 0.035, 0.19), (0.0, y, 0.78)), ACCENT, root, mat, 0.0)
 
-    # --- Cola: almacén metálico (su salida es el puerto estándar, que pone Godot al norte) ---
-    # Igual de ancho que el puerto estándar (0,8 m) o un poco más, para que no sobresalga (César).
-    # Base, flejes y tapa sobresalen por los lados y por detrás, pero acaban A RAS de la cara del puerto
-    # (y = 0,75), para que no hagan escalón con él (César).
-    # Las franjas y la tapa sobresalen 3 cm de la carcasa por los lados y por el sur; por el norte el
-    # almacén se mete 1,5 cm para que también sobresalgan ahí. La carcasa llega justo a la trasera del
-    # puerto (y = 0,735) y base, franjas y tapa 1 cm más allá, por dentro del marco: sin hueco (César).
-    trim_y0, trim_y1 = 0.09, 0.76
+    # --- Cola: cámara de almacén como la de la caja logística (César) ---
+    # Abajo, una caja metálica de la misma altura que el marco del puerto (0,62 m), plana por detrás y a ras
+    # de él: el puerto encaja como en la caja logística. Encima, la tapa de caparazón de hormiga: tres
+    # segmentos oscuros abombados (más bajo el de atrás, junto al puerto) con dos anillos naranjas. El
+    # conducto de la cabeza entra por el segmento de delante.
+    # La caja llega justo a la trasera del puerto (y = 0,735); base, franja y reborde 2,5 cm más allá, por
+    # dentro del marco: sin hueco (César).
     store_y0, store_y1 = 0.12, 0.735
+    trim_y0, trim_y1 = 0.1, 0.76
     trim_len, trim_mid = trim_y1 - trim_y0, (trim_y0 + trim_y1) / 2
-    finish("store_base", box((0.96, trim_len, 0.08), (0.0, trim_mid, 0.04)), METAL_DEEP, root, mat, 0.01)
-    # Más alto que en la v1 (César): el conducto entra por el costado, por debajo de la tapa.
-    store = finish("store", box((0.84, store_y1 - store_y0, 0.92), (0.0, (store_y0 + store_y1) / 2, 0.54)), METAL, root, mat, 0.02)
-    finish("store_lid", box((0.92, trim_len, 0.06), (0.0, trim_mid, 1.03)), ACCENT, root, mat, 0.012)
-    finish("store_band", box((0.9, trim_len, 0.06), (0.0, trim_mid, 0.3)), ACCENT, root, mat, 0.006)
-    finish("store_band_top", box((0.9, trim_len, 0.04), (0.0, trim_mid, 0.96)), ACCENT, root, mat, 0.006)
-    # Mirillas HUNDIDAS en los lados este y oeste (César), con el mineral dentro: se ve qué guarda.
+    half_x, z0, z1 = 0.4, 0.07, 0.62
+    store = finish("store", box((2 * half_x, store_y1 - store_y0, z1 - z0), (0.0, STORE_Y, (z0 + z1) / 2)), METAL, root, mat, 0.02)
+    finish("store_base", box((2 * half_x + 0.04, trim_len, z0 + 0.02), (0.0, trim_mid, (z0 + 0.02) / 2)), METAL_DEEP, root, mat, 0.01)
+    finish("store_band", box((2 * half_x + 0.02, trim_len, 0.05), (0.0, trim_mid, z0 + 0.1)), ACCENT, root, mat, 0.006)
+    finish("store_rim", box((2 * half_x + 0.04, trim_len, 0.05), (0.0, trim_mid, z1 + 0.02)), METAL_DARK, root, mat, 0.01)
+    # Caparazón: 3 segmentos con 2 anillos naranjas (como la caja logística y la tapa del arcón).
+    shell_z = z1 + 0.045
+    segs = [(trim_y0, 0.3, 0.85), (0.34, 0.52, 1.0), (0.56, trim_y1, 0.7)]
+    for k, (y0, y1, scale) in enumerate(segs):
+        finish("shell_%d" % k, arch_segment_y(y0, y1, (half_x + 0.02) * (0.9 + 0.1 * scale), shell_z, 0.3 * scale),
+               METAL_DEEP, root, mat, 0.012)
+    for k, (y0, y1) in enumerate(((0.29, 0.35), (0.51, 0.57))):
+        finish("shell_ring_%d" % k, arch_segment_y(y0, y1, half_x + 0.035, shell_z, 0.3 + 0.025), ACCENT, root, mat, 0.006)
+
+    # Mirillas HUNDIDAS en los costados este y oeste (César), con un marco arriba y abajo y el mineral dentro.
+    win_z, win_h, win_w = 0.3, 0.14, 0.32
     for side, sx in (("east", 1.0), ("west", -1.0)):
-        cut_recess(store, (0.1, 0.3, 0.18), (sx * 0.42, STORE_Y, 0.6), METAL_DEEP)
-        finish("store_window_" + side, box((0.01, 0.3, 0.18), (sx * 0.375, STORE_Y, 0.6)), GLASS, root, mat, 0.0)
+        cut_recess(store, (0.1, win_w, win_h), (sx * half_x, STORE_Y, win_z), METAL_DEEP)
+        for k, dz in enumerate((win_h / 2 + 0.015, -win_h / 2 - 0.015)):
+            finish("store_window_frame_%s_%d" % (side, k), box((0.02, win_w + 0.08, 0.03), (sx * (half_x + 0.005), STORE_Y, win_z + dz)),
+                   METAL_DARK, root, mat, 0.004)
+        finish("store_window_" + side, box((0.01, win_w, win_h), (sx * (half_x - 0.045), STORE_Y, win_z)), GLASS, root, mat, 0.0)
+        for dy in (-0.25, 0.25):
+            finish("store_rivet_%s_%d" % (side[0], dy > 0), hex_rivet((sx * (half_x + 0.004), STORE_Y + dy, win_z), (sx, 0, 0), r=0.016),
+                   METAL_DEEP, root, mat, 0.0)
     # Mineral visible en las dos mirillas: cuelga de «store_fill_pivot», en el fondo de la ventana. Godot lo
     # escala en vertical según lo lleno que esté el almacén (vacío = no se ve; lleno = llega arriba) y lo
     # pinta del color del ítem que saca (cada veta, el suyo; César).
-    fill_pos = Vector((0.0, STORE_Y, 0.51))
+    fill_pos = Vector((0.0, STORE_Y, win_z - win_h / 2))
     fill = empty("store_fill_pivot", fill_pos, root, "ARROWS", 0.08)
     for side, sx in (("east", 1.0), ("west", -1.0)):
         # En el mismo plano que el cristal (apenas 1 mm por delante): parece que el cristal se llena.
-        ore = finish("store_ore_" + side, box((0.012, 0.3, 0.18), (sx * 0.375, STORE_Y, 0.6)), ORE, root, mat, 0.0)
+        ore = finish("store_ore_" + side, box((0.012, win_w, win_h), (sx * (half_x - 0.044), STORE_Y, win_z)), ORE, root, mat, 0.0)
         ore.parent = fill
         ore.matrix_parent_inverse = Matrix.Translation(fill_pos).inverted()
-    for side, sx in (("e", 1.0), ("w", -1.0)):
-        for dy in (-0.22, 0.22):
-            for dz in (0.16, 0.86):
-                finish("store_rivet_%s_%d_%d" % (side, dy > 0, dz > 0.5), hex_rivet((sx * 0.42, STORE_Y + dy, dz), (sx, 0, 0)),
-                       METAL_DEEP, root, mat, 0.0)
 
-    # Emblema de la colonia pintado (crest.py) en los dos costados del almacén, sobre cada mirilla
-    # (la carcasa de la cabeza no tiene sitio libre: remaches, mirilla y franja).
+    # Emblema de la colonia pintado (crest.py) en los dos costados, entre la mirilla y el reborde.
     for side, sx in (("east", 1.0), ("west", -1.0)):
-        crest.add_crest(finish, root, mat, (sx * 0.42, STORE_Y, 0.81), (sx, 0.0, 0.0), scale=0.72, style="painted",
+        crest.add_crest(finish, root, mat, (sx * half_x, STORE_Y, 0.5), (sx, 0.0, 0.0), scale=0.5, style="painted",
                         prefix="crest_" + side)
 
     tris = 0
@@ -343,6 +400,7 @@ def build() -> None:
             tris += sum(len(p.vertices) - 2 for p in child.data.polygons)
     print("extractor: piezas:", len(root.children_recursive), "triángulos:", tris)
     place_reference_vein()
+    place_reference_port()
 
 
 build()

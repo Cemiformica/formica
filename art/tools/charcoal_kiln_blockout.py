@@ -8,7 +8,7 @@
 # hay copias de referencia (colección «ref_ports», no se exporta).
 # Convenciones: norte = +Y, este = +X, origen en el centro de la huella a ras de suelo, x, y ∈ [−1,5, 1,5].
 #
-# Nodos para Godot: ember_window_south / ember_window_north (brasa), smoke_origin_top / smoke_origin_vent_0…2 (humo).
+# Nodos para Godot: ember_window_south_0…2 / north_0…2 (brasas, cada grupo a su ritmo), smoke_origin_top / smoke_origin_vent_0…2 (humo).
 #
 # Uso: Editor de texto de Blender → abrir → Alt+P. Si ya existe «charcoal_kiln», lo borra y lo rehace.
 # Dónde tocar: las medidas están en build(); cada pieza dice su color como (fila, columna).
@@ -146,6 +146,22 @@ def box(size, center) -> bmesh.types.BMesh:
     bmesh.ops.create_cube(bm, size=1.0)
     bmesh.ops.scale(bm, vec=Vector(size), verts=bm.verts)
     bmesh.ops.translate(bm, vec=Vector(center), verts=bm.verts)
+    return bm
+
+
+def coal_group(pieces, seed: int) -> bmesh.types.BMesh:
+    # Brasas de juguete (César: la ventana entera brillando parecía una pantalla o lava): piedrecitas
+    # facetadas, como el humo y el carbón, juntas en una malla que Godot enciende a su ritmo.
+    import random
+    rng = random.Random(seed)
+    bm = bmesh.new()
+    for center, radius in pieces:
+        verts = bmesh.ops.create_icosphere(bm, subdivisions=1, radius=radius)["verts"]
+        for v in verts:
+            v.co *= 1.0 + rng.uniform(-0.18, 0.18)
+            v.co.z *= 0.8
+        bmesh.ops.rotate(bm, verts=verts, cent=(0, 0, 0), matrix=Matrix.Rotation(rng.uniform(0, math.tau), 3, "Z"))
+        bmesh.ops.translate(bm, vec=Vector(center), verts=verts)
     return bm
 
 
@@ -379,7 +395,17 @@ def build() -> None:
     # --- Rendijas de brasa anchas y hundidas en las caras sur y norte del zócalo (César) ---
     for side, sy in (("south", -1.0), ("north", 1.0)):
         cut_recess(bpy.data.objects["base"], (0.62, 0.1, 0.09), (0.0, sy * APOTHEM, 0.6), STONE_DEEP)
-        finish("ember_window_" + side, box((0.6, 0.01, 0.09), (0.0, sy * (APOTHEM - 0.035), 0.6)), EMBER, root, glow, 0.0)
+        # Fondo oscuro, brasas de juguete en tres grupos (cada una a su ritmo en Godot) y barrotes (César).
+        finish("ember_back_" + side, box((0.6, 0.01, 0.09), (0.0, sy * (APOTHEM - 0.048), 0.6)), MOUTH, root, mat, 0.0)
+        for g in range(3):
+            pieces = []
+            for k in range(4):  # cuatro brasas por grupo (presupuesto de triángulos)
+                x = -0.27 + g * 0.18 + (k % 3) * 0.06 + (0.03 if k >= 3 else 0.0)
+                z = 0.572 + (0.022 if k >= 3 else 0.0)
+                pieces.append(((x, sy * (APOTHEM - 0.03 - 0.008 * (k % 2)), z), 0.02 + 0.004 * ((k + g) % 3)))
+            finish("ember_window_%s_%d" % (side, g), coal_group(pieces, 3 + g + (10 if sy > 0 else 0)), EMBER, root, glow, 0.0)
+        for x in (-0.2, -0.1, 0.0, 0.1, 0.2):
+            finish("ember_grate_%s_%d" % (side, int((x + 1) * 100)), box((0.012, 0.014, 0.09), (x, sy * (APOTHEM - 0.006), 0.6)), METAL_DARK, root, mat, 0.0)
 
     # --- Pila de troncos al noroeste: corteza con vetas pintadas y anillos en los cortes (César) ---
     # Leñero ordenado en el suelo de la esquina noroeste (César), paralelo a la cara diagonal del zócalo:
