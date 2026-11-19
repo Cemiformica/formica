@@ -15,6 +15,22 @@ for r in grid:
     r.extend('~' * (W - len(r)))
 rnd = random.Random(7)
 
+def _fix_cascade():
+    # Cascada (C5.4e, César): el lago llega a todo el borde de arriba y las dos últimas filas pasan a ser río, para que
+    # el agua caiga directamente en él (antes quedaba un trozo de tierra plano entre la caída y el río).
+    cs = [(x, y) for y in range(H) for x in range(W) if grid[y][x] == 'C']
+    if not cs:
+        return
+    x0, x1 = min(c[0] for c in cs), max(c[0] for c in cs)
+    y0, y1 = min(c[1] for c in cs), max(c[1] for c in cs)
+    for x in range(x0 - 1, x1 + 2):   # una casilla más a cada lado: si no, una esquina del lago quedaba cortada
+        grid[y0 - 1][x] = 'O'
+    for x in range(x0 - 1, x1 + 2):   # y la primera fila de la caída entera: sin dos salientes de agua a los lados
+        grid[y0][x] = 'O'             # y un escalón de tierra entre ellos (César); la caída empieza en el borde
+    for x in range(x0, x1 + 1):
+        for y in (y1 - 1, y1):
+            grid[y][x] = 'v'
+
 def h(x, y, seed):
     n = math.sin(x * 12.9898 + y * 78.233 + seed * 37.719) * 43758.5453
     return n - math.floor(n)
@@ -33,6 +49,8 @@ def setc(x, y, ch, only=None):
         grid[y][x] = ch
 
 LOWFLAT = '='
+
+_fix_cascade()
 
 # 3) Lomas con árboles y peñascos entre las bolsas de la explanada baja, con pasos anchos (se construye en ellos).
 def band_v(y, cx, amp, freq, half, gaps, y0, y1, seed):
@@ -105,9 +123,15 @@ for (x, y) in inside:
 RAMP_X0, RAMP_X1 = 75, 79
 top = min(y for y in range(H) for x in range(RAMP_X0, RAMP_X1 + 1) if (x, y) in inside)
 first_flat = min(y for y in range(top, H) if all(grid[y][x] == '+' for x in range(RAMP_X0, RAMP_X1 + 1)))
-for y in range(top - 2, first_flat):
+for y in range(top - 4, first_flat):   # más larga, para que suba suave (César)
     for x in range(RAMP_X0, RAMP_X1 + 1):
         grid[y][x] = 'r'
+# Talud a los lados de la rampa donde da a la explanada baja: si no, la explanada sujetaba el borde de la rampa abajo
+# y la rampa salía abombada de lado a lado («barriga», César). Así sube plana y el talud baja hasta la explanada.
+for y in range(top - 4, first_flat):
+    for x in (RAMP_X0 - 2, RAMP_X0 - 1, RAMP_X1 + 1, RAMP_X1 + 2):
+        if grid[y][x] == '=':
+            grid[y][x] = '.'
 
 # una loma suelta en medio de la bolsa del suroeste, la más grande
 for y in range(H):
@@ -160,7 +184,7 @@ for y in range(H):
             elif grid[y][x] not in 'GtX':
                 grid[y][x] = '*'
 for y in range(19, 22):
-    for x in range(85, 92):
+    for x in range(84, 92):   # hasta la explanada alta (antes quedaba una casilla de montaña en medio)
         grid[y][x] = 'r'
 for x in range(85, 92):
     for y in (18, 22):
@@ -237,6 +261,25 @@ for cx, cy in chosen:
             if d <= 1.0 + (noise(x, y, 64, 2.0) - 0.5) * 0.8 and grid[y][x] in '^t':
                 grid[y][x] = 'm' if grid[y][x] == '^' else 't'
 print('cerros', chosen)
+
+# 9) El borde este de la ladera, de lo alto hasta el refugio, como acantilado de juguete (dibujo de César): la parte
+# alta pegada a la ladera pasa a ser loma alta con corte. La salida de arriba del sendero (filas de arriba) se deja.
+for y in range(32, 56):
+    for x in range(30, 40):
+        if grid[y][x] != '^':
+            continue
+        if any(grid[y + dy][x + dx] in '/:' for dx in range(-2, 3) for dy in range(-2, 3)
+               if 0 <= y + dy < H and 0 <= x + dx < W):
+            grid[y][x] = 'm'
+
+# 10) Más acantilado en la curva del sendero, entre el camino y el refugio (dibujo de César): así el camino sube recto
+# entre la ladera y la pared.
+for y in range(45, 56):
+    for x in range(22, 34):
+        if grid[y][x] == '/' and not any(grid[y + dy][x + dx] == ':' for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+            # al este del camino (a su derecha bajando): el lado del refugio
+            if any(grid[y][xx] == ':' for xx in range(x - 6, x)):
+                grid[y][x] = 'm'
 
 legend_add = [
     '//  -  parte media (terraza a 3 m; se anda, no se construye)      +  explanada media (plana; se construye)  nivel 2 (3 m)',

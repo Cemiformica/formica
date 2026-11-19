@@ -38,7 +38,7 @@ func _ready() -> void:
 	_check("el mar no es agua de la cuadrícula", layout.water_flow(Vector2i(0, 0)) == null)
 
 	# 3b) Alturas (C5.3d): la ladera sube entre las dos; bajo el agua, su fondo.
-	_check("ladera: entre 0 y 6 m (4 m en esta casilla)", is_equal_approx(layout.height(Vector2i(1, 3)), 4.0))
+	_check("ladera: entre 0 y 6 m (4,8 m en esta casilla)", is_equal_approx(layout.height(Vector2i(1, 3)), 4.8))
 	_check("fondo del río bajo el nivel de abajo", layout.height(Vector2i(9, 4)) < 0.0)
 	_check("fondo del lago bajo el nivel de arriba", layout.height(Vector2i(8, 2)) < IslandLayout.LEVEL_HEIGHT
 			and layout.height(Vector2i(8, 2)) > 0.0)
@@ -98,7 +98,8 @@ func _ready() -> void:
 	_check("en la playa llana sí", flat_beach != Vector2i(-1, -1) and island.can_plant(flat_beach))
 	_check("junto a la ladera, empinada: no", not island.can_plant(Vector2i(2, 4)))
 	_check("ninguna roca en el agua", not island.add_rock(Vector2i(9, 4)) and not island.add_rock(Vector2i(0, 0)))
-	_check("la orilla queda justo sobre el agua", is_equal_approx(layout.corner_height(9, 4), IslandLayout.SHORE_ABOVE_WATER))
+	_check("la orilla queda justo sobre el agua", is_equal_approx(layout.corner_height(10, 5), IslandLayout.SHORE_ABOVE_WATER))
+	# (no junto a la cascada: su cauce va plano hasta el filo, C5.4e)
 
 	# 7) Las rocas y los palos que aparecen solos caen solo en tierra.
 	island.rng.seed = 7

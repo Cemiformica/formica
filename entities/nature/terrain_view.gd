@@ -86,6 +86,7 @@ func rebuild(island: IslandState) -> void:
 		_build_layout_ground(island)
 		_build_sea(island.layout)
 		_build_debris(island.layout)
+		_build_cascade(island)
 	else:
 		_build_ground(island, bounds)
 		_sea.mesh = null
@@ -391,6 +392,259 @@ func _build_debris(layout: IslandLayout) -> void:
 		instance.multimesh = multi
 		instance.material_override = material
 		add_child(instance)
+
+
+## Cascada (C5.4e): una cortina de agua pegada a la caída de las casillas `C` (sigue sus repisas), una franja de
+## espuma sobre el río al pie y salpicaduras con algo de bruma. Va del agua más alta que toca a la más baja.
+const WATERFALL_SHADER: Shader = preload("res://entities/nature/waterfall.gdshader")
+## Cada cuánto lleva un punto la cortina (m) y largo de la espuma del pie (m).
+## Cada medio metro, como el terreno: así la cortina va a la misma distancia de la roca en todo y no la atraviesa.
+const CASCADE_STEP: float = 0.5
+## Lo que la cortina entra en el agua de arriba (m), a ras de ella: sin escalón donde empieza a caer.
+const CASCADE_INTAKE: float = 1.0
+## El salto: velocidad con la que el agua sale del borde (m/s), gravedad y filas del arco.
+const CASCADE_LAUNCH: float = 1.0
+## La de dentro, algo menos, pero sin meterse en la roca del filo.
+const CASCADE_LAUNCH_INNER: float = 0.5
+## Dónde empieza el salto, antes del final del cauce (m): ahí la roca ya baja.
+const CASCADE_BRINK: float = 0.5
+const CASCADE_GRAVITY: float = 9.8
+const CASCADE_ARC_ROWS: int = 16
+## Lo que la cortina se separa de cada lado del cauce (m), para no meterse en la roca de al lado.
+const CASCADE_SIDE_INSET: float = 0.25
+## Filas del salto en las que los lados pasan de deshilachados (cauce) a cerrados por las paredes: así no hay corte
+## en la esquina del filo (César).
+const CASCADE_SIDE_BLEND_ROWS: int = 4
+const CASCADE_POOL: float = 3.5
+
+func _build_cascade(island: IslandState) -> void:
+	for child: Node in get_children():
+		if child.name.begins_with("Cascade"):
+			child.queue_free()
+	var layout: IslandLayout = island.layout
+	var cells: Array[Vector2i] = []
+	for y: int in layout.size.y:
+		for x: int in layout.size.x:
+			if layout.char_at(Vector2i(x, y)) == "C":
+				cells.append(Vector2i(x, y))
+	if cells.is_empty():
+		return
+	# Hacia dónde cae: del agua más alta que toca a la más baja.
+	var high := Vector2.ZERO
+	var low := Vector2.ZERO
+	var high_level: float = -INF
+	var low_level: float = INF
+	for cell: Vector2i in cells:
+		for offset: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			var other: Vector2i = cell + offset
+			if not island.water.has(other):
+				continue
+			var level: float = island.ground_height(other)
+			if level > high_level:
+				high_level = level
+				high = Vector2(other)
+			if level < low_level:
+				low_level = level
+				low = Vector2(other)
+	if high_level <= low_level:
+		return
+	var along_z: bool = absf(low.y - high.y) >= absf(low.x - high.x)
+	var forward: float = signf(low.y - high.y) if along_z else signf(low.x - high.x)
+	var min_cell := cells[0]
+	var max_cell := cells[0]
+	for cell: Vector2i in cells:
+		min_cell = Vector2i(mini(min_cell.x, cell.x), mini(min_cell.y, cell.y))
+		max_cell = Vector2i(maxi(max_cell.x, cell.x), maxi(max_cell.y, cell.y))
+	# Ancho (de lado a lado) y largo (de arriba abajo) en metros del mundo.
+	var across0: float = float(min_cell.x if along_z else min_cell.y)
+	var across1: float = float((max_cell.x if along_z else max_cell.y) + 1)
+	var top: float = float(min_cell.y if along_z else min_cell.x) if forward > 0.0 else float((max_cell.y if along_z else max_cell.x) + 1)
+	var length: float = float((max_cell.y - min_cell.y if along_z else max_cell.x - min_cell.x) + 1)
+	var pool_y: float = low_level + LAYOUT_WATER_Y + 0.02
+	var top_y: float = high_level + LAYOUT_WATER_Y + 0.01
+	var to_world := func(across: float, along: float) -> Vector2:
+		var a: float = top + along * forward
+		return Vector2(across, a) if along_z else Vector2(a, across)
+	# Perfil de la cortina (a lo largo): el cauce pegado al terreno hasta el borde y, desde ahí, el salto en arco hasta
+	# el río (el agua sale despedida: César, caía en tierra y se metía en la roca). Después, la espuma del pie.
+	# El cauce va recto, a ras del lago, hasta el filo (César: bajaba una casilla y volvía a subir).
+	var brink: float = length - CASCADE_BRINK
+	# La cortina, un poco más estrecha que el cauce: si no, su borde rozaba la roca de los lados al caer (César).
+	var curtain0: float = across0 + CASCADE_SIDE_INSET
+	var curtain1: float = across1 - CASCADE_SIDE_INSET
+	var lip_y: float = top_y
+	var fall_time: float = sqrt(2.0 * maxf(lip_y - pool_y, 0.1) / CASCADE_GRAVITY)
+	var columns: int = int(roundf((across1 - across0) / CASCADE_STEP)) * 2
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var points: Array[Vector3] = []
+	var uvs: Array[Vector2] = []
+	var uv2s: Array[Vector2] = []
+	var colors: Array[Color] = []
+	var parts: Array[Vector2i] = []   # (primer punto, filas) de cada trozo
+	var arc_first: Array[int] = []    # primer punto del salto de cada cortina
+	# Dos cortinas (César: de lado se veía la lámina y el hueco de debajo): la de fuera, con el cauce y el salto más
+	# largo, y la de dentro, solo el salto, más pegada a la roca. Las dos caen en el río.
+	var landing: float = brink + CASCADE_LAUNCH_INNER * fall_time
+	for layer: int in 2:
+		var launch: float = CASCADE_LAUNCH if layer == 0 else CASCADE_LAUNCH_INNER
+		var layer_landing: float = brink + launch * fall_time
+		var profile: Array[Vector2] = []   # (a lo largo, altura o NAN si sigue al terreno)
+		if layer == 0:
+			var step_along: float = -CASCADE_INTAKE
+			while step_along < brink - 0.01:
+				profile.append(Vector2(step_along, NAN))
+				step_along += CASCADE_STEP
+		for k: int in CASCADE_ARC_ROWS + 1:
+			var t: float = fall_time * float(k) / float(CASCADE_ARC_ROWS)
+			profile.append(Vector2(brink + launch * t, lip_y - 0.5 * CASCADE_GRAVITY * t * t))
+		var first: int = points.size()
+		var travelled := PackedFloat32Array()   # largo recorrido por la cortina en cada columna (para las franjas)
+		travelled.resize(columns + 1)
+		travelled.fill(0.0 if layer == 0 else CASCADE_INTAKE + length)
+		for r: int in profile.size():
+			for c: int in columns + 1:
+				var across: float = curtain0 + (curtain1 - curtain0) * float(c) / float(columns)
+				var w: Vector2 = to_world.call(across, profile[r].x)
+				var y: float = profile[r].y
+				if is_nan(y):
+					y = top_y
+				var point := Vector3(w.x, y, w.y)
+				if r > 0:
+					travelled[c] += point.distance_to(points[first + (r - 1) * (columns + 1) + c])
+				points.append(point)
+				uvs.append(Vector2(across - across0 + float(layer) * 3.7, travelled[c] - CASCADE_INTAKE))
+				uv2s.append(Vector2(0.0, clampf(profile[r].x / layer_landing, 0.0, 1.0)))
+				# a: 1 donde los lados se deshilachan (el cauce, sobre la roca); en el salto no, porque ahí los cierran las
+				# paredes de los lados y, deshilachados, dejaban una raja entre el frente y el lado (César).
+				var arc_row: int = r - (profile.size() - CASCADE_ARC_ROWS - 1)   # negativa en el cauce
+				var frays: float = 0.0 if layer == 1 else \
+						clampf(1.0 - float(arc_row) / float(CASCADE_SIDE_BLEND_ROWS), 0.0, 1.0)
+				# g: la de dentro aparece poco a poco al empezar el salto; si no, se sumaba entera a la de fuera justo en el
+				# filo y su borde de arriba se veía como un escalón que sobresalía (César).
+				var shows: float = 1.0 if layer == 0 else clampf(float(arc_row) / float(CASCADE_SIDE_BLEND_ROWS), 0.0, 1.0)
+				colors.append(Color(float(c) / float(columns), shows, float(layer), frays))
+		parts.append(Vector2i(first, profile.size()))
+		arc_first.append(first + (profile.size() - CASCADE_ARC_ROWS - 1) * (columns + 1))
+	var pool_rows: int = int(roundf(CASCADE_POOL / CASCADE_STEP))
+	var pool_first: int = points.size()
+	parts.append(Vector2i(pool_first, pool_rows + 1))
+	for r: int in pool_rows + 1:
+		var along: float = landing + CASCADE_POOL * float(r) / float(pool_rows)
+		for c: int in columns + 1:
+			var across: float = across0 + (across1 - across0) * float(c) / float(columns)
+			var w: Vector2 = to_world.call(across, along)
+			var y: float = pool_y if island.water.has(Vector2i(floori(w.x), floori(w.y))) else pool_y - 0.4
+			points.append(Vector3(w.x, y, w.y))
+			uvs.append(Vector2(across - across0, along))
+			uv2s.append(Vector2(1.0, float(r) / float(pool_rows)))
+			colors.append(Color(float(c) / float(columns), 0.0, 0.0))
+	# Los lados del salto (César: de lado se veían huecos y el pliegue): una pared de agua desde la cortina de fuera hasta
+	# dentro de la roca. En el cauce no hace falta: va pegado a la roca y se deshilacha por los lados (con pared, se veía
+	# un escalón de cristal, César). Igual de opacas que la de fuera y con sus franjas siguiendo la esquina.
+	for c: int in [0, columns]:
+		var outward: float = -1.0 if c == 0 else 1.0
+		var across: float = curtain0 if c == 0 else curtain1
+		# Hasta dentro de la roca, bajo el cauce; pero en lo alto del filo, nada hacia atrás: ahí la pared quedaba por
+		# encima del terreno de al lado y se veía como una lámina suelta en la esquina (César).
+		var back_at := func(y: float) -> Vector2:
+			return to_world.call(across, brink - CASCADE_BRINK * smoothstep(0.0, 0.8, lip_y - y))
+		for k: int in CASCADE_ARC_ROWS:
+			var o0: int = arc_first[0] + k * (columns + 1) + c
+			var o1: int = o0 + columns + 1
+			var back0: Vector2 = back_at.call(points[o0].y)
+			var back1: Vector2 = back_at.call(points[o1].y)
+			var quad: Array[Vector3] = [points[o0], points[o1], Vector3(back1.x, points[o1].y, back1.y),
+					Vector3(back0.x, points[o0].y, back0.y)]
+			for q: int in [0, 1, 2, 0, 2, 3]:
+				var outer: int = o0 if q == 0 or q == 3 else o1
+				var gap: float = Vector2(quad[q].x - points[outer].x, quad[q].z - points[outer].z).length()
+				# g: la pared aparece poco a poco mientras el lado de la cortina deja de deshilacharse.
+				var row_k: int = k if q == 0 or q == 3 else k + 1
+				tool.set_color(Color(0.5, clampf(float(row_k) / float(CASCADE_SIDE_BLEND_ROWS), 0.0, 1.0), 0.0, 0.0))
+				tool.set_uv(Vector2(uvs[outer].x + outward * gap, uvs[outer].y))
+				tool.set_uv2(uv2s[outer])
+				tool.add_vertex(quad[q])
+	for part: Vector2i in parts:
+		for r: int in part.y - 1:
+			for c: int in columns:
+				var i0: int = part.x + r * (columns + 1) + c
+				for index: int in [i0, i0 + 1, i0 + columns + 2, i0, i0 + columns + 2, i0 + columns + 1]:
+					tool.set_color(colors[index])
+					tool.set_uv(uvs[index])
+					tool.set_uv2(uv2s[index])
+					tool.add_vertex(points[index])
+	tool.generate_normals()
+	var mesh: ArrayMesh = tool.commit()
+	var material := ShaderMaterial.new()
+	material.shader = WATERFALL_SHADER
+	material.render_priority = 1   # siempre después del agua (si no, parpadeaba al moverse: César)
+	mesh.surface_set_material(0, material)
+	var curtain := MeshInstance3D.new()
+	curtain.name = "CascadeCurtain"
+	curtain.mesh = mesh
+	curtain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(curtain)
+	# Salpicaduras y bruma al pie.
+	var foot: Vector2 = to_world.call((across0 + across1) * 0.5, landing)
+	var foot_position := Vector3(foot.x, pool_y, foot.y)
+	var width: float = across1 - across0
+	add_child(_make_spray("CascadeSpray", foot_position, width, 60, 1.1, Vector2(0.12, 0.3), 0.9, 3.2))
+	add_child(_make_spray("CascadeMist", foot_position + Vector3.UP * 0.3, width * 1.3, 14, 3.0, Vector2(1.2, 2.4), 0.18, 0.8))
+
+
+## Partículas blancas de la cascada: salpicaduras (pequeñas, rápidas) o bruma (grandes, lentas y muy suaves).
+func _make_spray(spray_name: String, at: Vector3, width: float, amount: int, lifetime: float, size_range: Vector2,
+		opacity: float, speed: float) -> CPUParticles3D:
+	var particles := CPUParticles3D.new()
+	particles.name = spray_name
+	particles.position = at
+	particles.amount = amount
+	particles.lifetime = lifetime
+	particles.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	particles.emission_box_extents = Vector3(width * 0.5, 0.1, 0.6)
+	particles.direction = Vector3.UP
+	particles.spread = 35.0
+	particles.initial_velocity_min = speed * 0.6
+	particles.initial_velocity_max = speed
+	particles.gravity = Vector3(0.0, -6.0 if speed > 2.0 else -0.2, 0.0)
+	particles.scale_amount_min = size_range.x
+	particles.scale_amount_max = size_range.y
+	var ramp := Gradient.new()
+	ramp.set_color(0, Color(1.0, 1.0, 1.0, opacity))
+	ramp.set_color(1, Color(1.0, 1.0, 1.0, 0.0))
+	particles.color_ramp = ramp
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE
+	var material := StandardMaterial3D.new()
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.vertex_color_use_as_albedo = true
+	material.albedo_texture = _soft_dot()
+	material.render_priority = 2   # la espuma y la bruma, lo último
+	quad.material = material
+	particles.mesh = quad
+	return particles
+
+
+## Mancha blanca redonda y suave para las partículas (se crea una vez).
+static var _dot: Texture2D = null
+
+static func _soft_dot() -> Texture2D:
+	if _dot == null:
+		var ramp := Gradient.new()
+		ramp.set_color(0, Color(1, 1, 1, 1))
+		ramp.set_color(1, Color(1, 1, 1, 0))
+		var texture := GradientTexture2D.new()
+		texture.gradient = ramp
+		texture.fill = GradientTexture2D.FILL_RADIAL
+		texture.fill_from = Vector2(0.5, 0.5)
+		texture.fill_to = Vector2(1.0, 0.5)
+		texture.width = 32
+		texture.height = 32
+		_dot = texture
+	return _dot
 
 
 ## El mar alrededor de la isla: un plano grande de agua quieta.

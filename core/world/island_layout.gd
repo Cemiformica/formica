@@ -34,6 +34,8 @@ const HIGH_HILL_HEIGHT: float = 3.5
 const HIGH_HILL_RAMP: float = 4.0
 ## Subida (casillas) de las lomas con corte de roca: tan corta que la cara sale empinada.
 const HILL_CUT_RAMP: float = 1.2
+## Hasta cuántas casillas del sendero las lomas van con corte de roca.
+const PATH_CUT_REACH: float = 4.0
 ## Cabecera de la capa de tierra pisada al final del plano: debajo, filas del mismo tamaño; `x` = tierra pisada.
 const WEAR_LAYER_HEADER: String = "[tierra pisada]"
 ## Hondura del fondo del agua de la isla bajo su nivel, y fondo del mar (C5.3d).
@@ -49,6 +51,14 @@ const SHORE_BELOW_WATER: float = 0.3   # ya no se usa (C5.4d): se deja por si se
 ## La orilla (esquina entre agua y tierra) queda justo por encima del agua dibujada (C5.4d): así el canto de la lámina
 ## de agua siempre queda tapado y la forma de la orilla la da el fondo, que sí se deforma.
 const SHORE_ABOVE_WATER: float = 0.06
+## Lo que el cauce de la cascada queda por debajo del agua de arriba (m): justo debajo de la cortina, que va recta.
+const FALL_CHANNEL_DEPTH: float = 0.04
+## Suavidad de las puntas de las rampas: 0 = recta (cambia de golpe arriba y abajo); 1 = curva en S entera.
+const RAMP_EASE: float = 0.6
+## Pasadas que igualan la altura del sendero de lado a lado (César: en la curva iba inclinado).
+const PATH_LEVEL_PASSES: int = 4
+## Lo que baja el tope del fondo del agua por cada metro que se aleja de la orilla.
+const BED_DROP_PER_M: float = 0.8
 ## Desnivel máximo (m) dentro de una casilla para poner un árbol, una roca o unos palos (C5.3d: había árboles
 ## en el borde del acantilado).
 const MAX_SLOPE_FOR_NATURE: float = 1.0
@@ -126,6 +136,11 @@ const LANDMARK_MOUND_RADIUS: float = 5.0
 var _wear: PackedFloat32Array = PackedFloat32Array()
 ## Casillas pintadas de tierra pisada en la capa del plano (`WEAR_LAYER_HEADER`).
 var _worn: PackedByteArray = PackedByteArray()
+## Desnivel de cada casilla en lo dibujado (m), para no pintar tierra pisada en lo inclinado.
+var _drops: PackedFloat32Array = PackedFloat32Array()
+## Desde qué desnivel (m por casilla) la tierra pisada se apaga, y del todo (César: subía por la loma).
+const WEAR_FLAT_FROM: float = 0.25
+const WEAR_FLAT_TO: float = 0.55
 ## Radio (casillas) de la mancha de tierra pisada en los extremos del sendero.
 const WEAR_REACH: float = 6.0
 ## Radio de la mancha alrededor del portal y de la entrada del refugio, y ancho y fuerza del camino que los une.
@@ -285,6 +300,16 @@ func _corner_from_cells(i: int, j: int) -> float:
 			ramp_count += 1
 	if ramp_count > 0:
 		return ramp_sum / ramp_count
+	# Cauce de la cascada: plano hasta el borde, también junto al lago y en el filo de la caída (con la regla de la
+	# orilla, una esquina quedaba a la altura del agua: escalón al empezar y pliegue en el filo, César).
+	var fall_sum: float = 0.0
+	var fall_count: int = 0
+	for cell: Vector2i in cells:
+		if ground(cell) == Ground.FALL:
+			fall_sum += height(cell)
+			fall_count += 1
+	if fall_count > 0:
+		return fall_sum / fall_count
 	# Orilla de la tierra donde no se construye: si la esquina toca agua y tierra, queda justo por encima del agua
 	# (la más baja, si hay dos).
 	var water_surface: float = INF
@@ -334,8 +359,17 @@ func terrain_height(x: float, z: float) -> float:
 ## Junto a un río o un lago, la tierra (lo que no es casilla de agua) nunca queda por debajo del agua: si no, al
 ## deformarse la orilla salían hoyos secos o el agua se veía cortada (C5.4d).
 func _keep_above_water(x: float, z: float, y: float) -> float:
-	if ground(Vector2i(floori(x), floori(z))) == Ground.WATER:
+	var cell := Vector2i(floori(x), floori(z))
+	var g: Ground = ground(cell)
+	# El cauce de la cascada y las rampas van a su altura (el suelo mínimo levantaba el principio del cauce por encima
+	# de la cortina, César).
+	if g == Ground.FALL or g == Ground.RAMP or _on_buildable_edge(x, z):
 		return y
+	if g == Ground.WATER:
+		# El fondo no sube por encima de la orilla y, hacia dentro, baja: si no, al deformarse tomaba altura de una pared
+		# de al lado y salía un montículo dentro del río (al pie de la cascada, César).
+		var cap: float = level_height(level(cell)) + SHORE_ABOVE_WATER - _distance_to_land(x, z, cell) * BED_DROP_PER_M
+		return minf(y, cap)
 	return maxf(y, _bilinear_corners(_shore_floor, clampf(x, 0.0, size.x), clampf(z, 0.0, size.y)))
 
 
@@ -368,8 +402,8 @@ func _point_fixed(x: float, z: float) -> bool:
 	for cx: int in xs:
 		for cz: int in zs:
 			var cell := Vector2i(cx, cz)
-			if is_buildable(cell) or ground(cell) == Ground.RAMP:
-				return true
+			if is_buildable(cell) or ground(cell) == Ground.RAMP or ground(cell) == Ground.FALL or is_path(cell):
+				return true   # el sendero, sin deformar: sube liso (César: un escalón al empezar la subida)
 	# En el agua, solo la línea de la orilla (el borde de la lámina tiene que quedar tapado); el fondo de dentro sí se
 	# deforma, y así la orilla sale irregular (César: bordes rectos en el lago).
 	var touches_water: bool = false
@@ -402,7 +436,7 @@ func _compute_drawn_corners() -> void:
 		for i: int in size.x + 1:
 			var water_cells: int = 0
 			for cell: Vector2i in [Vector2i(i - 1, j - 1), Vector2i(i, j - 1), Vector2i(i - 1, j), Vector2i(i, j)]:
-				if is_buildable(cell) or ground(cell) == Ground.RAMP:
+				if is_buildable(cell) or ground(cell) == Ground.RAMP or ground(cell) == Ground.FALL:
 					fixed[j * row + i] = 1
 				if ground(cell) == Ground.WATER:
 					water_cells += 1
@@ -410,8 +444,15 @@ func _compute_drawn_corners() -> void:
 			if water_cells > 0 and water_cells < 4:
 				fixed[j * row + i] = 1
 	_drawn = _smooth_corners(_corners, fixed, SMOOTH_PASSES)
-	_relief_lift = _smooth_corners(_relief_lift, fixed, SMOOTH_PASSES)
-	_relief_scale = _smooth_corners(_relief_scale, fixed, SMOOTH_PASSES)
+	# Las lomas no se suavizan sobre el sendero: si no, la loma de al lado lo levantaba y el camino subía por ella.
+	var fixed_relief: PackedByteArray = fixed.duplicate()
+	for j: int in size.y + 1:
+		for i: int in size.x + 1:
+			for cell: Vector2i in [Vector2i(i - 1, j - 1), Vector2i(i, j - 1), Vector2i(i - 1, j), Vector2i(i, j)]:
+				if is_path(cell):
+					fixed_relief[j * row + i] = 1
+	_relief_lift = _smooth_corners(_relief_lift, fixed_relief, SMOOTH_PASSES)
+	_relief_scale = _smooth_corners(_relief_scale, fixed_relief, SMOOTH_PASSES)
 	_warp_noise = FastNoiseLite.new()
 	_warp_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_warp_noise.seed = 2
@@ -482,6 +523,36 @@ func _chamfer_distance(values: PackedFloat32Array) -> void:
 				if x > 0:
 					best = minf(best, values[index + w - 1] + D)
 			values[index] = best
+
+
+## ¿Está el punto en el borde (o dentro) de una casilla donde se construye? Ahí no se toca nada.
+func _on_buildable_edge(x: float, z: float) -> bool:
+	var xs: Array[int] = [floori(x)]
+	var zs: Array[int] = [floori(z)]
+	if is_equal_approx(x, roundf(x)):
+		xs = [roundi(x) - 1, roundi(x)]
+	if is_equal_approx(z, roundf(z)):
+		zs = [roundi(z) - 1, roundi(z)]
+	for cx: int in xs:
+		for cz: int in zs:
+			if is_buildable(Vector2i(cx, cz)):
+				return true
+	return false
+
+
+## Distancia (m, hasta 1) de un punto de una casilla de agua a la tierra de al lado más cercana.
+func _distance_to_land(x: float, z: float, cell: Vector2i) -> float:
+	var best: float = 1.0
+	for dy: int in range(-1, 2):
+		for dx: int in range(-1, 2):
+			if dx == 0 and dy == 0:
+				continue
+			var other := Vector2i(cell.x + dx, cell.y + dy)
+			if ground(other) == Ground.WATER:
+				continue
+			var nearest := Vector2(clampf(x, other.x, other.x + 1.0), clampf(z, other.y, other.y + 1.0))
+			best = minf(best, nearest.distance_to(Vector2(x, z)))
+	return best
 
 
 ## ¿Toca esta esquina alguna casilla donde se construye?
@@ -744,6 +815,15 @@ func _compute_heights() -> void:
 	var to_land: PackedInt32Array = _sea_distances()
 	# Para la ladera y las rampas: la distancia a cada altura. Cada casilla sube entre las dos alturas más cercanas
 	# (la ladera del oeste, entre la baja y la alta; la rampa de la terraza, entre la baja y la media).
+	# El agua más alta que toca la cascada: su cauce va justo por debajo.
+	var fall_top: float = -INF
+	for y: int in size.y:
+		for x: int in size.x:
+			if ground(Vector2i(x, y)) != Ground.FALL:
+				continue
+			for offset: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+				if ground(Vector2i(x, y) + offset) == Ground.WATER:
+					fall_top = maxf(fall_top, level_height(level(Vector2i(x, y) + offset)))
 	var to_level: Dictionary[int, Dictionary] = {}
 	for l: int in [LOW_LEVEL, MID_LEVEL, HIGH_LEVEL, TOP_LEVEL]:
 		to_level[l] = _slope_distances(l)
@@ -758,26 +838,77 @@ func _compute_heights() -> void:
 					value = maxf(SEA_BED - far * SEA_DROP_PER_CELL, SEA_DEEPEST)
 				Ground.WATER:
 					value = level_height(level(cell)) - WATER_DEPTH
-				Ground.SLOPE, Ground.FALL, Ground.RAMP:
+				Ground.FALL:
+					# Cauce de la cascada (C5.4e): un poco por debajo del agua de arriba hasta el borde, donde cae de
+					# golpe al río (si no, su suelo quedaba a ras del lago y se veía un escalón, César).
+					value = fall_top - FALL_CHANNEL_DEPTH if fall_top > -INF else _slope_height(cell, to_level)
+				Ground.SLOPE:
 					value = _slope_height(cell, to_level)
+				Ground.RAMP:
+					value = _ramp_height(cell, to_level)
 				_:
 					value = level_height(level(cell))
 			_heights[y * w + x] = value
 
 
 ## Altura de una casilla de ladera o de rampa: la media de las alturas a las que llega, pesada por lo cerca que está
-## de cada una (1 / distancia). Con dos alturas es la subida en línea recta de siempre; con tres (la ladera con el
-## rellano en medio) pasa de una a otra sin saltos.
+## de cada una (1 / distancia²): suave al empezar y al acabar, y sin saltos con tres alturas (la ladera con el rellano
+## en medio).
+	# El sendero, plano de lado a lado: cada casilla del camino toma la media de las del camino que la rodean (varias
+	# pasadas). Así sube recto, sin ir inclinado en las curvas.
+	for _pass: int in PATH_LEVEL_PASSES:
+		var levelled: PackedFloat32Array = _heights.duplicate()
+		for y: int in size.y:
+			for x: int in size.x:
+				if not is_path(Vector2i(x, y)):
+					continue
+				var total: float = 0.0
+				var count: int = 0
+				for dy: int in range(-1, 2):
+					for dx: int in range(-1, 2):
+						var other := Vector2i(x + dx, y + dy)
+						if is_path(other):
+							total += _heights[other.y * size.x + other.x]
+							count += 1
+				levelled[y * size.x + x] = total / float(count)
+		_heights = levelled
+
 func _slope_height(cell: Vector2i, to_level: Dictionary[int, Dictionary]) -> float:
 	var weights: float = 0.0
 	var total: float = 0.0
 	for l: int in to_level:
 		if not to_level[l].has(cell):
 			continue
-		var weight: float = 1.0 / float(to_level[l][cell])
+		# Al cuadrado: pesa mucho más la altura más cercana. Las subidas empiezan y acaban suaves (César: el sendero
+		# empezaba empinado, como un montículo, porque lo alto tiraba del principio de la subida).
+		var weight: float = 1.0 / pow(float(to_level[l][cell]), 2.0)
 		weights += weight
 		total += weight * level_height(l)
 	return total / weights if weights > 0.0 else 0.0
+
+
+## Altura de una casilla de rampa: entre las dos alturas que une, en línea recta por la distancia y con las puntas
+## suavizadas (empieza y acaba casi plana: César, al subir había un escalón al principio y al final).
+func _ramp_height(cell: Vector2i, to_level: Dictionary[int, Dictionary]) -> float:
+	var levels: Array[int] = []
+	for l: int in to_level:
+		if to_level[l].has(cell):
+			levels.append(l)
+	if levels.size() < 2:
+		return _slope_height(cell, to_level)
+	levels.sort_custom(func(a: int, b: int) -> bool: return to_level[a][cell] < to_level[b][cell])
+	var near_level: int = levels[0]
+	var far_level: int = levels[1]
+	var near_distance: float = float(to_level[near_level][cell]) - 0.5   # desde el borde de la casilla, no su centro
+	var far_distance: float = float(to_level[far_level][cell]) - 0.5
+	var t: float = near_distance / maxf(near_distance + far_distance, 0.001)
+	# Recta en medio y suave en las dos puntas (César: arriba pasaba de inclinada a plana de golpe; la «barriga» de
+	# antes era de lado a lado, por la explanada de al lado). `t` va desde la altura más baja.
+	var low_level: int = near_level if level_height(near_level) < level_height(far_level) else far_level
+	var high_level: int = far_level if low_level == near_level else near_level
+	var from_low: float = t if low_level == near_level else 1.0 - t
+	var eased: float = lerpf(from_low, smoothstep(0.0, 1.0, from_low), RAMP_EASE)
+	return lerpf(level_height(low_level), level_height(high_level), eased)
 
 
 ## Distancia de cada casilla de mar a la tierra más cercana (en casillas, por la cuadrícula; 0 en tierra).
@@ -814,7 +945,9 @@ func _slope_distances(target_level: int) -> Dictionary[Vector2i, int]:
 				for offset: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
 					var other: Vector2i = cell + offset
 					# Las lomas no cuentan: tiraban hacia abajo los lados de la rampa de la terraza, que pasa entre ellas.
-					if is_land(other) and not _is_slope(other) and level(other) == target_level and ground(other) != Ground.HILL:
+					if is_land(other) and not _is_slope(other) and level(other) == target_level and ground(other) != Ground.HILL \
+							and ground(other) != Ground.HIGH_HILL:   # ni las altas: junto a ellas la ladera queda más baja y
+							# se levanta un acantilado (el borde de la ladera, dibujo de César)
 						distances[cell] = 1
 						queue.append(cell)
 						break
@@ -854,6 +987,7 @@ func _compute_corners() -> void:
 			var cell := Vector2i(x, y)
 			drops[y * size.x + x] = slope_drop(cell)
 			_steep[y * size.x + x] = 1 if drops[y * size.x + x] > MAX_SLOPE_FOR_NATURE else 0
+	_drops = drops
 	_compute_wall_feet(drops)
 	for y: int in size.y:
 		for x: int in size.x:
@@ -881,7 +1015,7 @@ func _compute_relief() -> void:
 			var cell := Vector2i(x, y)
 			var g: Ground = ground(cell)
 			var ch: String = char_at(cell)
-			if is_buildable(cell) or g == Ground.WATER or g == Ground.SEA or g == Ground.FALL \
+			if is_buildable(cell) or g == Ground.WATER or g == Ground.SEA or g == Ground.FALL or g == Ground.RAMP or is_path(cell) \
 					or (FEATURE_CHARS.contains(ch) and ch != "t"):
 				distances[y * size.x + x] = 0
 				queue.append(cell)
@@ -906,6 +1040,13 @@ func _compute_relief() -> void:
 			var is_edge: bool = g != Ground.HILL and g != Ground.HIGH_HILL and g != Ground.MID and g != Ground.MID_FLAT
 			hill_depth[y * size.x + x] = 0.0 if is_edge else 1.0e6
 	_chamfer_distance(hill_depth)
+	# Distancia al sendero (para poner con corte las lomas de su lado).
+	var path_distance := PackedFloat32Array()
+	path_distance.resize(size.x * size.y)
+	for y: int in size.y:
+		for x: int in size.x:
+			path_distance[y * size.x + x] = 0.0 if is_path(Vector2i(x, y)) else 1.0e6
+	_chamfer_distance(path_distance)
 	var landmark: Array[Vector2i] = cells_of("G")
 	var landmark_center := Vector2(-1000.0, -1000.0)
 	if not landmark.is_empty():
@@ -920,6 +1061,7 @@ func _compute_relief() -> void:
 			var count: int = 0
 			var fixed: bool = false   # toca una explanada o el agua: no se mueve nunca
 			var in_hill: float = 1.0e6
+			var near_path: bool = false
 			var high_hill: bool = false
 
 			for cell: Vector2i in [Vector2i(i - 1, j - 1), Vector2i(i, j - 1), Vector2i(i - 1, j), Vector2i(i, j)]:
@@ -932,6 +1074,8 @@ func _compute_relief() -> void:
 					fixed = true
 				amplitude += RELIEF_BY_GROUND.get(ground(cell), 0.0)
 				count += 1
+				if path_distance[cell.y * size.x + cell.x] <= PATH_CUT_REACH:
+					near_path = true
 				if g == Ground.HILL or g == Ground.HIGH_HILL:
 					in_hill = minf(in_hill, hill_depth[cell.y * size.x + cell.x])
 					high_hill = high_hill or g == Ground.HIGH_HILL
@@ -947,6 +1091,8 @@ func _compute_relief() -> void:
 				var character: float = (_relief_noise.get_noise_2d(i * 2.3 + 500.0, j * 2.3) + 1.0) * 0.5
 				# Las de lo alto, casi siempre con corte (César: le gustan los acantilados de juguete y arriba había pocos).
 				var cut: float = smoothstep(0.15, 0.4, character) if high_hill else smoothstep(0.45, 0.75, character)
+				if near_path:
+					cut = 1.0   # junto al sendero, corte de roca (César): la subida queda entre paredes de juguete
 				var tall: float = lerpf(0.7, 1.45, character)
 				var top: float = (HIGH_HILL_HEIGHT if high_hill else HILL_HEIGHT) * tall
 				var ramp: float = lerpf(HIGH_HILL_RAMP if high_hill else HILL_RAMP, HILL_CUT_RAMP, cut)
@@ -1001,7 +1147,14 @@ func _compute_wear() -> void:
 		stops.append(_average(portal))
 	for i: int in stops.size() - 1:
 		_add_wear_line(stops[i], stops[i + 1], WEAR_TRAIL_WIDTH)
-
+	# Solo en lo llano: en una cuesta se apaga (salvo el sendero de la ladera y las rampas, que van en cuesta a propósito).
+	for y: int in size.y:
+		for x: int in size.x:
+			var cell := Vector2i(x, y)
+			if is_path(cell) or ground(cell) == Ground.RAMP:
+				continue
+			var index: int = y * size.x + x
+			_wear[index] *= 1.0 - smoothstep(WEAR_FLAT_FROM, WEAR_FLAT_TO, _drops[index])
 
 func _average(cells: Array[Vector2i]) -> Vector2:
 	var sum := Vector2.ZERO

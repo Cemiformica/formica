@@ -27,6 +27,9 @@ uniform vec3 abyss : source_color = vec3(0.04, 0.14, 0.22);
 // Pendiente (componente vertical de la normal) en la que la hierba pasa a roca.
 uniform float rock_from = 0.55;
 uniform float rock_to = 0.75;
+// Ancho del paso de hierba a roca: corto, para que sea una cosa u otra con el borde roto por el ruido (con un paso
+// largo, las cuestas medianas salían a medias, mezcladas y a triángulos: captura de César).
+uniform float rock_edge = 0.03;
 // Cuánto manchan los ruidos (en las explanadas, la mitad: ahí se construye y se tiene que leer bien).
 uniform float patch_strength = 1.0;
 // Claros de tierra pisada sueltos por las explanadas, como en Solarpunk (0 = ninguno) y cuánta explanada cubren
@@ -98,8 +101,11 @@ void fragment() {
 	// Sobre todo la normal suave (con la cara del triángulo, la roca salía en triángulos, captura de César) y un poco de
 	// la cara, para que la hierba no suba por las paredes. El ruido rompe el borde entre las dos.
 	vec3 face_normal = normalize(cross(dFdy(world_pos), dFdx(world_pos)));
-	float steepness = mix(world_normal.y, min(abs(face_normal.y), world_normal.y), 0.25);
-	float cliff = 1.0 - smoothstep(rock_from, rock_to, steepness + (mid - 0.5) * 0.18 + (fine - 0.5) * 0.06);
+	// La cara del triángulo solo cuenta donde es mucho más empinada que la normal suave (las paredes).
+	float steepness = min(world_normal.y, abs(face_normal.y) + 0.2);
+	float rock_mid = (rock_from + rock_to) * 0.5;
+	float cliff = 1.0 - smoothstep(rock_mid - rock_edge, rock_mid + rock_edge,
+			steepness + (mid - 0.5) * 0.22 + (fine - 0.5) * 0.05);
 
 	// Tierra pisada: el sendero y sus extremos, más claros sueltos por las explanadas, con el borde irregular.
 	float worn = COLOR.b + (mid - 0.5) * 0.3 + (fine - 0.5) * 0.15;
