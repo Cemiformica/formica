@@ -1,6 +1,6 @@
 // Suelo de las islas con plano (C5.4a). La malla trae en cada esquina lo que la rodea (ver
 // `TerrainView._build_layout_ground()`): COLOR.r arena, COLOR.g mojado, COLOR.b sendero, COLOR.a altura (0 abajo,
-// 1 arriba); UV2.x hondura bajo el agua (m), UV2.y explanada. La roca sale de la pendiente. Las manchas, de un ruido
+// 1 arriba); UV2.x superficie del agua cercana (m), UV2.y explanada. La roca sale de la pendiente. Las manchas, de un ruido
 // en coordenadas del mundo (sin texturas). Dónde tocar: los colores y los umbrales de abajo.
 shader_type spatial;
 render_mode cull_disabled;
@@ -11,7 +11,9 @@ uniform vec3 grass_low : source_color = vec3(0.32, 0.52, 0.23);
 uniform vec3 grass_high : source_color = vec3(0.39, 0.55, 0.23);
 uniform vec3 grass_dry : source_color = vec3(0.55, 0.58, 0.30);
 uniform vec3 sand : source_color = vec3(0.88, 0.81, 0.64);
-uniform vec3 wet_sand : source_color = vec3(0.68, 0.59, 0.45);
+uniform vec3 wet_sand : source_color = vec3(0.60, 0.50, 0.37);
+// Hasta cuántos metros sobre el agua llega la arena mojada.
+uniform float wet_height = 0.45;
 uniform vec3 dirt : source_color = vec3(0.71, 0.62, 0.49);
 uniform vec3 rock : source_color = vec3(0.66, 0.44, 0.32);
 uniform vec3 bed_deep : source_color = vec3(0.10, 0.38, 0.50);
@@ -88,9 +90,11 @@ void fragment() {
 	// Roca donde es empinado (acantilados y bordes de las alturas). Se mira la cara del triángulo, no la normal
 	// suavizada de las esquinas: con esa, la hierba subía en vetas por el acantilado. Se calcula antes para que la
 	// tierra no la pise.
+	// Sobre todo la normal suave (con la cara del triángulo, la roca salía en triángulos, captura de César) y un poco de
+	// la cara, para que la hierba no suba por las paredes. El ruido rompe el borde entre las dos.
 	vec3 face_normal = normalize(cross(dFdy(world_pos), dFdx(world_pos)));
-	float steepness = min(abs(face_normal.y), world_normal.y);
-	float cliff = 1.0 - smoothstep(rock_from, rock_to, steepness + (mid - 0.5) * 0.1);
+	float steepness = mix(world_normal.y, min(abs(face_normal.y), world_normal.y), 0.25);
+	float cliff = 1.0 - smoothstep(rock_from, rock_to, steepness + (mid - 0.5) * 0.18 + (fine - 0.5) * 0.06);
 
 	// Tierra pisada: el sendero y sus extremos, más claros sueltos por las explanadas, con el borde irregular.
 	float worn = COLOR.b + (mid - 0.5) * 0.3 + (fine - 0.5) * 0.15;
@@ -98,6 +102,8 @@ void fragment() {
 	vec2 warp = vec2(fbm(p * 0.05 + 3.1), fbm(p * 0.05 + 9.7)) - 0.5;
 	float clearing_noise = fbm(p * 0.06 + warp * 0.8 + 73.0) + (mid - 0.5) * 0.12;
 	float clearing = smoothstep(clearing_threshold, clearing_threshold + 0.1, clearing_noise) * flat_area * flat_dirt_amount;
+	// Sin claros cerca del agua: junto a la orilla quedaba una franja de hierba suelta entre el claro y el agua.
+	clearing *= 1.0 - step(-50.0, UV2.x);
 	float path = smoothstep(0.3, 0.6, max(worn, clearing + (fine - 0.5) * 0.15)) * smoothstep(rock_to, rock_to + 0.1, steepness);
 	vec3 soil = dirt * (0.9 + 0.12 * fine + 0.08 * mid);
 	// Piedrecitas: motas pequeñas y redondeadas, algo más oscuras o algo más claras.
@@ -107,16 +113,22 @@ void fragment() {
 	soil = mix(soil, dirt * mix(0.7, 1.1, pebble_tone), pebble * 0.8);
 	color = mix(color, soil, path);
 
-	// Arena de la playa y franja de arena mojada pegada al agua.
-	float beach = smoothstep(0.3, 0.6, COLOR.r + (mid - 0.5) * 0.35);
+	// Hondura bajo el agua en este punto y altura sobre ella.
+	float depth = UV2.x - world_pos.y;
+	// Arena de la playa y franja de arena mojada pegada al agua (solo hasta medio metro sobre ella: si no, subía por
+	// los acantilados del mar). Ninguna de las dos pisa la roca.
+	float flat_ground = 1.0 - cliff;
+	float beach = smoothstep(0.3, 0.6, COLOR.r + (mid - 0.5) * 0.35) * flat_ground;
 	color = mix(color, sand * (0.95 + 0.1 * mid), beach);
-	float wet = smoothstep(0.45, 0.9, COLOR.g + (fine - 0.5) * 0.25);
+	// La marca la altura sobre el agua (antes caía casi toda bajo el mar y no se veía). Solo donde hay agua cerca.
+	// Y solo en la casilla pegada al agua (si no, en las explanadas a ras del río se mojaba una franja ancha).
+	float near_water = step(-50.0, UV2.x) * smoothstep(0.05, 0.4, COLOR.g);
+	float wet = (1.0 - smoothstep(wet_height * 0.3, wet_height, -depth + (fine - 0.5) * 0.12)) * near_water * flat_ground;
 	color = mix(color, wet_sand * (0.96 + 0.08 * fine), wet);
 
 	color = mix(color, rock * (0.88 + 0.24 * mid), cliff);
 
 	// Bajo el agua: arena mojada en la orilla y cada vez más oscuro con la hondura.
-	float depth = UV2.x;
 	color = mix(color, wet_sand, smoothstep(0.0, 0.12, depth));
 	color = mix(color, bed_deep, smoothstep(0.1, 1.2, depth));
 	color = mix(color, abyss, smoothstep(2.0, 10.0, depth));

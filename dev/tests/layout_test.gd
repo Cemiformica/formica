@@ -118,7 +118,61 @@ func _ready() -> void:
 			for x: int in alba.size.x:
 				if alba.is_buildable(Vector2i(x, y)):
 					flat += 1
-		_check("Isla Alba: más de 4.500 casillas para construir", flat > 4500)
+		# Versión 3 (C5.4b): explanadas partidas en bolsas, terraza a 3 m y explanada alta más pequeña.
+		_check("Isla Alba: más de 3.000 casillas para construir", flat > 3000)
+		var terrace: Array[Vector2i] = []
+		var ramp: Array[Vector2i] = []
+		var hill_peak: float = 0.0
+		for y: int in alba.size.y:
+			for x: int in alba.size.x:
+				var cell := Vector2i(x, y)
+				match alba.ground(cell):
+					IslandLayout.Ground.MID_FLAT:
+						if alba.char_at(cell) == "+":   # sin los peñascos de la rampa, que toman el suelo de al lado
+							terrace.append(cell)
+					IslandLayout.Ground.RAMP:
+						if x >= 70 and y >= 70:
+							ramp.append(cell)
+					IslandLayout.Ground.HILL:
+						hill_peak = maxf(hill_peak, alba.relief(x + 0.5, y + 0.5))
+		_check("Isla Alba: la terraza está a 3 m y se construye en ella", terrace.size() > 200
+				and terrace.all(func(c: Vector2i) -> bool: return alba.is_buildable(c) and is_equal_approx(alba.height(c), IslandLayout.MID_HEIGHT)))
+		_check("Isla Alba: la rampa de la terraza sube entre 0 y 3 m", ramp.size() > 10
+				and ramp.all(func(c: Vector2i) -> bool: return alba.height(c) > 0.0 and alba.height(c) < IslandLayout.MID_HEIGHT))
+		_check("Isla Alba: las lomas suben unos 2 m o más", hill_peak > 2.0)
+		var landing_cells: int = 0
+		var landing_ok: bool = true
+		for y: int in alba.size.y:
+			for x: int in alba.size.x:
+				if alba.char_at(Vector2i(x, y)) != "_":
+					continue
+				landing_cells += 1
+				if not (alba.is_buildable(Vector2i(x, y)) and is_equal_approx(alba.surface_height(Vector2i(x, y)), IslandLayout.MID_HEIGHT)):
+					landing_ok = false
+		_check("Isla Alba: el mirador es plano, a 3 m, y se construye en él", landing_cells > 20 and landing_ok)
+		# Cumbre a 9 m (C5.4b): su explanada se construye y la rampa sube entre 6 y 9 m.
+		var summit: int = 0
+		var summit_ok: bool = true
+		var summit_ramp_ok: bool = true
+		for y: int in alba.size.y:
+			for x: int in alba.size.x:
+				var cell := Vector2i(x, y)
+				if alba.char_at(cell) == "%":
+					summit += 1
+					if not (alba.is_buildable(cell) and is_equal_approx(alba.height(cell), IslandLayout.TOP_HEIGHT)):
+						summit_ok = false
+				elif alba.char_at(cell) == "r" and y < 30 and x > 80:
+					if alba.height(cell) <= IslandLayout.LEVEL_HEIGHT or alba.height(cell) >= IslandLayout.TOP_HEIGHT:
+						summit_ramp_ok = false
+		_check("Isla Alba: la cumbre está a 9 m y se construye en su explanada", summit > 80 and summit_ok)
+		# Capa de tierra pisada (dibujo de César): se lee y pinta de tierra lo que no es empinado.
+		var worn: int = 0
+		for y: int in alba.size.y:
+			for x: int in alba.size.x:
+				if alba.wear(Vector2i(x, y)) >= 1.0 and not alba.is_path(Vector2i(x, y)):
+					worn += 1
+		_check("Isla Alba: la capa de tierra pisada se lee", worn > 300)
+		_check("Isla Alba: la rampa de la cumbre sube entre 6 y 9 m", summit_ramp_ok)
 		_check("Isla Alba: refugio de 8 × 7, portal y veta de malaquita", alba.cells_of("R").size() == 56
 				and alba.cells_of("P").size() == 6 and alba.cells_of("M").size() == 9)
 		_check("Isla Alba: la veta de malaquita está en la explanada baja", alba.ground(alba.cells_of("M")[4]) == IslandLayout.Ground.LOW_FLAT)
@@ -146,8 +200,24 @@ func _ready() -> void:
 			if surrounded:
 				high_tree = cell
 				break
-		_check("Isla Alba: hay árboles en lo alto, a 6 m", high_tree != Vector2i(-1, -1)
-				and is_equal_approx(isle.ground_height(high_tree), IslandLayout.LEVEL_HEIGHT))
+		# Con las lomas (C5.4b), a unos 6 m: más o menos lo que mueven las lomas de la montaña.
+		_check("Isla Alba: hay árboles en lo alto, a unos 6 m", high_tree != Vector2i(-1, -1)
+				and absf(isle.ground_height(high_tree) - IslandLayout.LEVEL_HEIGHT) <= IslandLayout.RELIEF_BY_GROUND[IslandLayout.Ground.HIGH] + IslandLayout.LANDMARK_MOUND
+				+ IslandLayout.HIGH_HILL_HEIGHT + 0.01)
+		# Lomas (C5.4b): las explanadas siguen planas del todo (también en sus bordes) y la montaña se mueve.
+		var flat_ok: bool = true
+		var bumpy: int = 0
+		for y: int in alba.size.y:
+			for x: int in alba.size.x:
+				var cell := Vector2i(x, y)
+				if alba.is_buildable(cell):
+					for f: Vector2 in [Vector2(0.0, 0.0), Vector2(0.5, 0.5), Vector2(1.0, 0.5), Vector2(0.5, 1.0), Vector2(1.0, 1.0)]:
+						if not is_equal_approx(alba.terrain_height(x + f.x, y + f.y), alba.height(cell)):
+							flat_ok = false
+				elif alba.ground(cell) == IslandLayout.Ground.HIGH and absf(alba.relief(x + 0.5, y + 0.5)) > 0.2:
+					bumpy += 1
+		_check("Isla Alba: las explanadas siguen planas con las lomas", flat_ok)
+		_check("Isla Alba: la montaña tiene lomas", bumpy > 200)
 		# Todo lo que va sobre el terreno se apoya en el suelo dibujado (C5.3d): ni flota ni queda enterrado.
 		var shore_ok: bool = true
 		for cell: Vector2i in alba.cells_of("t"):

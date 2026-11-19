@@ -74,12 +74,19 @@ var _fx_ms: int = -100000
 var _saw_sound: LoopSound = null
 
 
+## Radio (m) de la base que tiene que quedar dentro del suelo en una cuesta (tronco y raíces de los árboles).
+const BASE_RADIUS: float = 0.45
+
+
 ## Prepara la vista. Se llama ANTES de añadirla al árbol.
 func setup(p_cell: Vector2i, p_island: IslandState) -> void:
 	cell = p_cell
 	island = p_island
 	name = "tree_%d_%d" % [cell.x, cell.y]
 	position = GridMath.cell_center(cell, island.ground_height(cell))   # a la altura de su suelo (C5.3b)
+	if island.layout != null and not island.layout.is_buildable(cell):
+		# En cuesta, apoyado en lo más bajo bajo su base: si no, el pie y las raíces asomaban por el lado de abajo.
+		position.y = island.layout.lowest_around(position.x, position.z, BASE_RADIUS)
 	_shape = CylinderShape3D.new()
 	var collision := CollisionShape3D.new()
 	collision.shape = _shape

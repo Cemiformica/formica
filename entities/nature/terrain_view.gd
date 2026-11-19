@@ -212,20 +212,73 @@ const SEA_MARGIN: float = 1500.0
 const TERRAIN_SHADER: Shader = preload("res://entities/nature/terrain.gdshader")
 ## Lo que cuenta el sendero en el rellano (también es tierra pisada, pero más clara y gastada).
 const LANDING_AS_PATH: float = 0.6
+## Puntos del terreno por casilla y lado (2 = cada medio metro, C5.4b).
+const GROUND_SUBDIVISIONS: int = 2
+## Superficie del agua para las esquinas que no tocan agua: tan abajo que nada queda bajo ella.
+const NO_WATER_SURFACE: float = -100.0
+## Hasta cuántas esquinas de distancia se lleva la superficie del agua tierra adentro.
+const WATER_SURFACE_SPREAD: int = 3
+
+
+## Las esquinas que no tocan agua toman la superficie del agua más cercana (hasta unas casillas): así, entre una esquina
+## de la orilla y la siguiente, la superficie no se hunde y el shader sabe dónde está el agua.
+func _spread_water_surface(surface: PackedFloat32Array, row: int, rows: int) -> void:
+	var queue: Array[Vector2i] = []
+	var steps := PackedInt32Array()
+	steps.resize(surface.size())
+	steps.fill(-1)
+	for j: int in rows:
+		for i: int in row:
+			if surface[j * row + i] > NO_WATER_SURFACE:
+				steps[j * row + i] = 0
+				queue.append(Vector2i(i, j))
+	var head: int = 0
+	while head < queue.size():
+		var corner: Vector2i = queue[head]
+		head += 1
+		var index: int = corner.y * row + corner.x
+		if steps[index] >= WATER_SURFACE_SPREAD:
+			continue
+		for offset: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			var other: Vector2i = corner + offset
+			if other.x < 0 or other.y < 0 or other.x >= row or other.y >= rows:
+				continue
+			var other_index: int = other.y * row + other.x
+			if steps[other_index] == -1:
+				steps[other_index] = steps[index] + 1
+				surface[other_index] = surface[index]
+				queue.append(other)
+
+
+## Valor de una rejilla de esquinas en un punto (interpolado entre las cuatro esquinas de su casilla).
+func _lerp_corners(values: PackedFloat32Array, row: int, x: float, z: float) -> float:
+	var height_count: int = values.size() / row
+	var i: int = clampi(floori(x), 0, row - 2)
+	var j: int = clampi(floori(z), 0, height_count - 2)
+	var fx: float = clampf(x - i, 0.0, 1.0)
+	var fz: float = clampf(z - j, 0.0, 1.0)
+	return lerpf(lerpf(values[j * row + i], values[j * row + i + 1], fx),
+			lerpf(values[(j + 1) * row + i], values[(j + 1) * row + i + 1], fx), fz)
 
 
 ## Suelo de una isla con plano. Cada esquina lleva lo que la rodea, para el shader:
 ## color (r) arena: playa y mar; (g) mojado: toca agua o mar; (b) tierra pisada (sendero y sus extremos);
 ## (a) altura de 0 (abajo) a 1 (arriba);
-## uv2 (x) hondura bajo el agua (m); (y) explanada (donde se construye, con menos manchas para que se lea).
+## uv2 (x) superficie del agua que toca (m, muy abajo si no toca ninguna); (y) explanada (donde se construye, con menos manchas para que se lea).
 ## La roca la decide el shader por la pendiente.
 func _build_layout_ground(island: IslandState) -> void:
 	var layout: IslandLayout = island.layout
 	var w: int = layout.size.x
 	var h: int = layout.size.y
-	var tool := SurfaceTool.new()
-	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	# Un punto en cada esquina de casilla: (w + 1) × (h + 1).
+	var row: int = w + 1
+	# Primero, lo de cada esquina de casilla: (w + 1) × (h + 1).
+	var sand_at := PackedFloat32Array()
+	var wet_at := PackedFloat32Array()
+	var path_at := PackedFloat32Array()
+	var flat_at := PackedFloat32Array()
+	var depth_at := PackedFloat32Array()
+	for values: PackedFloat32Array in [sand_at, wet_at, path_at, flat_at, depth_at]:
+		values.resize(row * (h + 1))
 	for j: int in h + 1:
 		for i: int in w + 1:
 			var corner_y: float = layout.corner_height(i, j)   # la misma regla que usa todo lo de encima
@@ -250,17 +303,38 @@ func _build_layout_ground(island: IslandState) -> void:
 				path += 0.25 * layout.wear(cell)
 				if layout.is_buildable(cell):
 					flat += 0.25
-			var depth: float = maxf(water_surface - corner_y, 0.0) if water_surface > -INF else 0.0
-			tool.set_color(Color(sand, wet, path, clampf(corner_y / IslandLayout.LEVEL_HEIGHT, 0.0, 1.0)))
-			tool.set_uv2(Vector2(depth, flat))
-			tool.add_vertex(Vector3(i, corner_y, j))
-	for j: int in h:
-		for i: int in w:
-			var a: int = j * (w + 1) + i
-			var b: int = a + 1
-			var c: int = a + w + 1
-			var d: int = c + 1
-			for index: int in [a, b, d, a, d, c]:
+			var index: int = j * row + i
+			sand_at[index] = sand
+			wet_at[index] = wet
+			path_at[index] = path
+			flat_at[index] = flat
+			# La superficie del agua que toca: el shader calcula la hondura en cada punto. Interpolar la hondura de las
+			# esquinas pintaba de fondo medio acantilado (captura de César).
+			depth_at[index] = water_surface if water_surface > -INF else NO_WATER_SURFACE
+	_spread_water_surface(depth_at, row, h + 1)
+	# Después, un punto cada medio metro (C5.4b: para que las lomas se vean redondas), con la altura del terreno
+	# (`IslandLayout.terrain_height()`, la misma que usan los árboles y las rocas) y lo de las esquinas interpolado.
+	var step: float = 1.0 / GROUND_SUBDIVISIONS
+	var count_x: int = w * GROUND_SUBDIVISIONS + 1
+	var count_z: int = h * GROUND_SUBDIVISIONS + 1
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for b: int in count_z:
+		for a: int in count_x:
+			var x: float = a * step
+			var z: float = b * step
+			var y: float = layout.terrain_height(x, z)
+			tool.set_color(Color(_lerp_corners(sand_at, row, x, z), _lerp_corners(wet_at, row, x, z),
+					_lerp_corners(path_at, row, x, z), clampf(y / IslandLayout.LEVEL_HEIGHT, 0.0, 1.0)))
+			tool.set_uv2(Vector2(_lerp_corners(depth_at, row, x, z), _lerp_corners(flat_at, row, x, z)))
+			tool.add_vertex(Vector3(x, y, z))
+	for b: int in count_z - 1:
+		for a: int in count_x - 1:
+			var p0: int = b * count_x + a
+			var p1: int = p0 + 1
+			var p2: int = p0 + count_x
+			var p3: int = p2 + 1
+			for index: int in [p0, p1, p3, p0, p3, p2]:
 				tool.add_index(index)
 	tool.generate_normals()
 	var mesh: ArrayMesh = tool.commit()

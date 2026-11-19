@@ -10,7 +10,7 @@ extends RefCounted
 ## Dónde tocar: `_GROUND_BY_CHAR` y `_FLOW_BY_CHAR` si cambia la leyenda.
 
 ## Tipo de suelo de una casilla.
-enum Ground { SEA, BEACH, LOW, LOW_FLAT, HIGH, HIGH_FLAT, SLOPE, LANDING, WATER, FALL }
+enum Ground { SEA, BEACH, LOW, LOW_FLAT, HIGH, HIGH_FLAT, SLOPE, LANDING, WATER, FALL, MID, MID_FLAT, HILL, TOP, TOP_FLAT, RAMP, HIGH_HILL }
 
 ## Alturas: la parte baja está a 0 y la alta, a LEVEL_HEIGHT metros (D-154). La ladera, el rellano y la cascada
 ## no tienen una altura fija (`NO_LEVEL`): van entre las dos.
@@ -18,6 +18,24 @@ const LEVEL_HEIGHT: float = 6.0
 const LOW_LEVEL: int = 0
 const HIGH_LEVEL: int = 1
 const NO_LEVEL: int = -1
+## Terraza a media altura (C5.4b, versión 3 del plano): la parte media y su explanada, a MID_HEIGHT metros.
+const MID_LEVEL: int = 2
+const MID_HEIGHT: float = 3.0
+## Cumbre al noreste, con su explanada y el árbol singular (C5.4b, César: lo alto seguía muy abierto). Más adelante,
+## la altura podrá influir en el viento y en los molinos.
+const TOP_LEVEL: int = 3
+const TOP_HEIGHT: float = 9.0
+## Las lomas (`n`) son parte baja que sube hasta HILL_HEIGHT metros en su centro, a HILL_RAMP casillas del borde:
+## tapan la vista entre las bolsas de la explanada baja (César: se veía todo de golpe).
+const HILL_HEIGHT: float = 2.5
+const HILL_RAMP: float = 3.0
+## Lomas de lo alto (`m`, dibujo de César): dan forma a la parte alta, donde no hay explanada.
+const HIGH_HILL_HEIGHT: float = 3.5
+const HIGH_HILL_RAMP: float = 4.0
+## Subida (casillas) de las lomas con corte de roca: tan corta que la cara sale empinada.
+const HILL_CUT_RAMP: float = 1.2
+## Cabecera de la capa de tierra pisada al final del plano: debajo, filas del mismo tamaño; `x` = tierra pisada.
+const WEAR_LAYER_HEADER: String = "[tierra pisada]"
 ## Hondura del fondo del agua de la isla bajo su nivel, y fondo del mar (C5.3d).
 const WATER_DEPTH: float = 0.8
 const SEA_BED: float = -1.6
@@ -34,7 +52,7 @@ const MAX_SLOPE_FOR_NATURE: float = 1.0
 
 const _GROUND_BY_CHAR: Dictionary[String, Ground] = {
 	"~": Ground.SEA, ",": Ground.BEACH, ".": Ground.LOW, "=": Ground.LOW_FLAT, "^": Ground.HIGH,
-	"#": Ground.HIGH_FLAT, "/": Ground.SLOPE, ":": Ground.SLOPE, "_": Ground.LANDING, "O": Ground.WATER, "o": Ground.WATER,
+	"#": Ground.HIGH_FLAT, "-": Ground.MID, "+": Ground.MID_FLAT, "n": Ground.HILL, "*": Ground.TOP, "%": Ground.TOP_FLAT, "r": Ground.RAMP, "m": Ground.HIGH_HILL, "/": Ground.SLOPE, ":": Ground.SLOPE, "_": Ground.LANDING, "O": Ground.WATER, "o": Ground.WATER,
 	"v": Ground.WATER, "<": Ground.WATER, ">": Ground.WATER, "s": Ground.WATER, "C": Ground.FALL,
 }
 ## Agua que corre y hacia dónde (un paso de la cuadrícula). El vado (`s`) es río con piedras encima.
@@ -57,15 +75,47 @@ var _heights: PackedFloat32Array = PackedFloat32Array()
 ## preguntarlas a cada momento daba tirones (C5.3d).
 var _corners: PackedFloat32Array = PackedFloat32Array()
 var _steep: PackedByteArray = PackedByteArray()
+## Relieve (C5.4b): lomas suaves fuera de las explanadas. En cada esquina, cuánto mueve el ruido (m) y cuánto se
+## levanta siempre (el rellano, el montículo del árbol singular); entre esquinas, se interpola.
+var _relief_scale: PackedFloat32Array = PackedFloat32Array()
+var _relief_lift: PackedFloat32Array = PackedFloat32Array()
+var _relief_noise: FastNoiseLite = null
+## Esquinas que se dibujan (suavizadas) y ruido que deforma los bordes (C5.4b).
+var _drawn: PackedFloat32Array = PackedFloat32Array()
+var _warp_noise: FastNoiseLite = null
+## Pasadas de suavizado, cuánto se desplazan los bordes (m) y su tamaño (frecuencia por metro).
+const SMOOTH_PASSES: int = 3
+const WARP_AMOUNT: float = 1.3
+## Altura mínima (m) de la tierra que está sobre el mar (el mar se dibuja a −0,25).
+const LAND_ABOVE_SEA: float = 0.05
+const WARP_FREQUENCY: float = 0.18
+## Altura de las lomas (m) según el suelo: más en la montaña, menos abajo y casi nada en la playa.
+const RELIEF_BY_GROUND: Dictionary[int, float] = {
+	Ground.HIGH: 1.4, Ground.LOW: 0.7, Ground.SLOPE: 0.5, Ground.BEACH: 0.25, Ground.MID: 0.6,
+	Ground.HILL: 0.5, Ground.TOP: 1.0, Ground.HIGH_HILL: 0.8,
+}
+## Casillas en las que el relieve crece desde cero junto a lo que debe quedar como está: explanadas, agua, mar y
+## objetos del plano (vetas, refugio, portal, arboledas, peñascos…; los árboles salvajes no cuentan).
+const RELIEF_FADE: float = 4.0
+## Tamaño de las lomas (frecuencia del ruido, por metro).
+const RELIEF_FREQUENCY: float = 0.045
+## Montículo bajo el árbol singular (`G`), para que se vea aún mejor desde toda la isla (D-158).
+const LANDMARK_MOUND: float = 1.0
+const LANDMARK_MOUND_RADIUS: float = 5.0
+
 ## Tierra pisada de cada casilla (0 a 1): 1 en el sendero y, donde el sendero llega a la parte baja o a la alta, una
 ## mancha que se va apagando para que no empiece de golpe (C5.4a, César). La usa el terreno para pintar.
 var _wear: PackedFloat32Array = PackedFloat32Array()
+## Casillas pintadas de tierra pisada en la capa del plano (`WEAR_LAYER_HEADER`).
+var _worn: PackedByteArray = PackedByteArray()
 ## Radio (casillas) de la mancha de tierra pisada en los extremos del sendero.
 const WEAR_REACH: float = 6.0
 ## Radio de la mancha alrededor del portal y de la entrada del refugio, y ancho y fuerza del camino que los une.
 const WEAR_SPOT_REACH: float = 5.0
 const WEAR_TRAIL_WIDTH: float = 2.5
 const WEAR_TRAIL_STRENGTH: float = 0.8
+## Tierra pisada de las rampas.
+const RAMP_WEAR: float = 0.85
 ## Casillas donde pueden aparecer rocas y palos (tierra, no empinada, no el rellano).
 var spawn_cells: Array[Vector2i] = []
 ## Carácter de objeto → sus casillas, en orden de lectura (de arriba abajo y de izquierda a derecha).
@@ -86,11 +136,19 @@ static func load_file(path: String) -> IslandLayout:
 static func from_text(text: String) -> IslandLayout:
 	var layout := IslandLayout.new()
 	var rows: PackedStringArray = []
+	var worn_rows: PackedStringArray = []
+	var in_wear_layer: bool = false
 	for line: String in text.split("\n"):
 		line = line.trim_suffix("\r")
 		if line.begins_with("//") or line.strip_edges() == "":
 			continue
-		rows.append(line)
+		if line.strip_edges() == WEAR_LAYER_HEADER:
+			in_wear_layer = true
+			continue
+		if in_wear_layer:
+			worn_rows.append(line)
+		else:
+			rows.append(line)
 	var width: int = 0
 	for row: String in rows:
 		width = maxi(width, row.length())
@@ -117,6 +175,11 @@ static func from_text(text: String) -> IslandLayout:
 	for ch: String in layout.features:
 		for cell: Vector2i in layout.features[ch]:
 			layout._ground[cell.y * width + cell.x] = layout._infer_ground(cell)
+	layout._worn.resize(width * rows.size())
+	for y: int in mini(worn_rows.size(), rows.size()):
+		for x: int in mini(worn_rows[y].length(), width):
+			if worn_rows[y][x] == "x":
+				layout._worn[y * width + x] = 1
 	layout._compute_heights()
 	layout._compute_corners()
 	return layout
@@ -138,13 +201,29 @@ func ground(cell: Vector2i) -> Ground:
 ## Altura de la casilla: `LOW_LEVEL`, `HIGH_LEVEL` o `NO_LEVEL` (ladera, rellano, cascada, mar).
 func level(cell: Vector2i) -> int:
 	match ground(cell):
-		Ground.BEACH, Ground.LOW, Ground.LOW_FLAT:
+		Ground.BEACH, Ground.LOW, Ground.LOW_FLAT, Ground.HILL:
 			return LOW_LEVEL
-		Ground.HIGH, Ground.HIGH_FLAT:
+		Ground.HIGH, Ground.HIGH_FLAT, Ground.HIGH_HILL:
 			return HIGH_LEVEL
+		Ground.MID, Ground.MID_FLAT, Ground.LANDING:
+			return MID_LEVEL   # el rellano del mirador, también a media altura (C5.4b, César)
+		Ground.TOP, Ground.TOP_FLAT:
+			return TOP_LEVEL
 		Ground.WATER:
 			return HIGH_LEVEL if char_at(cell) == "O" else LOW_LEVEL
 	return NO_LEVEL
+
+
+## Metros a los que está una altura (`LOW_LEVEL`, `MID_LEVEL` o `HIGH_LEVEL`).
+static func level_height(p_level: int) -> float:
+	match p_level:
+		HIGH_LEVEL:
+			return LEVEL_HEIGHT
+		MID_LEVEL:
+			return MID_HEIGHT
+		TOP_LEVEL:
+			return TOP_HEIGHT
+	return 0.0
 
 
 ## Altura del suelo de la casilla (m): 0 abajo, `LEVEL_HEIGHT` arriba; la ladera, el rellano y la cascada,
@@ -178,13 +257,23 @@ func _corner_from_cells(i: int, j: int) -> float:
 	for cell: Vector2i in cells:
 		if is_buildable(cell):
 			return height(cell)
+	# Rampa (C5.4b): sus esquinas, solo con sus casillas, para que suba recta sin hundirse junto a las lomas de al lado
+	# (César: parecía empinada y había que saltar).
+	var ramp_sum: float = 0.0
+	var ramp_count: int = 0
+	for cell: Vector2i in cells:
+		if ground(cell) == Ground.RAMP:
+			ramp_sum += height(cell)
+			ramp_count += 1
+	if ramp_count > 0:
+		return ramp_sum / ramp_count
 	# Orilla de la tierra donde no se construye: si la esquina toca agua y tierra, baja justo por debajo del agua
 	# (la más baja, si hay dos).
 	var water_surface: float = INF
 	var touches_land: bool = false
 	for cell: Vector2i in cells:
 		if ground(cell) == Ground.WATER:
-			water_surface = minf(water_surface, LEVEL_HEIGHT if level(cell) == HIGH_LEVEL else 0.0)
+			water_surface = minf(water_surface, level_height(level(cell)))
 		elif is_land(cell):
 			touches_land = true
 	if touches_land and water_surface != INF:
@@ -195,20 +284,164 @@ func _corner_from_cells(i: int, j: int) -> float:
 	return sum * 0.25
 
 
-## Altura del terreno dibujado en el centro de una casilla: la de la explanada si lo es (plana) y, si no, la media
-## de sus cuatro esquinas. Es donde se apoyan los árboles, las rocas y todo lo que va sobre el terreno.
+## Altura del terreno dibujado en el centro de una casilla: la de la explanada si lo es (plana) y, si no, la del
+## terreno con sus lomas. Es donde se apoyan los árboles, las rocas y todo lo que va sobre el terreno.
 func surface_height(cell: Vector2i) -> float:
 	if is_buildable(cell):
 		return height(cell)
-	return (corner_height(cell.x, cell.y) + corner_height(cell.x + 1, cell.y) + corner_height(cell.x, cell.y + 1)
-			+ corner_height(cell.x + 1, cell.y + 1)) * 0.25
+	return terrain_height(cell.x + 0.5, cell.y + 0.5)
 
 
-## Desnivel del terreno dibujado dentro de la casilla (m): la diferencia entre su esquina más alta y la más baja.
+## Altura del terreno dibujado en un punto cualquiera (en metros del mundo, x y z): las esquinas interpoladas más
+## las lomas. El terreno se dibuja con esto cada medio metro.
+func terrain_height(x: float, z: float) -> float:
+	if _point_fixed(x, z):
+		return _keep_above_sea(_bilinear_corners(_drawn, x, z), relief(x, z))
+	# Fuera de las explanadas y del agua, la forma se lee un poco desplazada con un ruido: así los bordes de los
+	# acantilados y las lomas no siguen la cuadrícula (César: «demasiado geométricas o cuadradas»).
+	var wx: float = x + _warp_noise.get_noise_2d(x, z) * WARP_AMOUNT
+	var wz: float = z + _warp_noise.get_noise_2d(x + 71.3, z - 37.9) * WARP_AMOUNT
+	return _keep_above_sea(_bilinear_corners(_drawn, clampf(wx, 0.0, size.x), clampf(wz, 0.0, size.y)), relief(x, z))
+
+
+## Las lomas no bajan la tierra por debajo del mar: si no, el agua del mar se veía a través del suelo como un charco
+## suelto (César: «un pequeño lago»). Lo que ya está bajo el mar (la orilla, el fondo) sigue como está.
+func _keep_above_sea(base: float, relief_offset: float) -> float:
+	var y: float = base + relief_offset
+	if base >= LAND_ABOVE_SEA:
+		return maxf(y, LAND_ABOVE_SEA)
+	return maxf(y, base)
+
+
+## Punto más bajo del terreno dibujado alrededor de (x, z), a `radius` metros: ahí se apoya algo con base ancha (el
+## tronco de un árbol) en una cuesta, para que no asome por el lado de abajo (captura de César).
+func lowest_around(x: float, z: float, radius: float) -> float:
+	var lowest: float = terrain_height(x, z)
+	for angle: float in [0.0, TAU * 0.25, TAU * 0.5, TAU * 0.75, TAU * 0.125, TAU * 0.375, TAU * 0.625, TAU * 0.875]:
+		lowest = minf(lowest, terrain_height(x + cos(angle) * radius, z + sin(angle) * radius))
+	return lowest
+
+
+## ¿Toca este punto una explanada o el agua? (ahí el terreno no se deforma: tiene que quedar plano y a su altura)
+func _point_fixed(x: float, z: float) -> bool:
+	var xs: Array[int] = [floori(x)]
+	var zs: Array[int] = [floori(z)]
+	if is_equal_approx(x, roundf(x)):
+		xs = [roundi(x) - 1, roundi(x)]
+	if is_equal_approx(z, roundf(z)):
+		zs = [roundi(z) - 1, roundi(z)]
+	for cx: int in xs:
+		for cz: int in zs:
+			var cell := Vector2i(cx, cz)
+			if is_buildable(cell) or ground(cell) == Ground.WATER or ground(cell) == Ground.RAMP:
+				return true
+	return false
+
+
+## Lo que las lomas suben o bajan el terreno en ese punto (0 en las explanadas, el agua y junto a ellas).
+func relief(x: float, z: float) -> float:
+	var scale: float = _bilinear_corners(_relief_scale, x, z)
+	var lift: float = _bilinear_corners(_relief_lift, x, z)
+	if scale == 0.0:
+		return lift
+	return lift + scale * _relief_noise.get_noise_2d(x, z)
+
+
+## Esquinas que se dibujan: las de siempre, suavizadas unas pasadas fuera de las explanadas, el agua y su orilla (así los
+## acantilados y las lomas se redondean), con el relieve de las lomas suavizado igual.
+func _compute_drawn_corners() -> void:
+	var row: int = size.x + 1
+	var fixed := PackedByteArray()
+	fixed.resize(row * (size.y + 1))
+	for j: int in size.y + 1:
+		for i: int in size.x + 1:
+			for cell: Vector2i in [Vector2i(i - 1, j - 1), Vector2i(i, j - 1), Vector2i(i - 1, j), Vector2i(i, j)]:
+				if is_buildable(cell) or ground(cell) == Ground.WATER or ground(cell) == Ground.RAMP:
+					fixed[j * row + i] = 1
+	_drawn = _smooth_corners(_corners, fixed, SMOOTH_PASSES)
+	_relief_lift = _smooth_corners(_relief_lift, fixed, SMOOTH_PASSES)
+	_relief_scale = _smooth_corners(_relief_scale, fixed, SMOOTH_PASSES)
+	_warp_noise = FastNoiseLite.new()
+	_warp_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_warp_noise.seed = 2
+	_warp_noise.frequency = WARP_FREQUENCY
+
+
+## Distancia (en casillas, con diagonales de 1,41) de cada casilla a la más cercana que valga 0, en dos pasadas.
+func _chamfer_distance(values: PackedFloat32Array) -> void:
+	var w: int = size.x
+	var h: int = size.y
+	const D: float = 1.41421
+	for y: int in h:
+		for x: int in w:
+			var index: int = y * w + x
+			var best: float = values[index]
+			if x > 0:
+				best = minf(best, values[index - 1] + 1.0)
+			if y > 0:
+				best = minf(best, values[index - w] + 1.0)
+				if x > 0:
+					best = minf(best, values[index - w - 1] + D)
+				if x < w - 1:
+					best = minf(best, values[index - w + 1] + D)
+			values[index] = best
+	for y: int in range(h - 1, -1, -1):
+		for x: int in range(w - 1, -1, -1):
+			var index: int = y * w + x
+			var best: float = values[index]
+			if x < w - 1:
+				best = minf(best, values[index + 1] + 1.0)
+			if y < h - 1:
+				best = minf(best, values[index + w] + 1.0)
+				if x < w - 1:
+					best = minf(best, values[index + w + 1] + D)
+				if x > 0:
+					best = minf(best, values[index + w - 1] + D)
+			values[index] = best
+
+
+## Media con las cuatro vecinas, `passes` veces, sin mover las esquinas marcadas en `fixed`.
+func _smooth_corners(values: PackedFloat32Array, fixed: PackedByteArray, passes: int) -> PackedFloat32Array:
+	var row: int = size.x + 1
+	var rows: int = size.y + 1
+	var current: PackedFloat32Array = values.duplicate()
+	for _pass: int in passes:
+		var next: PackedFloat32Array = current.duplicate()
+		for j: int in range(1, rows - 1):
+			for i: int in range(1, row - 1):
+				var index: int = j * row + i
+				if fixed[index] == 1:
+					continue
+				next[index] = (current[index] * 2.0 + current[index - 1] + current[index + 1] + current[index - row]
+						+ current[index + row]) / 6.0
+		current = next
+	return current
+
+
+## Valor de una rejilla de esquinas ((ancho + 1) × (alto + 1)) en un punto, interpolando entre las cuatro más cercanas.
+func _bilinear_corners(values: PackedFloat32Array, x: float, z: float) -> float:
+	var i: int = clampi(floori(x), 0, size.x - 1)
+	var j: int = clampi(floori(z), 0, size.y - 1)
+	var fx: float = clampf(x - i, 0.0, 1.0)
+	var fz: float = clampf(z - j, 0.0, 1.0)
+	var row: int = size.x + 1
+	var a: float = values[j * row + i]
+	var b: float = values[j * row + i + 1]
+	var c: float = values[(j + 1) * row + i]
+	var d: float = values[(j + 1) * row + i + 1]
+	return lerpf(lerpf(a, b, fx), lerpf(c, d, fx), fz)
+
+
+## Desnivel del terreno dibujado dentro de la casilla (m): la diferencia entre su punto más alto y el más bajo
+## (esquinas y centro).
 func slope_drop(cell: Vector2i) -> float:
-	var corners: Array[float] = [corner_height(cell.x, cell.y), corner_height(cell.x + 1, cell.y),
-			corner_height(cell.x, cell.y + 1), corner_height(cell.x + 1, cell.y + 1)]
-	return corners.max() - corners.min()
+	var low: float = INF
+	var high: float = -INF
+	for f: Vector2 in [Vector2(0, 0), Vector2(1, 0), Vector2(0, 1), Vector2(1, 1), Vector2(0.5, 0.5)]:
+		var y: float = terrain_height(cell.x + f.x, cell.y + f.y)
+		low = minf(low, y)
+		high = maxf(high, y)
+	return high - low
 
 
 ## ¿Demasiado empinada para un árbol, una roca o unos palos? (el borde del acantilado, por ejemplo)
@@ -219,7 +452,9 @@ func is_steep(cell: Vector2i) -> bool:
 ## ¿Se puede construir aquí? Solo en las explanadas (D-154), y no bajo un objeto que la tape.
 func is_buildable(cell: Vector2i) -> bool:
 	var g: Ground = ground(cell)
-	return (g == Ground.LOW_FLAT or g == Ground.HIGH_FLAT) and not SOLID_FEATURES.contains(char_at(cell))
+	return (g == Ground.LOW_FLAT or g == Ground.MID_FLAT or g == Ground.HIGH_FLAT or g == Ground.TOP_FLAT \
+			or g == Ground.LANDING) \
+			and not SOLID_FEATURES.contains(char_at(cell))
 
 
 ## ¿Es tierra (se anda y se puede plantar)? Ni mar, ni agua, ni cascada, ni un objeto que la tape.
@@ -231,7 +466,8 @@ func is_land(cell: Vector2i) -> bool:
 ## ¿Pueden aparecer rocas o palos aquí? En tierra que no sea empinada, salvo en el rellano (es el mirador: se
 ## deja despejado) y en el sendero.
 func can_spawn(cell: Vector2i) -> bool:
-	return is_land(cell) and ground(cell) != Ground.LANDING and not is_path(cell) and not is_steep(cell)
+	return is_land(cell) and ground(cell) != Ground.LANDING and ground(cell) != Ground.RAMP and not is_path(cell) \
+			and not is_steep(cell)
 
 
 ## ¿Es sendero? (`:` en el plano, C5.4a): ladera que se pinta de tierra pisada.
@@ -288,8 +524,11 @@ func _compute_heights() -> void:
 	var h: int = size.y
 	_heights.resize(w * h)
 	var to_land: PackedInt32Array = _sea_distances()
-	var to_low: Dictionary[Vector2i, int] = _slope_distances(LOW_LEVEL)
-	var to_high: Dictionary[Vector2i, int] = _slope_distances(HIGH_LEVEL)
+	# Para la ladera y las rampas: la distancia a cada altura. Cada casilla sube entre las dos alturas más cercanas
+	# (la ladera del oeste, entre la baja y la alta; la rampa de la terraza, entre la baja y la media).
+	var to_level: Dictionary[int, Dictionary] = {}
+	for l: int in [LOW_LEVEL, MID_LEVEL, HIGH_LEVEL, TOP_LEVEL]:
+		to_level[l] = _slope_distances(l)
 	for y: int in h:
 		for x: int in w:
 			var cell := Vector2i(x, y)
@@ -300,14 +539,27 @@ func _compute_heights() -> void:
 					var far: float = float(maxi(to_land[y * w + x] - 1, 0))
 					value = maxf(SEA_BED - far * SEA_DROP_PER_CELL, SEA_DEEPEST)
 				Ground.WATER:
-					value = (LEVEL_HEIGHT if level(cell) == HIGH_LEVEL else 0.0) - WATER_DEPTH
-				Ground.SLOPE, Ground.LANDING, Ground.FALL:
-					var dl: float = float(to_low.get(cell, 1000))
-					var dh: float = float(to_high.get(cell, 1000))
-					value = LEVEL_HEIGHT * dl / (dl + dh)
+					value = level_height(level(cell)) - WATER_DEPTH
+				Ground.SLOPE, Ground.FALL, Ground.RAMP:
+					value = _slope_height(cell, to_level)
 				_:
-					value = LEVEL_HEIGHT if level(cell) == HIGH_LEVEL else 0.0
+					value = level_height(level(cell))
 			_heights[y * w + x] = value
+
+
+## Altura de una casilla de ladera o de rampa: la media de las alturas a las que llega, pesada por lo cerca que está
+## de cada una (1 / distancia). Con dos alturas es la subida en línea recta de siempre; con tres (la ladera con el
+## rellano en medio) pasa de una a otra sin saltos.
+func _slope_height(cell: Vector2i, to_level: Dictionary[int, Dictionary]) -> float:
+	var weights: float = 0.0
+	var total: float = 0.0
+	for l: int in to_level:
+		if not to_level[l].has(cell):
+			continue
+		var weight: float = 1.0 / float(to_level[l][cell])
+		weights += weight
+		total += weight * level_height(l)
+	return total / weights if weights > 0.0 else 0.0
 
 
 ## Distancia de cada casilla de mar a la tierra más cercana (en casillas, por la cuadrícula; 0 en tierra).
@@ -343,7 +595,8 @@ func _slope_distances(target_level: int) -> Dictionary[Vector2i, int]:
 			if _is_slope(cell):
 				for offset: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
 					var other: Vector2i = cell + offset
-					if is_land(other) and not _is_slope(other) and level(other) == target_level:
+					# Las lomas no cuentan: tiraban hacia abajo los lados de la rampa de la terraza, que pasa entre ellas.
+					if is_land(other) and not _is_slope(other) and level(other) == target_level and ground(other) != Ground.HILL:
 						distances[cell] = 1
 						queue.append(cell)
 						break
@@ -361,7 +614,7 @@ func _slope_distances(target_level: int) -> Dictionary[Vector2i, int]:
 
 func _is_slope(cell: Vector2i) -> bool:
 	var g: Ground = ground(cell)
-	return g == Ground.SLOPE or g == Ground.LANDING or g == Ground.FALL
+	return g == Ground.SLOPE or g == Ground.FALL or g == Ground.RAMP
 
 
 ## Esquinas, casillas empinadas y casillas para rocas y palos (después de las alturas).
@@ -370,6 +623,10 @@ func _compute_corners() -> void:
 	for j: int in size.y + 1:
 		for i: int in size.x + 1:
 			_corners[j * (size.x + 1) + i] = _corner_from_cells(i, j)
+	# Lo que se dibuja (C5.4b): las esquinas suavizadas, el relieve y la deformación de los bordes. Lo empinado se mide
+	# sobre lo dibujado, para que nada aparezca en una pared.
+	_compute_relief()
+	_compute_drawn_corners()
 	_steep.resize(size.x * size.y)
 	spawn_cells.clear()
 	for y: int in size.y:
@@ -383,6 +640,99 @@ func _compute_corners() -> void:
 	_compute_wear()
 
 
+## Relieve: cuánto mueve el ruido cada esquina (según su suelo y lo lejos que está de lo que no se toca) y cuánto se
+## levantan el rellano y el montículo del árbol singular. El ruido tiene siempre la misma semilla: la isla sale igual.
+func _compute_relief() -> void:
+	_relief_noise = FastNoiseLite.new()
+	_relief_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_relief_noise.seed = 1
+	_relief_noise.frequency = RELIEF_FREQUENCY
+	_relief_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_relief_noise.fractal_octaves = 3
+	# Distancia de cada casilla a lo que no se toca (0 en ello).
+	var distances := PackedInt32Array()
+	distances.resize(size.x * size.y)
+	distances.fill(-1)
+	var queue: Array[Vector2i] = []
+	for y: int in size.y:
+		for x: int in size.x:
+			var cell := Vector2i(x, y)
+			var g: Ground = ground(cell)
+			var ch: String = char_at(cell)
+			if is_buildable(cell) or g == Ground.WATER or g == Ground.SEA or g == Ground.FALL \
+					or (FEATURE_CHARS.contains(ch) and ch != "t"):
+				distances[y * size.x + x] = 0
+				queue.append(cell)
+	var head: int = 0
+	while head < queue.size():
+		var cell: Vector2i = queue[head]
+		head += 1
+		for offset: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			var other: Vector2i = cell + offset
+			if has_cell(other) and distances[other.y * size.x + other.x] == -1:
+				distances[other.y * size.x + other.x] = distances[cell.y * size.x + cell.x] + 1
+				queue.append(other)
+	# Lo que se mete cada casilla en su loma (0 fuera de las lomas), medido en redondo (con diagonales): con la
+	# distancia por la cuadrícula salían rombos (César: «formas excesivamente geométricas»).
+	var hill_depth := PackedFloat32Array()
+	hill_depth.resize(size.x * size.y)
+	for y: int in size.y:
+		for x: int in size.x:
+			# La terraza no cuenta como borde de la loma: las lomas pegadas a ella (su borde, César) suben hasta su
+			# altura en lugar de bajar a cero a su lado.
+			var g: Ground = ground(Vector2i(x, y))
+			var is_edge: bool = g != Ground.HILL and g != Ground.HIGH_HILL and g != Ground.MID and g != Ground.MID_FLAT
+			hill_depth[y * size.x + x] = 0.0 if is_edge else 1.0e6
+	_chamfer_distance(hill_depth)
+	var landmark: Array[Vector2i] = cells_of("G")
+	var landmark_center := Vector2(-1000.0, -1000.0)
+	if not landmark.is_empty():
+		landmark_center = _average(landmark) + Vector2(0.5, 0.5)
+	var row: int = size.x + 1
+	_relief_scale.resize(row * (size.y + 1))
+	_relief_lift.resize(row * (size.y + 1))
+	for j: int in size.y + 1:
+		for i: int in size.x + 1:
+			var nearest: int = 1000
+			var amplitude: float = 0.0
+			var count: int = 0
+			var fixed: bool = false   # toca una explanada o el agua: no se mueve nunca
+			var in_hill: float = 1.0e6
+			var high_hill: bool = false
+
+			for cell: Vector2i in [Vector2i(i - 1, j - 1), Vector2i(i, j - 1), Vector2i(i - 1, j), Vector2i(i, j)]:
+				if not has_cell(cell):
+					nearest = 0
+					continue
+				nearest = mini(nearest, distances[cell.y * size.x + cell.x])
+				var g: Ground = ground(cell)
+				if is_buildable(cell) or g == Ground.WATER or g == Ground.SEA or g == Ground.RAMP:
+					fixed = true
+				amplitude += RELIEF_BY_GROUND.get(ground(cell), 0.0)
+				count += 1
+				if g == Ground.HILL or g == Ground.HIGH_HILL:
+					in_hill = minf(in_hill, hill_depth[cell.y * size.x + cell.x])
+					high_hill = high_hill or g == Ground.HIGH_HILL
+				elif g != Ground.MID and g != Ground.MID_FLAT:
+					in_hill = 0.0
+			var fade: float = smoothstep(0.0, RELIEF_FADE, float(nearest))
+			_relief_scale[j * row + i] = (amplitude / maxf(count, 1.0)) * fade
+			var lift: float = 0.0
+			var to_landmark: float = Vector2(i, j).distance_to(landmark_center) / LANDMARK_MOUND_RADIUS
+			if in_hill > 0.0 and in_hill < 1.0e5 and not fixed:
+				# Cada tramo de loma, a su manera (C5.4b, César): más alta o más baja, y unas suben en cuesta y otras
+				# con un corte de roca (subida corta y empinada).
+				var character: float = (_relief_noise.get_noise_2d(i * 2.3 + 500.0, j * 2.3) + 1.0) * 0.5
+				var cut: float = smoothstep(0.45, 0.75, character)
+				var tall: float = lerpf(0.7, 1.45, character)
+				var top: float = (HIGH_HILL_HEIGHT if high_hill else HILL_HEIGHT) * tall
+				var ramp: float = lerpf(HIGH_HILL_RAMP if high_hill else HILL_RAMP, HILL_CUT_RAMP, cut)
+				lift += top * smoothstep(0.0, ramp, in_hill)
+			if to_landmark < 1.0 and not fixed:
+				lift += LANDMARK_MOUND * (1.0 - smoothstep(0.0, 1.0, to_landmark))
+			_relief_lift[j * row + i] = lift
+
+
 ## Tierra pisada (C5.4a): el sendero entero; alrededor de cada extremo (casillas del sendero que tocan tierra que no
 ## es ladera), del portal y de la entrada del refugio, una mancha redonda que se apaga con la distancia; y un camino
 ## suave, como el que deja la gente al pasar, de la bajada del sendero a la entrada del refugio y de ahí al portal.
@@ -393,6 +743,12 @@ func _compute_wear() -> void:
 	for y: int in size.y:
 		for x: int in size.x:
 			var cell := Vector2i(x, y)
+			var on_hill: bool = ground(cell) == Ground.HILL or ground(cell) == Ground.HIGH_HILL
+			if _worn[y * size.x + x] == 1 and not is_steep(cell) and not on_hill:
+				_wear[y * size.x + x] = 1.0   # pintado en la capa de tierra pisada (César); no en el pie de las lomas
+			if ground(cell) == Ground.RAMP:
+				_wear[y * size.x + x] = maxf(_wear[y * size.x + x], RAMP_WEAR)   # se ve por dónde se sube
+				continue
 			if not is_path(cell):
 				continue
 			_wear[y * size.x + x] = 1.0
