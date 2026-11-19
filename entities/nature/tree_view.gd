@@ -303,6 +303,14 @@ func _add_model(model_name: String) -> void:
 	_visual.add_child(instance)
 
 
+## Malla de `nature.glb` por su nombre (p. ej., «rock_1»), para quien la use fuera de los árboles (las rocas caídas del
+## terreno, C5.4c). Null si no existe.
+static func named_mesh(model_name: String) -> Mesh:
+	if _meshes.is_empty():
+		_load_meshes()
+	return _meshes.get(model_name, null)
+
+
 ## Malla del modelo de una especie y fase (p. ej., el brote de roble), para el fantasma de plantar (C1.9).
 static func get_model_mesh(species: StringName, phase: String, variant: int = 0) -> Mesh:
 	if _meshes.is_empty():

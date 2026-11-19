@@ -135,7 +135,7 @@ func placement_problem(data: BuildingData, origin: Vector2i, rotation: int = 0) 
 				return "BUILD_TWO_LEVELS"
 	for cell: Vector2i in OccupancyGrid.footprint_cells(origin, data.size, rotation):
 		if nature.has(cell) or (_vein_cells.has(cell) and cell != head) or (water.has(cell) and not wet.has(cell)) \
-				or _repair_cells.has(cell):
+				or _repair_cells.has(cell) or (layout != null and layout.has_debris(cell)):   # o una roca caída (C5.4c)
 			return "BUILD_NO_ROOM"
 	return ""
 
@@ -722,7 +722,7 @@ func sticks_count() -> int:
 
 ## ¿Casilla de suelo libre (sin naturaleza, construcción, veta ni agua)?
 func _is_free_ground(cell: Vector2i) -> bool:
-	if layout != null and (not layout.is_land(cell) or layout.is_steep(cell)):
+	if layout != null and (not layout.is_land(cell) or layout.is_steep(cell) or layout.has_debris(cell)):
 		return false   # mar, agua, cascada, una roca modelada del plano o demasiado empinada
 	return not nature.has(cell) and grid.get_occupant(cell) == 0 and not _vein_cells.has(cell) and not water.has(cell) \
 			and not _repair_cells.has(cell)

@@ -87,7 +87,15 @@ func _ready() -> void:
 	_check("no se planta en el mar ni en la cascada", not island.can_plant(Vector2i(0, 0)) and not island.can_plant(Vector2i(8, 3)))
 	# (La playa de (2, 4) está pegada a la ladera de este plano diminuto, que sube 6 m en tres casillas: es
 	# empinada. En llano, sí.)
-	_check("en la playa llana sí", island.can_plant(Vector2i(3, 5)))
+	# Una casilla de playa llana sin roca caída (C5.4c: al pie de la ladera puede haberlas).
+	var flat_beach := Vector2i(-1, -1)
+	for y: int in layout.size.y:
+		for x: int in layout.size.x:
+			var c := Vector2i(x, y)
+			if flat_beach == Vector2i(-1, -1) and layout.ground(c) == IslandLayout.Ground.BEACH and not layout.is_steep(c) \
+					and not layout.has_debris(c):
+				flat_beach = c
+	_check("en la playa llana sí", flat_beach != Vector2i(-1, -1) and island.can_plant(flat_beach))
 	_check("junto a la ladera, empinada: no", not island.can_plant(Vector2i(2, 4)))
 	_check("ninguna roca en el agua", not island.add_rock(Vector2i(9, 4)) and not island.add_rock(Vector2i(0, 0)))
 	_check("la orilla baja justo bajo el agua", is_equal_approx(layout.corner_height(9, 4), -IslandLayout.SHORE_BELOW_WATER))
@@ -172,6 +180,14 @@ func _ready() -> void:
 				if alba.wear(Vector2i(x, y)) >= 1.0 and not alba.is_path(Vector2i(x, y)):
 					worn += 1
 		_check("Isla Alba: la capa de tierra pisada se lee", worn > 300)
+		# Rocas caídas al pie de las paredes (C5.4c): hay bastantes, nunca en el agua, y donde hay una no se construye.
+		var debris_ok: bool = alba.debris.size() > 60
+		for item: Dictionary in alba.debris:
+			var p: Vector3 = item["position"]
+			var cell := Vector2i(floori(p.x), floori(p.z))
+			if not alba.is_land(cell) or not alba.has_debris(cell):
+				debris_ok = false
+		_check("Isla Alba: rocas caídas al pie de las paredes, en tierra", debris_ok)
 		_check("Isla Alba: la rampa de la cumbre sube entre 6 y 9 m", summit_ramp_ok)
 		_check("Isla Alba: refugio de 8 × 7, portal y veta de malaquita", alba.cells_of("R").size() == 56
 				and alba.cells_of("P").size() == 6 and alba.cells_of("M").size() == 9)

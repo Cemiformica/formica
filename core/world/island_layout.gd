@@ -83,11 +83,20 @@ var _relief_noise: FastNoiseLite = null
 ## Esquinas que se dibujan (suavizadas) y ruido que deforma los bordes (C5.4b).
 var _drawn: PackedFloat32Array = PackedFloat32Array()
 var _warp_noise: FastNoiseLite = null
+## Cuánto es pared cada esquina (0 a 1), por el desnivel con sus vecinas en lo que se dibuja.
+var _cliffness: PackedFloat32Array = PackedFloat32Array()
 ## Pasadas de suavizado, cuánto se desplazan los bordes (m) y su tamaño (frecuencia por metro).
 const SMOOTH_PASSES: int = 3
 const WARP_AMOUNT: float = 1.3
 ## Altura mínima (m) de la tierra que está sobre el mar (el mar se dibuja a −0,25).
 const LAND_ABOVE_SEA: float = 0.05
+## Repisas de las paredes (C5.4c): alto de cada capa (m), parte plana de cada una (0 a 0,5), cuánto se nota (0 a 1),
+## cuánto ondulan (m) y desde qué desnivel entre esquinas vecinas (m) una esquina cuenta como pared del todo.
+const LEDGE_STEP: float = 1.1
+const LEDGE_FLAT: float = 0.3
+const LEDGE_AMOUNT: float = 0.7
+const LEDGE_WOBBLE: float = 0.35
+const CLIFF_DROP: float = 1.5
 const WARP_FREQUENCY: float = 0.18
 ## Altura de las lomas (m) según el suelo: más en la montaña, menos abajo y casi nada en la playa.
 const RELIEF_BY_GROUND: Dictionary[int, float] = {
@@ -301,7 +310,16 @@ func terrain_height(x: float, z: float) -> float:
 	# acantilados y las lomas no siguen la cuadrícula (César: «demasiado geométricas o cuadradas»).
 	var wx: float = x + _warp_noise.get_noise_2d(x, z) * WARP_AMOUNT
 	var wz: float = z + _warp_noise.get_noise_2d(x + 71.3, z - 37.9) * WARP_AMOUNT
-	return _keep_above_sea(_bilinear_corners(_drawn, clampf(wx, 0.0, size.x), clampf(wz, 0.0, size.y)), relief(x, z))
+	var base: float = _bilinear_corners(_drawn, clampf(wx, 0.0, size.x), clampf(wz, 0.0, size.y))
+	# Paredes (C5.4c): la altura se escalona en repisas, para que los estratos tengan saliente y cara empinada.
+	var cliff: float = _bilinear_corners(_cliffness, x, z)
+	if cliff > 0.0:
+		var t: float = (base + _warp_noise.get_noise_2d(x * 0.5 - 13.0, z * 0.5 + 29.0) * LEDGE_WOBBLE) / LEDGE_STEP
+		var f: float = t - floorf(t)
+		var stepped: float = (floorf(t) + smoothstep(LEDGE_FLAT, 1.0 - LEDGE_FLAT, f)) * LEDGE_STEP \
+				- _warp_noise.get_noise_2d(x * 0.5 - 13.0, z * 0.5 + 29.0) * LEDGE_WOBBLE
+		base = lerpf(base, stepped, cliff * LEDGE_AMOUNT)
+	return _keep_above_sea(base, relief(x, z))
 
 
 ## Las lomas no bajan la tierra por debajo del mar: si no, el agua del mar se veía a través del suelo como un charco
@@ -365,6 +383,19 @@ func _compute_drawn_corners() -> void:
 	_warp_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_warp_noise.seed = 2
 	_warp_noise.frequency = WARP_FREQUENCY
+	# Lo que es pared: el mayor desnivel con las cuatro vecinas (sin tocar las esquinas fijas), suavizado.
+	_cliffness.resize(row * (size.y + 1))
+	_cliffness.fill(0.0)
+	for j: int in range(1, size.y):
+		for i: int in range(1, size.x):
+			var index: int = j * row + i
+			if fixed[index] == 1:
+				continue
+			var here: float = _drawn[index]
+			var drop: float = maxf(maxf(absf(_drawn[index - 1] - here), absf(_drawn[index + 1] - here)),
+					maxf(absf(_drawn[index - row] - here), absf(_drawn[index + row] - here)))
+			_cliffness[index] = smoothstep(CLIFF_DROP * 0.5, CLIFF_DROP, drop)
+	_cliffness = _smooth_corners(_cliffness, fixed, 1)
 
 
 ## Distancia (en casillas, con diagonales de 1,41) de cada casilla a la más cercana que valga 0, en dos pasadas.
@@ -467,7 +498,116 @@ func is_land(cell: Vector2i) -> bool:
 ## deja despejado) y en el sendero.
 func can_spawn(cell: Vector2i) -> bool:
 	return is_land(cell) and ground(cell) != Ground.LANDING and ground(cell) != Ground.RAMP and not is_path(cell) \
-			and not is_steep(cell)
+			and not is_steep(cell) and not _debris_cells.has(cell)
+
+
+## Rocas caídas al pie de las paredes (C5.4c): decorado. Cada una: posición (m), tamaño, giro y variante (0 a 2).
+var debris: Array[Dictionary] = []
+var _debris_cells: Dictionary[Vector2i, bool] = {}
+## Pie de las paredes altas: casillas llanas junto a una pared de más de WALL_FOOT_DROP metros.
+var _wall_foot: Dictionary[Vector2i, bool] = {}
+const WALL_FOOT_DROP: float = 1.6
+## Cuánto más alta tiene que estar la casilla de la pared que la del pie (m).
+const WALL_FOOT_RISE: float = 0.8
+## Parte de los pies de pared que lleva una roca caída (en la explanada, menos: ahí ocupa sitio de construir), su
+## tamaño y la parte que lleva otra pequeña al lado.
+const DEBRIS_CHANCE: float = 0.5
+const DEBRIS_CHANCE_ON_FLAT: float = 0.3
+const DEBRIS_PAIR_CHANCE: float = 0.45
+const DEBRIS_SCALE_MIN: float = 1.4
+const DEBRIS_SCALE_MAX: float = 2.8
+## Tierra al pie de las paredes (lo que se desprende): cuánta, de 0 a 1.
+const WALL_FOOT_WEAR: float = 0.5
+## Borde de hierba que asoma por lo alto de una pared: hasta cuántos metros por debajo del borde baja.
+const LIP_DEPTH: float = 0.45
+
+
+## Cuánto asoma la hierba de arriba en este punto de una pared (0 a 1): solo cerca del borde de arriba, donde
+## lo de encima ya no es pared (si no, cada repisa de los estratos llevaría su franja de hierba).
+func wall_lip(x: float, z: float) -> float:
+	var cliff: float = _bilinear_corners(_cliffness, x, z)
+	if cliff < 0.2:
+		return 0.0
+	var here: float = terrain_height(x, z)
+	var best: float = -INF
+	var best_cliff: float = 1.0
+	for k: int in 8:
+		var angle: float = TAU * k / 8.0
+		var sx: float = x + cos(angle) * 0.9
+		var sz: float = z + sin(angle) * 0.9
+		var h: float = terrain_height(sx, sz)
+		if h > best:
+			best = h
+			best_cliff = _bilinear_corners(_cliffness, clampf(sx, 0.0, size.x), clampf(sz, 0.0, size.y))
+	if best_cliff > 0.35 or best - here > LIP_DEPTH:
+		return 0.0
+	return (1.0 - (best - here) / LIP_DEPTH) * cliff
+
+
+## Pies de las paredes altas y, en parte de ellos, una roca caída medio enterrada. Siempre igual (por la casilla).
+func _compute_wall_feet(drops: PackedFloat32Array) -> void:
+	debris.clear()
+	_debris_cells.clear()
+	_wall_foot.clear()
+	for y: int in range(1, size.y - 1):
+		for x: int in range(1, size.x - 1):
+			var cell := Vector2i(x, y)
+			if not is_land(cell) or is_steep(cell) or FEATURE_CHARS.contains(char_at(cell)):
+				continue
+			# Solo el pie: la pared tiene que subir por encima de esta casilla (lo de arriba del acantilado no cuenta: una
+			# roca caída no se queda en lo alto).
+			var here: float = terrain_height(x + 0.5, y + 0.5)
+			var wall_dir := Vector2.ZERO
+			for dy: int in range(-1, 2):
+				for dx: int in range(-1, 2):
+					if drops[(y + dy) * size.x + x + dx] > WALL_FOOT_DROP \
+							and terrain_height(x + dx + 0.5, y + dy + 0.5) > here + WALL_FOOT_RISE:
+						wall_dir += Vector2(dx, dy)
+			if wall_dir == Vector2.ZERO:
+				continue
+			_wall_foot[cell] = true
+			var g: Ground = ground(cell)
+			if g == Ground.RAMP or g == Ground.LANDING or is_path(cell) or _worn[y * size.x + x] == 1:
+				continue
+			# También en la explanada pegada a la pared (César: se veían pocas); esa casilla deja de servir para construir.
+			var r: float = _cell_random(cell, 1)
+			if r > (DEBRIS_CHANCE_ON_FLAT if is_buildable(cell) else DEBRIS_CHANCE):
+				continue
+			var scale: float = lerpf(DEBRIS_SCALE_MIN, DEBRIS_SCALE_MAX, _cell_random(cell, 2))
+			# Un poco hacia la pared y algo al azar, sin salir de su casilla.
+			var pos := Vector2(x + 0.5, y + 0.5) + wall_dir.normalized() * 0.25 \
+					+ Vector2(_cell_random(cell, 3) - 0.5, _cell_random(cell, 4) - 0.5) * 0.3
+			var ground_y: float = lowest_around(pos.x, pos.y, 0.2 * scale)
+			debris.append({
+				"position": Vector3(pos.x, ground_y - 0.12 * scale, pos.y),
+				"scale": scale,
+				"yaw": _cell_random(cell, 5) * TAU,
+				"tilt": (_cell_random(cell, 6) - 0.5) * 0.5,
+				"variant": int(_cell_random(cell, 7) * 3.0) % 3,
+			})
+			if _cell_random(cell, 8) < DEBRIS_PAIR_CHANCE:   # una pequeña al lado: se ven en grupos
+				var side := Vector2(_cell_random(cell, 9) - 0.5, _cell_random(cell, 10) - 0.5).normalized() * 0.3
+				var small: float = scale * 0.5
+				var spot: Vector2 = (pos + side).clamp(Vector2(x + 0.1, y + 0.1), Vector2(x + 0.9, y + 0.9))
+				debris.append({
+					"position": Vector3(spot.x, lowest_around(spot.x, spot.y, 0.2 * small) - 0.1 * small, spot.y),
+					"scale": small,
+					"yaw": _cell_random(cell, 11) * TAU,
+					"tilt": (_cell_random(cell, 12) - 0.5) * 0.6,
+					"variant": (int(_cell_random(cell, 7) * 3.0) + 1) % 3,
+				})
+			_debris_cells[cell] = true
+
+
+## ¿Hay una roca caída en esta casilla? (ahí no se planta ni aparece nada)
+func has_debris(cell: Vector2i) -> bool:
+	return _debris_cells.has(cell)
+
+
+## Número de 0 a 1 que siempre sale igual para una casilla y un uso (`salt`).
+func _cell_random(cell: Vector2i, salt: int) -> float:
+	var n: int = hash(Vector3i(cell.x, cell.y, salt))
+	return float(n & 0xFFFF) / 65535.0
 
 
 ## ¿Es sendero? (`:` en el plano, C5.4a): ladera que se pinta de tierra pisada.
@@ -628,11 +768,15 @@ func _compute_corners() -> void:
 	_compute_relief()
 	_compute_drawn_corners()
 	_steep.resize(size.x * size.y)
+	var drops := PackedFloat32Array()
+	drops.resize(size.x * size.y)
 	spawn_cells.clear()
 	for y: int in size.y:
 		for x: int in size.x:
 			var cell := Vector2i(x, y)
-			_steep[y * size.x + x] = 1 if slope_drop(cell) > MAX_SLOPE_FOR_NATURE else 0
+			drops[y * size.x + x] = slope_drop(cell)
+			_steep[y * size.x + x] = 1 if drops[y * size.x + x] > MAX_SLOPE_FOR_NATURE else 0
+	_compute_wall_feet(drops)
 	for y: int in size.y:
 		for x: int in size.x:
 			if can_spawn(Vector2i(x, y)):
@@ -743,6 +887,8 @@ func _compute_wear() -> void:
 	for y: int in size.y:
 		for x: int in size.x:
 			var cell := Vector2i(x, y)
+			if _wall_foot.has(cell):
+				_wear[y * size.x + x] = maxf(_wear[y * size.x + x], WALL_FOOT_WEAR)   # lo que se desprende de la pared
 			var on_hill: bool = ground(cell) == Ground.HILL or ground(cell) == Ground.HIGH_HILL
 			if _worn[y * size.x + x] == 1 and not is_steep(cell) and not on_hill:
 				_wear[y * size.x + x] = 1.0   # pintado en la capa de tierra pisada (César); no en el pie de las lomas

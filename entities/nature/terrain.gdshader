@@ -16,6 +16,11 @@ uniform vec3 wet_sand : source_color = vec3(0.60, 0.50, 0.37);
 uniform float wet_height = 0.45;
 uniform vec3 dirt : source_color = vec3(0.71, 0.62, 0.49);
 uniform vec3 rock : source_color = vec3(0.66, 0.44, 0.32);
+// Estratos de la roca (C5.4c): tonos de las capas, alto de cada una (m) y la línea oscura entre ellas.
+uniform vec3 rock_light : source_color = vec3(0.76, 0.54, 0.38);
+uniform vec3 rock_dark : source_color = vec3(0.52, 0.33, 0.25);
+uniform float strata_height = 1.1;
+uniform float strata_line = 0.07;
 uniform vec3 bed_deep : source_color = vec3(0.10, 0.38, 0.50);
 // Fondo del mar lejos de la costa: se pierde en la oscuridad, del color del fondo del cielo (`isla_alba.tscn`).
 uniform vec3 abyss : source_color = vec3(0.04, 0.14, 0.22);
@@ -126,7 +131,17 @@ void fragment() {
 	float wet = (1.0 - smoothstep(wet_height * 0.3, wet_height, -depth + (fine - 0.5) * 0.12)) * near_water * flat_ground;
 	color = mix(color, wet_sand * (0.96 + 0.08 * fine), wet);
 
-	color = mix(color, rock * (0.88 + 0.24 * mid), cliff);
+	// Capas horizontales con el borde ondulado; cada capa toma uno de tres tonos y entre ellas, una línea más oscura.
+	float strata_y = world_pos.y / strata_height + (mid - 0.5) * 0.9 + (big - 0.5) * 0.6;
+	float layer = floor(strata_y);
+	float pick = hash(vec2(layer, 7.0));
+	vec3 rock_color = pick < 0.33 ? rock_dark : (pick < 0.66 ? rock : rock_light);
+	float in_layer = strata_y - layer;
+	rock_color *= 1.0 - (1.0 - smoothstep(0.0, strata_line, in_layer)) * 0.28;
+	rock_color *= 0.92 + 0.12 * fine + 0.08 * (in_layer - 0.5);
+	// Borde de hierba que asoma por lo alto de la pared, con el borde roto (UV.x lo trae de `IslandLayout.wall_lip()`).
+	float lip = smoothstep(0.25, 0.6, UV.x + (mid - 0.5) * 0.5 + (fine - 0.5) * 0.25);
+	color = mix(color, rock_color, cliff * (1.0 - lip));
 
 	// Bajo el agua: arena mojada en la orilla y cada vez más oscuro con la hondura.
 	color = mix(color, wet_sand, smoothstep(0.0, 0.12, depth));

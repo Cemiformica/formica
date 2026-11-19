@@ -82,6 +82,7 @@ func rebuild(island: IslandState) -> void:
 	if island.layout != null:
 		_build_layout_ground(island)
 		_build_sea(island.layout)
+		_build_debris(island.layout)
 	else:
 		_build_ground(island, bounds)
 		_sea.mesh = null
@@ -327,6 +328,7 @@ func _build_layout_ground(island: IslandState) -> void:
 			tool.set_color(Color(_lerp_corners(sand_at, row, x, z), _lerp_corners(wet_at, row, x, z),
 					_lerp_corners(path_at, row, x, z), clampf(y / IslandLayout.LEVEL_HEIGHT, 0.0, 1.0)))
 			tool.set_uv2(Vector2(_lerp_corners(depth_at, row, x, z), _lerp_corners(flat_at, row, x, z)))
+			tool.set_uv(Vector2(layout.wall_lip(x, z), 0.0))   # el borde de hierba que asoma por lo alto de una pared
 			tool.add_vertex(Vector3(x, y, z))
 	for b: int in count_z - 1:
 		for a: int in count_x - 1:
@@ -343,6 +345,52 @@ func _build_layout_ground(island: IslandState) -> void:
 	mesh.surface_set_material(0, material)
 	_ground.mesh = mesh
 	_collision.shape = mesh.create_trimesh_shape()
+
+
+## Rocas caídas al pie de las paredes (C5.4c): decorado con las rocas de `nature.glb`, del color de los estratos, en
+## tres MultiMesh (una por variante) y con un choque de esfera cada una para no atravesarlas.
+const DEBRIS_COLOR: Color = Color(0.6, 0.4, 0.3)
+const DEBRIS_RADIUS: float = 0.18   # radio del choque por unidad de tamaño
+
+func _build_debris(layout: IslandLayout) -> void:
+	for child: Node in get_children():
+		if child.name.begins_with("Debris"):
+			child.queue_free()
+	if layout.debris.is_empty():
+		return
+	var material := StandardMaterial3D.new()
+	material.albedo_color = DEBRIS_COLOR
+	material.roughness = 1.0
+	var body := StaticBody3D.new()
+	body.name = "DebrisBody"
+	add_child(body)
+	for variant: int in 3:
+		var mesh: Mesh = TreeView.named_mesh("rock_%d" % variant)
+		if mesh == null:
+			continue
+		var items: Array[Dictionary] = []
+		for item: Dictionary in layout.debris:
+			if item["variant"] == variant:
+				items.append(item)
+		var multi := MultiMesh.new()
+		multi.transform_format = MultiMesh.TRANSFORM_3D
+		multi.mesh = mesh
+		multi.instance_count = items.size()
+		for k: int in items.size():
+			var item: Dictionary = items[k]
+			var basis := Basis(Vector3.UP, item["yaw"]) * Basis(Vector3.RIGHT, item["tilt"])
+			multi.set_instance_transform(k, Transform3D(basis.scaled(Vector3.ONE * float(item["scale"])), item["position"]))
+			var shape := CollisionShape3D.new()
+			var sphere := SphereShape3D.new()
+			sphere.radius = DEBRIS_RADIUS * float(item["scale"])
+			shape.shape = sphere
+			shape.position = item["position"] + Vector3.UP * sphere.radius * 0.6
+			body.add_child(shape)
+		var instance := MultiMeshInstance3D.new()
+		instance.name = "Debris%d" % variant
+		instance.multimesh = multi
+		instance.material_override = material
+		add_child(instance)
 
 
 ## El mar alrededor de la isla: un plano grande de agua quieta.
