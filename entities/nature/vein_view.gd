@@ -46,7 +46,7 @@ func setup(p_origin: Vector2i, p_data: VeinData, p_island: IslandState) -> void:
 	name = "vein_%d_%d" % [origin.x, origin.y]
 	display_name_key = data.name_key
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
-	position = GridMath.footprint_center(origin, Vector2i(VeinData.SIZE, VeinData.SIZE), 0)
+	position = GridMath.footprint_center(origin, Vector2i(VeinData.SIZE, VeinData.SIZE), 0, island.ground_height(origin))
 	if data.scene != null:
 		_model = data.scene.instantiate() as Node3D
 		add_child(_model)

@@ -69,6 +69,8 @@ const LOG_WOOD: int = 4
 const CHIPS_COLOR: Color = Color(0.85, 0.68, 0.45)
 ## Rueda hidráulica (D-094): vueltas por segundo de la rueda (radianes/s), cada cuánto salpica y de qué color.
 const WHEEL_SPIN: float = 0.8
+## La rueda baja un poco para que sus aspas entren en el agua (C5.3d: tocaban la superficie por arriba).
+const WHEEL_DIP: float = 0.15
 const SPLASH_INTERVAL: float = 0.45
 const SPLASH_COLOR: Color = Color(0.78, 0.92, 1.0)
 # Banco de trabajo (D-095): la manivela y el carrete giran mientras fabrica, la bobina crece con el
@@ -240,7 +242,7 @@ static func is_pole(data: BuildingData) -> bool:
 ## Punto del mundo donde se engancha un cable a esta construcción: el nodo «cable_anchor» del modelo
 ## (reflejado y girado como la construcción) o, si no lo tiene, arriba del todo, en su centro.
 static func cable_anchor(p_placed: PlacedBuilding) -> Vector3:
-	var center: Vector3 = GridMath.footprint_center(p_placed.origin, p_placed.data.size, p_placed.rotation)
+	var center: Vector3 = GridMath.footprint_center(p_placed.origin, p_placed.data.size, p_placed.rotation, p_placed.ground_y)
 	var local: Variant = _model_anchor(p_placed.data)
 	if local != null:
 		var offset: Vector3 = local
@@ -294,7 +296,7 @@ func setup(p_placed: PlacedBuilding, p_island: IslandState) -> void:
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	name = "%s_%d" % [placed.data.id, placed.id]
 	display_name_key = placed.data.name_key
-	position = GridMath.footprint_center(placed.origin, placed.data.size, placed.rotation)
+	position = GridMath.footprint_center(placed.origin, placed.data.size, placed.rotation, placed.ground_y)
 	var s: Vector2i = OccupancyGrid.rotated_size(placed.data.size, placed.rotation)
 	if placed.is_belt():
 		_setup_belt()
@@ -457,6 +459,9 @@ func _setup_water_wheel(model: Node3D) -> void:
 	_wheel = model.find_child("wheel_pivot", true, false) as Node3D
 	if _wheel == null or placed.data.water_cells.is_empty() or island == null:
 		return
+	if not _wheel.has_meta(&"dipped"):   # una sola vez, aunque se vuelva a preparar el mismo modelo
+		_wheel.position.y -= WHEEL_DIP
+		_wheel.set_meta(&"dipped", true)
 	var cell: Vector2i = OccupancyGrid.local_to_cell(placed.origin, placed.data.size, placed.rotation, placed.data.water_cells[0])
 	var model_north: Vector2i = GridMath.rotate_offset(Vector2i(0, -1), placed.rotation)
 	_wheel_sign = 1.0 if island.water.get(cell, model_north) == model_north else -1.0
@@ -971,7 +976,7 @@ func _add_port_models() -> void:
 			scene = PORT_OUTPUT_SCENE
 		var port_model := scene.instantiate() as Node3D
 		var cell: Vector2i = port.get_grid_cell(placed.origin, placed.data.size, placed.rotation, placed.flipped)
-		port_model.position = GridMath.cell_center(cell) - position
+		port_model.position = GridMath.cell_center(cell, position.y) - position
 		port_model.rotation.y = GridMath.rotation_to_yaw(port.get_grid_side(placed.rotation, placed.flipped))
 		add_child(port_model)
 		var tongue := port_model.find_child("belt_tongue*", true, false) as Node3D
@@ -1165,6 +1170,24 @@ static func _add_band_triangle(st: SurfaceTool, a: Vector2, b: Vector2, c: Vecto
 	return true
 
 
+## Fantasma de un cruce sobre una cinta que ya existe (C5.3d, César): solo las bocas abiertas de los lados `sides`
+## (0 = norte, 1 = este…), por donde pasa el tramo que se arrastra; el centro, la banda y lo demás, ocultos, para
+## no tapar la cinta construida.
+func show_only_hub_arms(sides: Array[int]) -> void:
+	for node: Node in find_children("*", "MeshInstance3D", true, false):
+		(node as MeshInstance3D).visible = false
+	for side: int in sides:
+		var arm: Dictionary = _belt_hub_arms.get(side, {})
+		var piece: Node3D = arm.get("open") as Node3D
+		if piece == null:
+			continue
+		piece.visible = true
+		if piece is MeshInstance3D:
+			(piece as MeshInstance3D).visible = true
+		for node: Node in piece.find_children("*", "MeshInstance3D", true, false):
+			(node as MeshInstance3D).visible = true
+
+
 static func _set_piece_visible(piece: Variant, value: bool) -> void:
 	if piece is Node3D:
 		(piece as Node3D).visible = value
@@ -1242,7 +1265,7 @@ func _add_port_markers() -> void:
 	for port: PortData in placed.get_ports():
 		var cell: Vector2i = port.get_grid_cell(placed.origin, placed.data.size, placed.rotation, placed.flipped)
 		var offset: Vector2i = PortData.side_offset(port.get_grid_side(placed.rotation, placed.flipped))
-		var world: Vector3 = GridMath.cell_center(cell, 0.2) + Vector3(offset.x, 0.0, offset.y) * 0.5
+		var world: Vector3 = GridMath.cell_center(cell, position.y + 0.2) + Vector3(offset.x, 0.0, offset.y) * 0.5
 		var color: Color = COLOR_INPUT
 		if port.kind == PortData.Kind.OUTPUT:
 			color = COLOR_OUTPUT

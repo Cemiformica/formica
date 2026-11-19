@@ -58,6 +58,8 @@ func _ready() -> void:
 	interact_ray.collide_with_areas = true
 	interact_ray.collision_mask |= VeinView.WORK_AREA_LAYER
 	add_to_group(&"player")
+	# Pegada al suelo al bajar una pendiente (sin esto, bota ladera abajo, C5.3d).
+	floor_snap_length = maxf(floor_snap_length, step_height)
 	spawn_transform = global_transform
 	# Interpolación de la física (B3): la cámara va suelta y se coloca en cada fotograma (ver _process).
 	camera.top_level = true
@@ -233,14 +235,19 @@ func restore_from_world() -> void:
 
 ## Escalón automático (B3.7, César): si al andar chocamos con un borde de hasta `step_height` (una cinta,
 ## una losa) y por encima hay sitio, subimos de golpe esa altura y la gravedad nos posa encima. La
-## interpolación de la física suaviza la subida en pantalla. Paredes más altas no se suben.
+## interpolación de la física suaviza la subida en pantalla. Paredes más altas no se suben, y las pendientes que
+## se pueden andar tampoco cuentan como escalón (C5.3d).
 func _step_up(delta: float) -> void:
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
 	if not is_on_floor() or horizontal.length_squared() < 0.01:
 		return
 	var motion: Vector3 = horizontal * delta
-	if not test_move(global_transform, motion):
+	var hit := KinematicCollision3D.new()
+	if not test_move(global_transform, motion, hit):
 		return # nada delante
+	# Una pendiente que se puede andar (la ladera de Isla Alba, C5.3d) no es un escalón: si no, sube a saltitos.
+	if hit.get_normal().angle_to(Vector3.UP) <= floor_max_angle:
+		return
 	var up: Vector3 = Vector3.UP * step_height
 	if test_move(global_transform, up):
 		return # no hay sitio encima (techo)

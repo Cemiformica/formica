@@ -79,7 +79,7 @@ func setup(p_cell: Vector2i, p_island: IslandState) -> void:
 	cell = p_cell
 	island = p_island
 	name = "tree_%d_%d" % [cell.x, cell.y]
-	position = GridMath.cell_center(cell)
+	position = GridMath.cell_center(cell, island.ground_height(cell))   # a la altura de su suelo (C5.3b)
 	_shape = CylinderShape3D.new()
 	var collision := CollisionShape3D.new()
 	collision.shape = _shape

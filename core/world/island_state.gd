@@ -52,6 +52,10 @@ const MAX_STICKS: int = 10
 ## Casillas de la isla donde pueden aparecer rocas. Vacío = no aparecen. Es parte de cómo es la isla
 ## (lo pone su escena), no de la partida, así que no se guarda.
 var bounds: Rect2i = Rect2i()
+## Plano de la isla (C5.3, D-155): suelo, alturas, agua y dónde se construye. Null en las islas sin plano
+## (el sandbox, las pruebas): ahí se construye en cualquier casilla libre, como siempre. Como `bounds`, es
+## parte de cómo es la isla y no se guarda (`WorldState` lo conserva al cargar).
+var layout: IslandLayout = null
 ## Generador aleatorio de las rocas. Las pruebas le ponen una semilla fija para repetir el resultado.
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 ## Segundos desde la última roca que apareció (se guarda).
@@ -116,6 +120,19 @@ func placement_problem(data: BuildingData, origin: Vector2i, rotation: int = 0) 
 			if flow == Vector2i.ZERO or (flow != axis and flow != -axis):
 				return "BUILD_NEEDS_WATER"
 			wet[cell] = true
+	# Con plano (C5.3, D-154): solo en las explanadas y entera en una sola altura (las casillas de agua de la
+	# rueda no cuentan: van sobre el río).
+	if layout != null:
+		var first_level: int = IslandLayout.NO_LEVEL
+		for cell: Vector2i in OccupancyGrid.footprint_cells(origin, data.size, rotation):
+			if wet.has(cell):
+				continue
+			if not layout.is_buildable(cell):
+				return "BUILD_NOT_BUILDABLE"
+			if first_level == IslandLayout.NO_LEVEL:
+				first_level = layout.level(cell)
+			elif layout.level(cell) != first_level:
+				return "BUILD_TWO_LEVELS"
 	for cell: Vector2i in OccupancyGrid.footprint_cells(origin, data.size, rotation):
 		if nature.has(cell) or (_vein_cells.has(cell) and cell != head) or (water.has(cell) and not wet.has(cell)) \
 				or _repair_cells.has(cell):
@@ -129,6 +146,7 @@ func place(data: BuildingData, origin: Vector2i, rotation: int = 0, flipped: boo
 	if not can_place(data, origin, rotation) or not grid.place(_next_id, origin, data.size, rotation):
 		return null
 	var placed := PlacedBuilding.new(_next_id, data, origin, rotation, flipped, turn)
+	placed.ground_y = ground_y_for(data, origin, rotation)
 	if placed.is_extractor():
 		placed.set_vein_item(vein_at(PlacedBuilding.head_cell_for(data, origin, rotation)).item)
 	buildings[_next_id] = placed
@@ -163,6 +181,7 @@ func drop(placed: PlacedBuilding, origin: Vector2i, rotation: int = 0, flipped: 
 	if placed.data.output_turns:
 		placed.output_turn = posmod(turn, BuildingData.TURN_COUNT)
 	placed.moved()
+	placed.ground_y = ground_y_for(placed.data, origin, rotation)
 	if placed.is_extractor():
 		placed.set_vein_item(vein_at(PlacedBuilding.head_cell_for(placed.data, origin, rotation)).item)
 	buildings[placed.id] = placed
@@ -320,6 +339,7 @@ func load_data(data: Dictionary) -> void:
 			if placed.id <= 0 or not grid.place(placed.id, placed.origin, placed.data.size, placed.rotation):
 				push_warning("IslandState: construcción %d no válida o solapada, ignorada" % placed.id)
 				continue
+			placed.ground_y = ground_y_for(placed.data, placed.origin, placed.rotation)
 			if placed.is_extractor():
 				var vein: VeinData = vein_at(PlacedBuilding.head_cell_for(placed.data, placed.origin, placed.rotation))
 				placed.set_vein_item(vein.item if vein != null else null) # sin veta debajo: no trabaja
@@ -423,6 +443,8 @@ func _link_back_to_back() -> void:
 		var to: PlacedBuilding = get_at(_belt_back_cell(from))
 		if to == null or to == from or not to.is_belt() or not to.links_in.is_empty() or _belt_back_used(to):
 			continue
+		if not is_equal_approx(to.ground_y, from.ground_y):
+			continue
 		if _belt_back_cell(to) != from.origin:
 			continue
 		for in_port: PortData in to.get_ports():
@@ -455,6 +477,8 @@ func _try_link(from: PlacedBuilding, out_port: PortData, allow_flexible: bool) -
 	var to: PlacedBuilding = get_at(target_cell)
 	if to == null or to == from:
 		return
+	if not is_equal_approx(to.ground_y, from.ground_y):
+		return   # las cintas no cambian de altura en el vertical slice (D-154)
 	var candidates: Array[PortData] = []
 	candidates.append_array(to.get_ports())
 	if allow_flexible:
@@ -492,8 +516,9 @@ func cable_count(id: int) -> int:
 func cable_length(a: int, b: int) -> float:
 	var pa: PlacedBuilding = buildings[a]
 	var pb: PlacedBuilding = buildings[b]
-	return GridMath.footprint_center(pa.origin, pa.data.size, pa.rotation).distance_to(
-			GridMath.footprint_center(pb.origin, pb.data.size, pb.rotation))
+	# Con la diferencia de altura (C5.3b): un cable de la parte baja a la alta mide más.
+	return GridMath.footprint_center(pa.origin, pa.data.size, pa.rotation, pa.ground_y).distance_to(
+			GridMath.footprint_center(pb.origin, pb.data.size, pb.rotation, pb.ground_y))
 
 
 ## ¿Se puede tender un cable entre `a` y `b`? Las dos deben existir, admitir cables, tener una
@@ -697,16 +722,39 @@ func sticks_count() -> int:
 
 ## ¿Casilla de suelo libre (sin naturaleza, construcción, veta ni agua)?
 func _is_free_ground(cell: Vector2i) -> bool:
+	if layout != null and (not layout.is_land(cell) or layout.is_steep(cell)):
+		return false   # mar, agua, cascada, una roca modelada del plano o demasiado empinada
 	return not nature.has(cell) and grid.get_occupant(cell) == 0 and not _vein_cells.has(cell) and not water.has(cell) \
 			and not _repair_cells.has(cell)
 
 
+## ¿Puede aparecer aquí una roca o unos palos? Suelo libre y, con plano, donde el plano lo permite (no en el
+## rellano mirador, C5.3).
+## Intentos al azar para encontrar sitio a una roca o unos palos en una isla con plano.
+const SPAWN_ATTEMPTS: int = 64
+
+
+func _can_spawn(cell: Vector2i) -> bool:
+	return _is_free_ground(cell) and (layout == null or layout.can_spawn(cell))
+
+
 ## Una casilla libre al azar dentro de `bounds`, o (-1, -1) si no queda ninguna.
 func _random_free_cell() -> Vector2i:
+	# Con plano (C5.3d), probar casillas al azar de las que el plano permite: recorrer las 14.000 casillas de Isla
+	# Alba en cada roca daba tirones.
+	if layout != null:
+		var candidates: Array[Vector2i] = layout.spawn_cells
+		if candidates.is_empty():
+			return Vector2i(-1, -1)
+		for attempt: int in SPAWN_ATTEMPTS:
+			var cell: Vector2i = candidates[rng.randi_range(0, candidates.size() - 1)]
+			if _can_spawn(cell):
+				return cell
+		return Vector2i(-1, -1)
 	var free_cells: Array[Vector2i] = []
 	for x: int in range(bounds.position.x, bounds.end.x):
 		for y: int in range(bounds.position.y, bounds.end.y):
-			if _is_free_ground(Vector2i(x, y)):
+			if _can_spawn(Vector2i(x, y)):
 				free_cells.append(Vector2i(x, y))
 	if free_cells.is_empty():
 		return Vector2i(-1, -1)
@@ -744,14 +792,9 @@ func step_nature(dt: float) -> void:
 	_rock_timer = 0.0
 	if rock_count() >= MAX_ROCKS:
 		return
-	var free_cells: Array[Vector2i] = []
-	for x: int in range(bounds.position.x, bounds.end.x):
-		for y: int in range(bounds.position.y, bounds.end.y):
-			var cell := Vector2i(x, y)
-			if _is_free_ground(cell):
-				free_cells.append(cell)
-	if not free_cells.is_empty():
-		add_rock(free_cells[rng.randi_range(0, free_cells.size() - 1)])
+	var rock_cell: Vector2i = _random_free_cell()
+	if rock_cell != Vector2i(-1, -1):
+		add_rock(rock_cell)
 
 
 # --- Vetas (B3.7, D-090) ---
@@ -861,3 +904,80 @@ func deliver_repair(cell: Vector2i, piece_index: int, from: Inventory) -> int:
 		if site.is_complete():
 			repair_completed.emit(site.origin)
 	return given
+
+
+# --- Plano de la isla (C5.3, D-155) ---
+
+## Pone el plano de la isla: sus límites pasan a ser los del plano y su agua (ríos, lago, remanso, pozas) se
+## añade a la cuadrícula. La naturaleza, las vetas y lo demás del plano se ponen aparte (C5.3c).
+func apply_layout(p_layout: IslandLayout) -> void:
+	layout = p_layout
+	if layout == null:
+		return
+	bounds = Rect2i(Vector2i.ZERO, layout.size)
+	var added: bool = false
+	for y: int in layout.size.y:
+		for x: int in layout.size.x:
+			var cell := Vector2i(x, y)
+			var flow: Variant = layout.water_flow(cell)
+			if flow != null and not water.has(cell):
+				water[cell] = flow
+				added = true
+	if added:
+		water_changed.emit()
+
+
+## Altura del suelo de una construcción (pública: el fantasma de construir la usa para ponerse justo donde quedará,
+## C5.3d): la de su primera casilla (todas están a la misma, salvo el agua de la
+## rueda, que va al nivel de abajo igualmente).
+func ground_y_for(data: BuildingData, origin: Vector2i, rotation: int) -> float:
+	for cell: Vector2i in OccupancyGrid.footprint_cells(origin, data.size, rotation):
+		if not water.has(cell):
+			return ground_height(cell)
+	return ground_height(origin)
+
+
+## Altura del suelo de una casilla (m): 0 abajo, `IslandLayout.LEVEL_HEIGHT` arriba, y en la ladera la que
+## tenga en ese punto. En el agua, la de su superficie (lo que se pone encima, como la rueda, va ahí). Sin
+## plano, siempre 0.
+func ground_height(cell: Vector2i) -> float:
+	if layout == null:
+		return 0.0
+	match layout.ground(cell):
+		IslandLayout.Ground.WATER:
+			return IslandLayout.LEVEL_HEIGHT if layout.level(cell) == IslandLayout.HIGH_LEVEL else 0.0
+		IslandLayout.Ground.SEA:
+			return 0.0
+	return layout.surface_height(cell)   # la del terreno dibujado: nada flota ni queda enterrado
+
+
+## Pone en la isla lo que dice su plano (C5.3c), para una PARTIDA NUEVA (al cargar, todo viene del guardado):
+## árboles maduros en las arboledas (`T`) y los salvajes (`t`) (no en casillas demasiado empinadas), y la veta de malaquita (`M`, su esquina es la
+## casilla `M` de arriba a la izquierda). La veta de piedra, el refugio y el portal llegan después (C5.5, C5.7 y
+## C6). Devuelve cuántos árboles ha puesto.
+func populate_from_layout() -> int:
+	if layout == null:
+		return 0
+	var malachite: VeinData = Content.find_vein(&"malachite_vein")
+	for vein_origin: Vector2i in _block_origins(layout.cells_of("M")):
+		if not add_vein(malachite, vein_origin):
+			push_warning("IslandState: la veta del plano en %s no cabe" % vein_origin)
+	var trees: int = 0
+	for ch: String in ["T", "t"]:
+		for cell: Vector2i in layout.cells_of(ch):
+			if add_tree(cell):
+				trees += 1
+	return trees
+
+
+## Esquinas de los bloques de un objeto del plano: las casillas que no tienen otra igual a su izquierda ni
+## encima (una veta de 3 × 3 da una sola).
+static func _block_origins(cells: Array[Vector2i]) -> Array[Vector2i]:
+	var marked: Dictionary[Vector2i, bool] = {}
+	for cell: Vector2i in cells:
+		marked[cell] = true
+	var result: Array[Vector2i] = []
+	for cell: Vector2i in cells:
+		if not marked.has(cell + Vector2i.LEFT) and not marked.has(cell + Vector2i.UP):
+			result.append(cell)
+	return result

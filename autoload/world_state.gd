@@ -111,16 +111,19 @@ func load_data(data: Dictionary) -> void:
 	# Los límites de cada isla son parte de cómo es la isla (los pone su escena), no de la partida, y no se
 	# guardan (D-070): se conservan al cargar. Sin ellos no habría suelo ni aparecerían rocas (B5.2).
 	var old_bounds: Dictionary[StringName, Rect2i] = {}
+	var old_layouts: Dictionary[StringName, IslandLayout] = {}   # el plano tampoco se guarda (C5.3)
 	for id: StringName in islands:
 		old_bounds[id] = islands[id].bounds
+		old_layouts[id] = islands[id].layout
 	islands.clear()
 	var islands_data: Variant = data.get("islands", {})
 	if islands_data is Dictionary:
 		for id: Variant in islands_data:
 			if islands_data[id] is Dictionary:
 				var island := IslandState.new()
-				island.load_data(islands_data[id])
 				island.bounds = old_bounds.get(StringName(str(id)), Rect2i())
+				island.layout = old_layouts.get(StringName(str(id)), null)   # antes de cargar: da las alturas
+				island.load_data(islands_data[id])
 				islands[StringName(str(id))] = island
 	state_replaced.emit()
 

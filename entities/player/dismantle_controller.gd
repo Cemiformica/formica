@@ -201,7 +201,8 @@ func _apply_box() -> void:
 func _update_box_mesh() -> void:
 	var rect: Rect2i = _box_rect()
 	(_box_mesh.mesh as BoxMesh).size = Vector3(rect.size.x, 0.12, rect.size.y)
-	_box_mesh.global_position = Vector3(rect.position.x + rect.size.x * 0.5, 0.06, rect.position.y + rect.size.y * 0.5)
+	var ground: float = _island().ground_height(rect.position)   # a la altura de la explanada (C5.3b)
+	_box_mesh.global_position = Vector3(rect.position.x + rect.size.x * 0.5, ground + 0.06, rect.position.y + rect.size.y * 0.5)
 	_box_mesh.visible = true
 
 

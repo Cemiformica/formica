@@ -149,3 +149,5 @@ HINT_DELIVER,Entregar,Lliurar,Deliver
 REPAIR_PIECE_BED,Camastro,Jaç,Cot
 HINT_REST,Descansar,Descansar,Rest
 REST_DONE,Has descansado: aquí reaparecerás y la partida está guardada,Has descansat: reapareixeràs aquí i la partida està desada,You rested: you will respawn here and the game is saved
+BUILD_NOT_BUILDABLE,Solo se construye en las explanadas,Només es construeix a les esplanades,You can only build on the flat clearings
+BUILD_TWO_LEVELS,Tiene que caber entera en una sola altura,Ha de cabre sencera en una sola alçada,It must fit entirely on one level

@@ -44,7 +44,7 @@ func setup(p_site: RepairSite, p_island: IslandState) -> void:
 	island = p_island
 	name = "repair_%s_%d_%d" % [site.data.id, site.origin.x, site.origin.y]
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
-	position = GridMath.footprint_center(site.origin, site.data.size, site.rotation)
+	position = GridMath.footprint_center(site.origin, site.data.size, site.rotation, island.ground_height(site.origin))
 	rotation.y = GridMath.rotation_to_yaw(site.rotation)
 	if site.data.scene != null:
 		_model = site.data.scene.instantiate() as Node3D
@@ -164,7 +164,7 @@ func _dust_ring() -> void:
 	if not is_inside_tree():
 		return
 	var s: Vector2i = OccupancyGrid.rotated_size(site.data.size, site.rotation)
-	var center: Vector3 = GridMath.footprint_center(site.origin, site.data.size, site.rotation)
+	var center: Vector3 = GridMath.footprint_center(site.origin, site.data.size, site.rotation, position.y)
 	for side_x: float in [-0.5, 0.0, 0.5]:
 		for side_z: float in [-0.5, 0.0, 0.5]:
 			if side_x != 0.0 or side_z != 0.0:

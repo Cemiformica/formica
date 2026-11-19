@@ -1,0 +1,59 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://world/islands/isla_alba.gd" id="1_alba"]
+[ext_resource type="PackedScene" path="res://entities/player/player.tscn" id="2_player"]
+[ext_resource type="Script" path="res://world/island_view.gd" id="3_islandview"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_top_color = Color(0.3, 0.56, 0.88, 1)
+sky_horizon_color = Color(0.86, 0.85, 0.78, 1)
+ground_bottom_color = Color(0.04, 0.14, 0.22, 1)
+ground_horizon_color = Color(0.55, 0.68, 0.74, 1)
+sun_angle_max = 20.0
+
+[sub_resource type="Sky" id="Sky_main"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_main")
+ambient_light_source = 3
+ambient_light_color = Color(0.88, 0.8, 0.66, 1)
+ambient_light_sky_contribution = 0.45
+tonemap_mode = 2
+ssao_enabled = true
+ssao_radius = 1.5
+ssao_intensity = 1.2
+ssao_light_affect = 0.15
+glow_enabled = true
+glow_intensity = 0.35
+glow_bloom = 0.02
+fog_enabled = true
+fog_light_color = Color(0.78, 0.85, 0.92, 1)
+fog_density = 0.004
+fog_sky_affect = 0.0
+adjustment_enabled = true
+adjustment_contrast = 1.05
+adjustment_saturation = 1.07
+
+[node name="IslaAlba" type="Node3D"]
+script = ExtResource("1_alba")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." groups=["sun"]]
+transform = Transform3D(-0.8660254, -0.43301278, 0.25, 0, 0.49999997, 0.86602545, -0.50000006, 0.75, -0.43301266, 0, 0, 0)
+light_color = Color(1, 0.93, 0.8, 1)
+light_energy = 1.25
+shadow_enabled = true
+shadow_opacity = 0.85
+shadow_blur = 1.5
+directional_shadow_max_distance = 60.0
+
+[node name="IslandView" type="Node3D" parent="."]
+script = ExtResource("3_islandview")
+island_id = &"isla_alba"
+
+[node name="Player" parent="." instance=ExtResource("2_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 41, 1, 62)

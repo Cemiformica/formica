@@ -14,6 +14,9 @@ var origin: Vector2i
 var rotation: int
 ## Reflejada de norte a sur (tecla F en el modo construcción; ver `PortData`).
 var flipped: bool
+## Altura del suelo donde está (m; C5.3b): 0 abajo, 6 en la parte alta de Isla Alba. La pone `IslandState` al
+## colocarla, soltarla o cargarla, a partir de su plano; no se guarda (sale del plano).
+var ground_y: float = 0.0
 ## Solo cajas logísticas (D-093; C2b): combinación de entrada y salida (0–8, ver `BuildingData.ports_for`; tecla F).
 var output_turn: int = 0
 ## Solo máquinas: entrada (admite los ingredientes de la receta) y salida (solo se saca).

@@ -9,10 +9,16 @@ extends Node3D
 ## Cómo es el terreno: una rejilla de medio metro. Un punto está en el fondo solo si todas las casillas
 ## que toca son agua; así un canal de 1 casilla tiene rampas de medio metro a cada lado y su centro hundido.
 ## Dónde tocar: profundidad, alturas y colores en las constantes; la corriente en FLOW_SPEED.
+##
+## Con plano (C5.3d, D-155) el terreno es otro, provisional hasta C5.4: una altura por casilla (0 abajo, 6 m
+## arriba; la ladera sube poco a poco entre las dos), los bordes de las explanadas planos del todo, fondo bajo el
+## agua y el mar. Los colores (C5.4a) los pone `terrain.gdshader` según la zona y la pendiente. Alrededor, el mar.
 
 ## Profundidad del fondo y altura del agua (el suelo está a 0).
 const DEPTH: float = 0.4
 const WATER_Y: float = -0.08
+## En las islas con plano, el agua del río y del lago va casi a ras de la orilla, como un río lleno (C5.3d).
+const LAYOUT_WATER_Y: float = -0.02
 ## Colores del suelo: hierba (la del suelo de antes), arena en la orilla y, en el fondo, un azul verdoso
 ## oscuro: como el agua es transparente, se ve clara en la orilla y más oscura cuanto más hondo (César).
 const GRASS: Color = Color(0.45, 0.6, 0.38)
@@ -34,6 +40,7 @@ var _time: float = 0.0
 var _ground: MeshInstance3D
 var _water: MeshInstance3D
 var _body: StaticBody3D
+var _sea: MeshInstance3D
 var _collision: CollisionShape3D
 
 
@@ -45,6 +52,9 @@ func _init() -> void:
 	_water = MeshInstance3D.new()
 	_water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_water)
+	_sea = MeshInstance3D.new()
+	_sea.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_sea)
 	_body = StaticBody3D.new()
 	add_child(_body)
 	_collision = CollisionShape3D.new()
@@ -69,7 +79,12 @@ func rebuild(island: IslandState) -> void:
 		_water.mesh = null
 		_collision.shape = null
 		return
-	_build_ground(island, bounds)
+	if island.layout != null:
+		_build_layout_ground(island)
+		_build_sea(island.layout)
+	else:
+		_build_ground(island, bounds)
+		_sea.mesh = null
 	_build_water(island)
 
 
@@ -164,7 +179,8 @@ func _build_water(island: IslandState) -> void:
 			has_flowing = true
 		var forward := Vector3(0.0, 0.0, 1.0) if flow == Vector2i.ZERO else Vector3(flow.x, 0.0, flow.y).normalized()
 		var right := forward.cross(Vector3.UP)
-		var center: Vector3 = GridMath.cell_center(cell, WATER_Y)
+		var surface: float = LAYOUT_WATER_Y if island.layout != null else WATER_Y
+		var center: Vector3 = GridMath.cell_center(cell, island.ground_height(cell) + surface)
 		# UV en coordenadas del mundo (u a lo ancho, v a lo largo de la corriente): sin cortes entre casillas.
 		var corners: Array[Vector3] = [
 			center + (-right - forward) * 0.5, center + (right - forward) * 0.5,
@@ -182,6 +198,96 @@ func _build_water(island: IslandState) -> void:
 		still.commit(mesh)
 		mesh.surface_set_material(mesh.get_surface_count() - 1, _still_material)
 	_water.mesh = mesh
+
+
+# --- Terreno a partir del plano (C5.3d, provisional hasta C5.4) ---
+
+## Nivel del mar (las alturas del suelo, también la del fondo, las da `IslandLayout.height()`).
+const SEA_Y: float = -0.25
+## Metros de mar que se dibujan alrededor del plano: hasta donde la bruma ya lo tapa todo, para que no se vea dónde
+## acaba (César).
+const SEA_MARGIN: float = 1500.0
+## Shader del suelo de las islas con plano (C5.4a): mezcla hierba, arena, arena mojada, tierra del sendero, roca
+## y fondo según lo que cada esquina lleva apuntado, con ruido para que no se vea plano. Los colores, en el shader.
+const TERRAIN_SHADER: Shader = preload("res://entities/nature/terrain.gdshader")
+## Lo que cuenta el sendero en el rellano (también es tierra pisada, pero más clara y gastada).
+const LANDING_AS_PATH: float = 0.6
+
+
+## Suelo de una isla con plano. Cada esquina lleva lo que la rodea, para el shader:
+## color (r) arena: playa y mar; (g) mojado: toca agua o mar; (b) tierra pisada (sendero y sus extremos);
+## (a) altura de 0 (abajo) a 1 (arriba);
+## uv2 (x) hondura bajo el agua (m); (y) explanada (donde se construye, con menos manchas para que se lea).
+## La roca la decide el shader por la pendiente.
+func _build_layout_ground(island: IslandState) -> void:
+	var layout: IslandLayout = island.layout
+	var w: int = layout.size.x
+	var h: int = layout.size.y
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Un punto en cada esquina de casilla: (w + 1) × (h + 1).
+	for j: int in h + 1:
+		for i: int in w + 1:
+			var corner_y: float = layout.corner_height(i, j)   # la misma regla que usa todo lo de encima
+			var sand: float = 0.0
+			var path: float = 0.0
+			var flat: float = 0.0
+			var wet: float = 0.0
+			var water_surface: float = -INF
+			for cell: Vector2i in [Vector2i(i - 1, j - 1), Vector2i(i, j - 1), Vector2i(i - 1, j), Vector2i(i, j)]:
+				match layout.ground(cell):
+					IslandLayout.Ground.BEACH:
+						sand += 0.25
+					IslandLayout.Ground.SEA:
+						sand += 0.25
+						wet = 1.0
+						water_surface = maxf(water_surface, SEA_Y)
+					IslandLayout.Ground.WATER:
+						wet = 1.0
+						water_surface = maxf(water_surface, island.ground_height(cell) + LAYOUT_WATER_Y)
+					IslandLayout.Ground.LANDING:
+						path += 0.25 * LANDING_AS_PATH
+				path += 0.25 * layout.wear(cell)
+				if layout.is_buildable(cell):
+					flat += 0.25
+			var depth: float = maxf(water_surface - corner_y, 0.0) if water_surface > -INF else 0.0
+			tool.set_color(Color(sand, wet, path, clampf(corner_y / IslandLayout.LEVEL_HEIGHT, 0.0, 1.0)))
+			tool.set_uv2(Vector2(depth, flat))
+			tool.add_vertex(Vector3(i, corner_y, j))
+	for j: int in h:
+		for i: int in w:
+			var a: int = j * (w + 1) + i
+			var b: int = a + 1
+			var c: int = a + w + 1
+			var d: int = c + 1
+			for index: int in [a, b, d, a, d, c]:
+				tool.add_index(index)
+	tool.generate_normals()
+	var mesh: ArrayMesh = tool.commit()
+	var material := ShaderMaterial.new()
+	material.shader = TERRAIN_SHADER
+	mesh.surface_set_material(0, material)
+	_ground.mesh = mesh
+	_collision.shape = mesh.create_trimesh_shape()
+
+
+## El mar alrededor de la isla: un plano grande de agua quieta.
+func _build_sea(layout: IslandLayout) -> void:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var x0: float = -SEA_MARGIN
+	var z0: float = -SEA_MARGIN
+	var x1: float = layout.size.x + SEA_MARGIN
+	var z1: float = layout.size.y + SEA_MARGIN
+	var corners: Array[Vector3] = [Vector3(x0, SEA_Y, z0), Vector3(x1, SEA_Y, z0), Vector3(x1, SEA_Y, z1), Vector3(x0, SEA_Y, z1)]
+	for index: int in [0, 1, 2, 0, 2, 3]:
+		var p: Vector3 = corners[index]
+		tool.set_normal(Vector3.UP)
+		tool.set_uv(Vector2(p.x, p.z) * TEXTURE_PER_M)
+		tool.add_vertex(p)
+	var mesh: ArrayMesh = tool.commit()
+	mesh.surface_set_material(0, _still_material)
+	_sea.mesh = mesh
 
 
 func _make_water_material() -> StandardMaterial3D:

@@ -67,6 +67,9 @@ var active: bool = false
 var selected_slot: int = 0
 ## Cuartos de vuelta, sentido horario visto desde arriba.
 var rotation_steps: int = 0
+## Último giro de cada construcción (César, 2026-11-19): al volver a elegirla sale con él. La primera vez, mirando
+## hacia el jugador (`_face_player()`).
+var _rotation_by_building: Dictionary[BuildingData, int] = {}
 ## Reflejo norte-sur (D-061).
 var flipped: bool = false
 ## Solo cajas logísticas (D-093): lado de la salida. 0 = recta, 1 = derecha, 2 = izquierda. F lo cambia.
@@ -86,6 +89,12 @@ var _ghost: MeshInstance3D
 var _ghost_box: BoxMesh
 var _ghost_material: StandardMaterial3D
 var _input_material: StandardMaterial3D
+## Flecha de los puertos del fantasma (una malla para todas, apunta hacia −Z).
+var _arrow_mesh: ArrayMesh = null
+const ARROW_DISTANCE: float = 0.78
+const ARROW_HEIGHT: float = 0.06
+const ARROW_SLIDE: float = 0.14
+const ARROW_SLIDE_TIME: float = 0.9
 var _output_material: StandardMaterial3D
 var _port_markers: Array[MeshInstance3D] = []
 ## Losas translúcidas que marcan el área de un talador en el fantasma (B2.7b).
@@ -132,6 +141,30 @@ var _drag_ground_y: float = 0.0
 var _drag_views: Dictionary[String, BuildingView] = {}
 var _drag_view_at: Array = []
 var _drag_preview_key: String = ""
+## Fantasma de las bocas de un cruce sobre una cinta que ya existe (C5.3d, César): solo la parte de fuera de las
+## paredes de esa cinta (desde CROSS_KEEP_FROM del centro de la casilla hasta su borde), para no pintar encima.
+## Las paredes y los remaches de la cinta llegan a 0,387 m del centro (`conveyor.blend`).
+const CROSS_KEEP_FROM: float = 0.39
+const CROSS_SHADER_CODE: String = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, blend_mix;
+uniform vec4 color : source_color;
+uniform vec3 cell_center;
+uniform vec2 axis;
+uniform float keep_from;
+varying vec3 world_pos;
+void vertex() {
+	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+void fragment() {
+	if (abs(dot(world_pos.xz - cell_center.xz, axis)) < keep_from) {
+		discard;
+	}
+	ALBEDO = color.rgb;
+	ALPHA = color.a;
+}
+"""
+var _cross_shader: Shader = null
 var _drag_ok_material: StandardMaterial3D
 var _drag_bad_material: StandardMaterial3D
 
@@ -145,6 +178,8 @@ func _ready() -> void:
 	_ghost_material = _make_material(COLOR_OK, true)
 	_input_material = _make_material(COLOR_INPUT, false)
 	_output_material = _make_material(COLOR_OUTPUT, false)
+	_input_material.cull_mode = BaseMaterial3D.CULL_DISABLED # las flechas se ven por las dos caras
+	_output_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_ghost = MeshInstance3D.new()
 	_ghost.mesh = _ghost_box
 	_ghost.material_override = _ghost_material
@@ -240,7 +275,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_build"):
 		_set_active(not active)
 		if active:
-			_face_player()
+			_restore_rotation()
 		return
 	if not active:
 		return
@@ -263,7 +298,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	for i: int in BAR_SIZE:
 		if event.is_action_pressed("hotbar_%d" % (i + 1)):
 			_select_slot(i)
-			_face_player()
+			_restore_rotation()
 			return
 	# Mayús + rueda: otra barra (C2.3, César).
 	if Input.is_action_pressed("select_area") and (event.is_action_pressed("hotbar_next") or event.is_action_pressed("hotbar_prev")):
@@ -271,10 +306,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("hotbar_next"):
 		_select_slot((selected_slot + 1) % BAR_SIZE)
-		_face_player()
+		_restore_rotation()
 	elif event.is_action_pressed("hotbar_prev"):
 		_select_slot(posmod(selected_slot - 1, BAR_SIZE))
-		_face_player()
+		_restore_rotation()
 	elif holding_cable():
 		if event.is_action_pressed("build_place") and Aim.pointer_ready():
 			_cable_click()
@@ -304,6 +339,8 @@ func _process(_delta: float) -> void:
 		visible = false
 		_has_target = false
 		return
+	if _carried == null:
+		_rotation_by_building[building] = rotation_steps # R y el cuentagotas también cuentan
 
 	# Rayo desde el centro de la pantalla; solo vale una superficie poco inclinada (las rampas de las
 	# orillas del agua, unos 39°, también valen: así se puede apuntar al agua, D-094).
@@ -341,9 +378,12 @@ func _process(_delta: float) -> void:
 		var head_offset: Vector2i = PlacedBuilding.head_cell_for(building, Vector2i.ZERO, rotation_steps)
 		_target_origin = GridMath.world_to_cell(hit_pos) - head_offset
 	_has_target = true
+	# Altura: la de la casilla donde quedará la construcción, no la del punto apuntado (C5.3d, César: el fantasma
+	# salía hundido o levantado según dónde apuntaras, en la orilla o sobre otra construcción).
+	var ground_y: float = WorldState.get_island(island_id).ground_y_for(building, _target_origin, rotation_steps)
 	if _drag_active:
-		_drag_ground_y = hit_pos.y
-		_update_drag(building, hit_pos.y)
+		_drag_ground_y = ground_y
+		_update_drag(building, ground_y)
 		_ghost.visible = false
 		if _ghost_model != null:
 			_ghost_model.visible = false
@@ -355,13 +395,13 @@ func _process(_delta: float) -> void:
 	# Fantasma: el modelo si lo tiene; si no, una caja del tamaño de la huella girada. Verde o rojo.
 	if building.scene != null:
 		_ghost.visible = false
-		_update_ghost_model(building, hit_pos.y)
+		_update_ghost_model(building, ground_y)
 	else:
 		if _ghost_model != null:
 			_ghost_model.visible = false
 		_ghost.visible = true
 		_ghost_box.size = Vector3(s.x - 0.05, GHOST_HEIGHT, s.y - 0.05)
-		_ghost.global_position = GridMath.footprint_center(_target_origin, building.size, rotation_steps, hit_pos.y + GHOST_HEIGHT * 0.5)
+		_ghost.global_position = GridMath.footprint_center(_target_origin, building.size, rotation_steps, ground_y + GHOST_HEIGHT * 0.5)
 	var can_place: bool = _can_place_here(building)
 	if can_place:
 		_ghost_material.albedo_color = COLOR_OK
@@ -370,8 +410,8 @@ func _process(_delta: float) -> void:
 	if _ghost_carried:
 		for mesh: MeshInstance3D in _ghost_meshes:
 			mesh.material_overlay = null if can_place else _carry_blocked_material
-	_update_port_markers(building, hit_pos.y)
-	_update_area_markers(building, hit_pos.y)
+	_update_port_markers(building, ground_y)
+	_update_area_markers(building, ground_y)
 	visible = true
 
 
@@ -407,7 +447,7 @@ func pick(entry: Resource) -> void:
 		_select_slot(selected_slot)
 	if not active:
 		_set_active(true)
-	_face_player()
+	_restore_rotation()
 
 
 ## Vacía una casilla de la barra en uso (clic derecho sobre ella con el catálogo abierto).
@@ -534,6 +574,15 @@ func _select_slot(index: int) -> void:
 ## Gira el fantasma para que su frente (la cara sur del modelo, la de la vista frontal de Blender) mire
 ## hacia el jugador. Así una cinta sale avanzando hacia donde miras y una placa solar te enseña el panel.
 ## Se usa al entrar en el modo y al elegir en la barra; el cuentagotas, en cambio, copia el giro.
+## Al elegir una construcción: su último giro si ya se usó; si no, mirando hacia el jugador.
+func _restore_rotation() -> void:
+	var held: BuildingData = get_held()
+	if held != null and _rotation_by_building.has(held):
+		rotation_steps = _rotation_by_building[held]
+	else:
+		_face_player()
+
+
 func _face_player() -> void:
 	var camera: Camera3D = get_viewport().get_camera_3d()
 	if camera == null:
@@ -600,6 +649,12 @@ func _update_ghost_model(building: BuildingData, ground_y: float) -> void:
 	if _ghost_data != building or _ghost_carried != carrying:
 		_build_ghost_model(building, carrying)
 	_ghost_model.visible = true
+	# La rueda del fantasma, hundida como la de verdad (`BuildingView.WHEEL_DIP`), una sola vez por modelo.
+	if not building.water_cells.is_empty():
+		var wheel := _ghost_model.find_child("wheel_pivot", true, false) as Node3D
+		if wheel != null and not wheel.has_meta(&"dipped"):
+			wheel.position.y -= BuildingView.WHEEL_DIP
+			wheel.set_meta(&"dipped", true)
 	var lift: float = 0.0
 	if carrying:
 		lift = CARRY_HEIGHT + sin(Time.get_ticks_msec() * 0.004) * CARRY_BOB
@@ -656,23 +711,32 @@ func _build_ghost_model(building: BuildingData, carried: bool = false) -> void:
 	_ghost_carried = carried
 
 
-## Un cubito por puerto en la casilla a la que apunta (sale de los datos: así se ve si R y F van bien).
+## Una flecha plana por puerto, justo fuera de su lado (César, 2026-11-19: en lugar de cubitos): hacia dentro en las
+## entradas y hacia fuera en las salidas, y se desliza un poco en su sentido. Sale de los datos: así se ve si R y F
+## van bien.
 func _update_port_markers(building: BuildingData, ground_y: float) -> void:
+	if _arrow_mesh == null:
+		_arrow_mesh = _make_arrow_mesh()
 	while _port_markers.size() < building.ports.size():
 		var marker := MeshInstance3D.new()
-		var cube := BoxMesh.new()
-		cube.size = Vector3(0.3, 0.3, 0.3)
-		marker.mesh = cube
+		marker.mesh = _arrow_mesh
+		marker.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(marker)
 		_port_markers.append(marker)
+	var slide: float = fmod(Time.get_ticks_msec() / 1000.0, ARROW_SLIDE_TIME) / ARROW_SLIDE_TIME * ARROW_SLIDE
 	for i: int in _port_markers.size():
 		var marker: MeshInstance3D = _port_markers[i]
 		if i >= building.ports.size():
 			marker.visible = false
 			continue
 		var port: PortData = building.ports_for(output_turn)[i]
-		var cell: Vector2i = port.get_target_cell(_target_origin, building.size, rotation_steps, flipped)
-		marker.global_position = GridMath.cell_center(cell, ground_y + 0.15)
+		var port_cell: Vector2i = port.get_grid_cell(_target_origin, building.size, rotation_steps, flipped)
+		var out: Vector2i = PortData.side_offset(port.get_grid_side(rotation_steps, flipped))
+		var outward := Vector3(out.x, 0.0, out.y)
+		var pointing: Vector3 = outward if port.kind == PortData.Kind.OUTPUT else -outward
+		# El centro de la flecha, a ARROW_DISTANCE del centro de la casilla del puerto (justo fuera de su lado).
+		var center: Vector3 = GridMath.cell_center(port_cell, ground_y + ARROW_HEIGHT) + outward * ARROW_DISTANCE
+		marker.global_transform = Transform3D(Basis.looking_at(pointing), center + pointing * (slide - ARROW_SLIDE * 0.5))
 		if port.kind == PortData.Kind.INPUT:
 			marker.material_override = _input_material
 		else:
@@ -739,7 +803,7 @@ func _play_link_sounds(island: IslandState, placed_building: PlacedBuilding) -> 
 		if port == null:
 			continue
 		var cell: Vector2i = port.get_grid_cell(placed_building.origin, placed_building.data.size, placed_building.rotation, placed_building.flipped)
-		var at := GridMath.cell_center(cell, 0.3)
+		var at := GridMath.cell_center(cell, placed_building.ground_y + 0.3)
 		get_tree().create_timer(LINK_SOUND_DELAY).timeout.connect(_play_sound.bind(LINK_SOUND, at))
 
 
@@ -828,7 +892,7 @@ static func _rotation_for_step(step: Vector2i) -> int:
 
 ## Rehace el tramo y sus fantasmas: verde si se puede poner; rojo si está ocupado o ya no llegan los
 ## materiales; sin fantasma si ahí ya hay una cinta (se respeta y la nueva se empalma con ella).
-func _update_drag(building: BuildingData, ground_y: float) -> void:
+func _update_drag(building: BuildingData, _ground_y: float) -> void:   # cada cinta toma la altura de su casilla
 	_drag_path(_target_origin)
 	var island: IslandState = WorldState.get_island(island_id)
 	var inventory: Inventory = WorldState.player_inventory
@@ -865,9 +929,13 @@ func _update_drag(building: BuildingData, ground_y: float) -> void:
 			continue
 		# En coordenadas del mundo y sin heredar giro: este nodo es `top_level`, pero conserva el sitio y el giro
 		# que tenía el jugador al empezar, y la vista se coloca relativa a su padre.
-		view.global_transform = Transform3D(Basis.IDENTITY, GridMath.cell_center(_drag_cells[i], ground_y))
+		# Cada cinta del tramo, a la altura de su casilla (el tramo es del mismo nivel: si cambia, se corta).
+		var cell_y: float = WorldState.get_island(island_id).ground_height(_drag_cells[i])
+		view.global_transform = Transform3D(Basis.IDENTITY, GridMath.cell_center(_drag_cells[i], cell_y))
 		var ok: bool = _drag_states[i] == DragCell.OK or _drag_states[i] == DragCell.EXISTING_BELT
-		var material: StandardMaterial3D = _drag_ok_material if ok else _drag_bad_material
+		var material: Material = _drag_ok_material if ok else _drag_bad_material
+		if _drag_states[i] == DragCell.EXISTING_BELT:
+			material = _crossing_material(view, _drag_rotations[i])
 		for node: Node in view.find_children("*", "MeshInstance3D", true, false):
 			(node as MeshInstance3D).material_override = material
 
@@ -933,6 +1001,10 @@ func _rebuild_drag_preview(building: BuildingData, island: IslandState) -> void:
 			view.placed = preview_belts[i]
 			view.island = preview
 		view.set_linked_ports([])
+		# Sobre una cinta que ya existe (un cruce), el fantasma solo enseña las bocas nuevas, las del tramo, para no
+		# taparla (C5.3d, César).
+		if _drag_states[i] == DragCell.EXISTING_BELT:
+			view.show_only_hub_arms([_drag_rotations[i], (_drag_rotations[i] + 2) % 4])
 		views[view_key] = view
 		_drag_view_at[i] = view
 	for old: BuildingView in _drag_views.values():
@@ -1068,6 +1140,54 @@ func _update_cable_preview() -> void:
 		_cable_preview.material_override = _cable_ok_material
 	else:
 		_cable_preview.material_override = _cable_bad_material
+
+
+## Material del fantasma de un cruce: el verde del tramo, recortado para que solo se vea fuera de las paredes de la
+## cinta que ya existe. Uno por vista (cada una tiene su casilla), guardado en la propia vista.
+func _crossing_material(view: BuildingView, rotation: int) -> ShaderMaterial:
+	if _cross_shader == null:
+		_cross_shader = Shader.new()
+		_cross_shader.code = CROSS_SHADER_CODE
+	var material: ShaderMaterial = view.get_meta(&"cross_material", null)
+	if material == null:
+		material = ShaderMaterial.new()
+		material.shader = _cross_shader
+		material.set_shader_parameter("color", COLOR_OK)
+		material.set_shader_parameter("keep_from", CROSS_KEEP_FROM)
+		view.set_meta(&"cross_material", material)
+	var forward: Vector2i = GridMath.rotate_offset(Vector2i(0, -1), rotation)
+	material.set_shader_parameter("cell_center", view.global_position)
+	material.set_shader_parameter("axis", Vector2(forward.x, forward.y))
+	return material
+
+
+## Flecha plana de 0,5 m de largo y 4 cm de grueso que apunta hacia −Z: punta ancha y cola estrecha.
+func _make_arrow_mesh() -> ArrayMesh:
+	var outline: PackedVector2Array = [ # (x, z) en el sentido de las agujas del reloj visto desde arriba
+		Vector2(0.0, -0.25), Vector2(0.2, -0.02), Vector2(0.075, -0.02), Vector2(0.075, 0.25),
+		Vector2(-0.075, 0.25), Vector2(-0.075, -0.02), Vector2(-0.2, -0.02),
+	]
+	var thickness: float = 0.04
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var triangles: PackedInt32Array = Geometry2D.triangulate_polygon(outline)
+	for i: int in range(0, triangles.size(), 3):
+		for k: int in [0, 2, 1]: # cara de arriba
+			var p: Vector2 = outline[triangles[i + k]]
+			tool.add_vertex(Vector3(p.x, thickness, p.y))
+		for k: int in [0, 1, 2]: # cara de abajo
+			var p: Vector2 = outline[triangles[i + k]]
+			tool.add_vertex(Vector3(p.x, 0.0, p.y))
+	for i: int in outline.size(): # costados
+		var a: Vector2 = outline[i]
+		var b: Vector2 = outline[(i + 1) % outline.size()]
+		var a_low := Vector3(a.x, 0.0, a.y)
+		var b_low := Vector3(b.x, 0.0, b.y)
+		var a_high := Vector3(a.x, thickness, a.y)
+		var b_high := Vector3(b.x, thickness, b.y)
+		for v: Vector3 in [a_low, a_high, b_high, a_low, b_high, b_low]:
+			tool.add_vertex(v)
+	return tool.commit()
 
 
 func _make_material(color: Color, transparent: bool) -> StandardMaterial3D:
