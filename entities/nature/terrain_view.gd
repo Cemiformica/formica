@@ -2,9 +2,9 @@ class_name TerrainView
 extends Node3D
 ## Suelo de una isla con su agua (B3.7, D-094). Sustituye al suelo plano del sandbox: genera el terreno
 ## de `IslandState.bounds` y, donde hay agua, lo hunde con rampas suaves hasta el fondo (César: «una
-## transición natural, no muros»), con arena en las rampas y el fondo. Encima, el agua: clara y algo
-## transparente (se ve el fondo), con corriente donde corre (ríos y canales) y casi quieta donde no
-## (lagos: `flow` = (0, 0)). Por el agua se puede andar (César); nadar con estamina, en la fase C.
+## transición natural, no muros»), con arena en las rampas y el fondo. Encima, el agua de juguete
+## (`water.gdshader`, C5.4d): turquesa en la orilla y azul en lo hondo, espuma, brillos y, en ríos y canales,
+## corriente; quieta en lagos (`flow` = (0, 0)) y en el mar. Por el agua se puede andar (César); nadar, más adelante.
 ##
 ## Cómo es el terreno: una rejilla de medio metro. Un punto está en el fondo solo si todas las casillas
 ## que toca son agua; así un canal de 1 casilla tiene rampas de medio metro a cada lado y su centro hundido.
@@ -24,19 +24,33 @@ const LAYOUT_WATER_Y: float = -0.02
 const GRASS: Color = Color(0.45, 0.6, 0.38)
 const SAND: Color = Color(0.86, 0.79, 0.6)
 const BED_DEEP: Color = Color(0.1, 0.38, 0.5)
-## Agua cristalina: un velo azul claro y transparente, con claros que se mueven con la corriente.
-const WATER_DEEP: Color = Color(0.25, 0.6, 0.8, 0.35)
-const WATER_LIGHT: Color = Color(0.8, 0.95, 1.0, 0.6)
-## Casillas que avanza la corriente por segundo y veces que se repite la textura por metro.
-const FLOW_SPEED: float = 0.35
-const TEXTURE_PER_M: float = 0.5
-## Agua quieta (lagos): vaivén lento de la textura, en metros y segundos.
-const STILL_DRIFT: float = 0.15
-const STILL_PERIOD: float = 6.0
+## Velocidad de la corriente de los ríos (m/s; el shader la multiplica por `flow_visual`).
+const FLOW_SPEED: float = 0.6
+## Rapidez de cada tramo de río: RIVER_PACE_WIDTH / su ancho, entre el mínimo y el máximo (C5.4d).
+const RIVER_PACE_WIDTH: float = 4.0
+const RIVER_PACE_MIN: float = 0.6
+const RIVER_PACE_MAX: float = 1.8
+## El mar de las islas con plano: a qué altura está y cuántos metros se dibujan alrededor del plano, hasta donde la
+## bruma ya lo tapa todo, para que no se vea dónde acaba (César).
+const SEA_Y: float = -0.25
+const SEA_MARGIN: float = 1500.0
+## Shader del suelo de las islas con plano (C5.4a): mezcla hierba, arena, arena mojada, tierra del sendero, roca
+## y fondo según lo que cada esquina lleva apuntado, con ruido para que no se vea plano. Los colores, en el shader.
+const TERRAIN_SHADER: Shader = preload("res://entities/nature/terrain.gdshader")
+## Lo que cuenta el sendero en el rellano (también es tierra pisada, pero más clara y gastada).
+const LANDING_AS_PATH: float = 0.6
+## Casillas desde el borde de una explanada en las que los claros de tierra y las manchas suaves aparecen poco a poco.
+const FLAT_FADE_CELLS: float = 4.0
+## Puntos del terreno por casilla y lado (2 = cada medio metro, C5.4b).
+const GROUND_SUBDIVISIONS: int = 2
+## Superficie del agua para las esquinas que no tocan agua: tan abajo que nada queda bajo ella.
+const NO_WATER_SURFACE: float = -100.0
+## Hasta cuántas esquinas de distancia se lleva la superficie del agua tierra adentro.
+const WATER_SURFACE_SPREAD: int = 3
 
-var _flow_material: StandardMaterial3D
-var _still_material: StandardMaterial3D
-var _time: float = 0.0
+## Agua de juguete (C5.4d): el mismo shader, con corriente en los ríos y sin ella en lagos, estanques y el mar.
+const WATER_SHADER: Shader = preload("res://entities/nature/water.gdshader")
+var _water_material: ShaderMaterial
 var _ground: MeshInstance3D
 var _water: MeshInstance3D
 var _body: StaticBody3D
@@ -45,8 +59,7 @@ var _collision: CollisionShape3D
 
 
 func _init() -> void:
-	_flow_material = _make_water_material()
-	_still_material = _make_water_material()
+	_water_material = _make_water_material()
 	_ground = MeshInstance3D.new()
 	add_child(_ground)
 	_water = MeshInstance3D.new()
@@ -59,16 +72,6 @@ func _init() -> void:
 	add_child(_body)
 	_collision = CollisionShape3D.new()
 	_body.add_child(_collision)
-
-
-## La corriente: un solo desplazamiento para todos los ríos (sus UV ya van orientadas a su dirección);
-## los lagos solo se mecen un poco.
-func _process(delta: float) -> void:
-	_time += delta
-	var scroll: float = fposmod(-_time * FLOW_SPEED * TEXTURE_PER_M, 1.0)
-	_flow_material.uv1_offset = Vector3(0.0, scroll, 0.0)
-	var drift: float = sin(_time * TAU / STILL_PERIOD) * STILL_DRIFT * TEXTURE_PER_M
-	_still_material.uv1_offset = Vector3(drift, drift * 0.5, 0.0)
 
 
 ## Rehace el suelo, su colisión y el agua desde los datos de la isla. Sin `bounds`, no hay suelo.
@@ -161,64 +164,60 @@ func _touching_columns(start: int, index: int) -> Array[int]:
 	return result
 
 
+## El agua de los ríos, lagos y canales: una lámina por casilla de agua. Cada esquina lleva la corriente en sus UV.
 func _build_water(island: IslandState) -> void:
 	if island.water.is_empty():
 		_water.mesh = null
 		return
-	var flowing := SurfaceTool.new()
-	flowing.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var still := SurfaceTool.new()
-	still.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var has_flowing: bool = false
-	var has_still: bool = false
+	var offset: float = LAYOUT_WATER_Y if island.layout != null else WATER_Y
+	# Superficie de cada casilla de agua. El borde de la lámina queda tapado por la orilla, que está justo por encima
+	# (`IslandLayout.SHORE_ABOVE_WATER`); la forma de la orilla la da el fondo, que se deforma (C5.4d).
+	var surfaces: Dictionary[Vector2i, float] = {}
+	for cell: Vector2i in island.water:
+		surfaces[cell] = island.ground_height(cell) + offset
+	var shore: Dictionary[Vector2i, float] = {}
+	# Corriente en cada esquina: la media de las casillas de agua que la tocan (velocidad en m/s, con su rapidez),
+	# para que pase suave de una casilla a otra.
+	var corner_flow: Dictionary[Vector2i, Vector2] = {}
+	var corner_count: Dictionary[Vector2i, int] = {}
 	for cell: Vector2i in island.water:
 		var flow: Vector2i = island.water[cell]
-		var tool: SurfaceTool = still if flow == Vector2i.ZERO else flowing
-		if flow == Vector2i.ZERO:
-			has_still = true
-		else:
-			has_flowing = true
-		var forward := Vector3(0.0, 0.0, 1.0) if flow == Vector2i.ZERO else Vector3(flow.x, 0.0, flow.y).normalized()
-		var right := forward.cross(Vector3.UP)
-		var surface: float = LAYOUT_WATER_Y if island.layout != null else WATER_Y
-		var center: Vector3 = GridMath.cell_center(cell, island.ground_height(cell) + surface)
-		# UV en coordenadas del mundo (u a lo ancho, v a lo largo de la corriente): sin cortes entre casillas.
-		var corners: Array[Vector3] = [
-			center + (-right - forward) * 0.5, center + (right - forward) * 0.5,
-			center + (right + forward) * 0.5, center + (-right + forward) * 0.5]
-		for index: int in [0, 1, 2, 0, 2, 3]:
-			var p: Vector3 = corners[index]
-			tool.set_normal(Vector3.UP)
-			tool.set_uv(Vector2(p.dot(right), p.dot(forward)) * TEXTURE_PER_M)
-			tool.add_vertex(p)
-	var mesh := ArrayMesh.new()
-	if has_flowing:
-		flowing.commit(mesh)
-		mesh.surface_set_material(mesh.get_surface_count() - 1, _flow_material)
-	if has_still:
-		still.commit(mesh)
-		mesh.surface_set_material(mesh.get_surface_count() - 1, _still_material)
+		var velocity := Vector2.ZERO
+		if flow != Vector2i.ZERO:
+			var pace: float = clampf(RIVER_PACE_WIDTH / float(_river_width(island, cell, flow)), RIVER_PACE_MIN, RIVER_PACE_MAX)
+			velocity = Vector2(flow).normalized() * FLOW_SPEED * pace
+		for corner: Vector2i in [cell, cell + Vector2i(1, 0), cell + Vector2i(0, 1), cell + Vector2i(1, 1)]:
+			corner_flow[corner] = corner_flow.get(corner, Vector2.ZERO) + velocity
+			corner_count[corner] = corner_count.get(corner, 0) + 1
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for cells: Dictionary[Vector2i, float] in [surfaces, shore]:
+		var on_shore: float = 1.0 if cells == shore else 0.0   # el shader borra la orilla sobre un salto
+		for cell: Vector2i in cells:
+			var y: float = cells[cell]
+			var corners: Array[Vector2i] = [cell, cell + Vector2i(1, 0), cell + Vector2i(1, 1), cell + Vector2i(0, 1)]
+			for index: int in [0, 1, 2, 0, 2, 3]:
+				var corner: Vector2i = corners[index]
+				var velocity: Vector2 = corner_flow.get(corner, Vector2.ZERO) / float(maxi(corner_count.get(corner, 1), 1))
+				tool.set_normal(Vector3.UP)
+				tool.set_color(Color(1.0, on_shore, 0.0))
+				tool.set_uv(velocity)
+				tool.add_vertex(Vector3(corner.x, y, corner.y))
+	var mesh: ArrayMesh = tool.commit()
+	mesh.surface_set_material(0, _water_material)
 	_water.mesh = mesh
 
 
-# --- Terreno a partir del plano (C5.3d, provisional hasta C5.4) ---
-
-## Nivel del mar (las alturas del suelo, también la del fondo, las da `IslandLayout.height()`).
-const SEA_Y: float = -0.25
-## Metros de mar que se dibujan alrededor del plano: hasta donde la bruma ya lo tapa todo, para que no se vea dónde
-## acaba (César).
-const SEA_MARGIN: float = 1500.0
-## Shader del suelo de las islas con plano (C5.4a): mezcla hierba, arena, arena mojada, tierra del sendero, roca
-## y fondo según lo que cada esquina lleva apuntado, con ruido para que no se vea plano. Los colores, en el shader.
-const TERRAIN_SHADER: Shader = preload("res://entities/nature/terrain.gdshader")
-## Lo que cuenta el sendero en el rellano (también es tierra pisada, pero más clara y gastada).
-const LANDING_AS_PATH: float = 0.6
-## Puntos del terreno por casilla y lado (2 = cada medio metro, C5.4b).
-const GROUND_SUBDIVISIONS: int = 2
-## Superficie del agua para las esquinas que no tocan agua: tan abajo que nada queda bajo ella.
-const NO_WATER_SURFACE: float = -100.0
-## Hasta cuántas esquinas de distancia se lleva la superficie del agua tierra adentro.
-const WATER_SURFACE_SPREAD: int = 3
+## Ancho del río en esta casilla: casillas de agua seguidas de lado a lado de la corriente (hasta unas pocas).
+func _river_width(island: IslandState, cell: Vector2i, flow: Vector2i) -> int:
+	var side := Vector2i(-flow.y, flow.x)
+	var width: int = 1
+	for direction: int in [1, -1]:
+		var other: Vector2i = cell + side * direction
+		while island.water.has(other) and width < 12:
+			width += 1
+			other += side * direction
+	return width
 
 
 ## Las esquinas que no tocan agua toman la superficie del agua más cercana (hasta unas casillas): así, entre una esquina
@@ -302,8 +301,9 @@ func _build_layout_ground(island: IslandState) -> void:
 					IslandLayout.Ground.LANDING:
 						path += 0.25 * LANDING_AS_PATH
 				path += 0.25 * layout.wear(cell)
-				if layout.is_buildable(cell):
-					flat += 0.25
+				# Lo metida que está en su explanada, suave: los claros se apagan antes del borde (César: junto al lago
+				# salía uno cortado en seco por las casillas).
+				flat += 0.25 * smoothstep(0.5, FLAT_FADE_CELLS, layout.flat_depth(cell))
 			var index: int = j * row + i
 			sand_at[index] = sand
 			wet_at[index] = wet
@@ -405,29 +405,15 @@ func _build_sea(layout: IslandLayout) -> void:
 	for index: int in [0, 1, 2, 0, 2, 3]:
 		var p: Vector3 = corners[index]
 		tool.set_normal(Vector3.UP)
-		tool.set_uv(Vector2(p.x, p.z) * TEXTURE_PER_M)
+		tool.set_uv(Vector2.ZERO)   # el mar no corre
+		tool.set_color(Color(1.0, 0.0, 0.0))   # sin color, el shader lo tomaría por orilla y lo borraría en lo hondo
 		tool.add_vertex(p)
 	var mesh: ArrayMesh = tool.commit()
-	mesh.surface_set_material(0, _still_material)
+	mesh.surface_set_material(0, _water_material)
 	_sea.mesh = mesh
 
 
-func _make_water_material() -> StandardMaterial3D:
-	var noise := FastNoiseLite.new()
-	noise.frequency = 0.08
-	var ramp := Gradient.new()
-	ramp.set_color(0, WATER_DEEP)
-	ramp.set_color(1, WATER_LIGHT)
-	var texture := NoiseTexture2D.new()
-	texture.width = 64
-	texture.height = 64
-	texture.seamless = true
-	texture.noise = noise
-	texture.color_ramp = ramp
-	var material := StandardMaterial3D.new()
-	material.albedo_texture = texture
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.roughness = 0.25
-	material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+func _make_water_material() -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = WATER_SHADER
 	return material

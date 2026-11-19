@@ -178,6 +178,66 @@ for y in range(min(H, 50)):   # más abajo, lo amarillo del dibujo es el portal
             grid[y][x] = 'm'
 worn = [['x' if paint['purple'][y][x] or paint.get('pink', [[0] * W] * H)[y][x] else '.' for x in range(W)] for y in range(H)]
 
+# 7) Orilla sin construir alrededor del agua quieta (lago y remanso; C5.4d, César: el lago tenía los bordes cuadrados).
+# Ahí el terreno se deforma y la orilla sale irregular. En el río no: la explanada llega al agua por la rueda.
+NOT_FLAT = {'#': '^', '=': '.', '+': '-', '%': '*'}
+shore_cells = [(x, y) for y in range(H) for x in range(W) if grid[y][x] in NOT_FLAT
+               and any(0 <= x + dx < W and 0 <= y + dy < H and grid[y + dy][x + dx] in 'Oo'
+                       for dx in (-1, 0, 1) for dy in (-1, 0, 1))]
+for x, y in shore_cells:
+    grid[y][x] = NOT_FLAT[grid[y][x]]
+
+# 8) Más acantilados de juguete en lo alto (César: le gustan tanto que echaba de menos más arriba).
+# a) Borde de roca del lago por el lado de la cascada: la cascada sale de entre rocas.
+for y in range(44, 50):
+    for x in range(80, 108):
+        if grid[y][x] != '^':
+            continue
+        near_lake = any(grid[y + dy][x + dx] == 'O' for dx in range(-2, 3) for dy in range(-2, 3)
+                        if 0 <= y + dy < H and 0 <= x + dx < W)
+        near_fall = any(grid[y + dy][x + dx] in 'CH' for dx in range(-1, 2) for dy in range(-1, 2)
+                        if 0 <= y + dy < H and 0 <= x + dx < W)
+        if near_lake and not near_fall:
+            grid[y][x] = 'm'
+# b) Cerros de roca sueltos por la montaña alrededor de la explanada alta: sitios de montaña con bosque alrededor,
+# lejos de las explanadas, del agua, de las lomas altas y entre sí. Siempre los mismos (orden por un ruido fijo).
+HILLOCKS = 6
+candidates = []
+for y in range(6, 60):
+    for x in range(20, 112):
+        if grid[y][x] != '^':
+            continue
+        ok = True
+        for dy in range(-4, 5):
+            for dx in range(-4, 5):
+                yy, xx = y + dy, x + dx
+                if not (0 <= yy < H and 0 <= xx < W) or grid[yy][xx] not in '^tmX*':
+                    ok = False
+                    break
+                if grid[yy][xx] == 'm' and abs(dx) <= 3 and abs(dy) <= 3:
+                    ok = False
+                    break
+            if not ok:
+                break
+        if ok:
+            candidates.append((h(x, y, 61), x, y))
+candidates.sort()
+chosen = []
+for _, x, y in candidates:
+    if all((x - cx) ** 2 + (y - cy) ** 2 >= 12 ** 2 for cx, cy in chosen):
+        chosen.append((x, y))
+    if len(chosen) >= HILLOCKS:
+        break
+for cx, cy in chosen:
+    rx = 2.5 + h(cx, cy, 62) * 1.5
+    ry = 2.5 + h(cx, cy, 63) * 1.5
+    for y in range(cy - 5, cy + 6):
+        for x in range(cx - 5, cx + 6):
+            d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
+            if d <= 1.0 + (noise(x, y, 64, 2.0) - 0.5) * 0.8 and grid[y][x] in '^t':
+                grid[y][x] = 'm' if grid[y][x] == '^' else 't'
+print('cerros', chosen)
+
 legend_add = [
     '//  -  parte media (terraza a 3 m; se anda, no se construye)      +  explanada media (plana; se construye)  nivel 2 (3 m)',
     '//  *  cumbre (se anda, no se construye)       %  explanada de la cumbre (plana; se construye)   nivel 3 (9 m)',

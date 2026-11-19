@@ -98,7 +98,7 @@ func _ready() -> void:
 	_check("en la playa llana sí", flat_beach != Vector2i(-1, -1) and island.can_plant(flat_beach))
 	_check("junto a la ladera, empinada: no", not island.can_plant(Vector2i(2, 4)))
 	_check("ninguna roca en el agua", not island.add_rock(Vector2i(9, 4)) and not island.add_rock(Vector2i(0, 0)))
-	_check("la orilla baja justo bajo el agua", is_equal_approx(layout.corner_height(9, 4), -IslandLayout.SHORE_BELOW_WATER))
+	_check("la orilla queda justo sobre el agua", is_equal_approx(layout.corner_height(9, 4), IslandLayout.SHORE_ABOVE_WATER))
 
 	# 7) Las rocas y los palos que aparecen solos caen solo en tierra.
 	island.rng.seed = 7
