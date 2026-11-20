@@ -43,10 +43,12 @@ func setup(view: RepairSiteView, index: int, box: AABB) -> void:
 func set_done(done: bool) -> void:
 	_done = done
 	if exact_body != null:
-		# Choca su forma real; la caja no choca nunca y sigue a tiro del rayo de interactuar (para descansar en la cama).
+		# Choca su forma real; la caja no choca nunca. Sigue a tiro del rayo de interactuar mientras falta o si tiene algo
+		# que hacer completa (descansar en la cama, abrir la trampilla). Si no, se quita de en medio: la caja del arco
+		# envolvía el toldo, que va detrás, y no dejaba entregarle nada (César).
 		exact_body.collision_layer = 1 if done else 0
 		collision_layer = 0
-		_area.collision_layer = VeinView.WORK_AREA_LAYER
+		_area.collision_layer = VeinView.WORK_AREA_LAYER if not done or _action() != &"" else 0
 	else:
 		collision_layer = 1 if done else 0
 		_area.collision_layer = 0 if done else VeinView.WORK_AREA_LAYER

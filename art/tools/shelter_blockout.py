@@ -11,7 +11,12 @@
 #   - piece_hatch: trampilla en la boca del cráter (César), con la tapa colgando del vacío «hatch_hinge» (Godot la gira
 #     al abrirla) y una cuerda que baja por el pozo hasta una estaca con tirador junto a la entrada: el vacío
 #     «hatch_pull» es donde se apunta para entregarle cosas y, ya reparada, para abrirla o cerrarla con E.
-# Los detalles (candil, fogón, haz de luz…) llegan después.
+#     Dentro de la trampilla, los vacíos «light_shaft_top» (la boca) y «light_shaft_bottom» (el suelo de la sala):
+#     Godot dibuja entre ellos el haz de luz cuando la trampilla está abierta.
+# Detalles (no se reparan):
+#   - lantern: candil colgado de un soporte en la pared suroeste; su llama «lantern_flame» va aparte y el vacío
+#     «lantern_light» es donde Godot pone la luz. Se enciende al completar el refugio.
+# Los demás detalles (fogón, emblema, columnas…) llegan después.
 #
 # Planta (`Refugio.md` §3): 8 × 7 casillas con el origen en el centro de la huella, a ras de suelo. En Blender el
 # norte es +Y (en Godot, -Z) y la boca mira al sur (-Y). Una casilla = 1 m. Regla: las paredes pueden pasar por
@@ -85,9 +90,11 @@ MOUND_SIDES = 28
 PORCH_FRONT = -2.5         # el porche (fila 6, columnas 2 a 5) queda libre: el montículo no pasa de aquí
 PORCH_HALF = 2.0
 
-# Sala: hexágono con la punta al fondo (norte), que contiene sus 14 casillas libres.
-ROOM_CENTER = Vector((0.0, 0.2))
-ROOM_R = 2.95
+# Sala: hexágono con la punta al fondo (norte), que contiene sus 16 casillas libres (un cuadrado de 4 × 4).
+ROOM_CENTER = Vector((0.0, 0.5))   # 30 cm más al fondo que la primera versión (César: que quepa más)
+ROOM_R = 3.2                       # con 2,95 quedaban 14 casillas libres; así, un cuadrado de 4 × 4 (16)
+ROOM_NORTH_CUT = 3.15              # la punta norte se corta en recto aquí: llegaba a 3,7 y el acantilado (desde 3,5)
+                                   # asomaba dentro (César); la sala de 2,95 llegaba a 3,15 y no asomaba. No toca el cuadrado de casillas (llega a 2,5).
 ROOM_WALL = 1.9            # alto de las facetas antes de la cúpula
 FLOOR_Z = 0.03             # suelo de dentro, un pelo por encima del terreno (si no, parpadean)
 
@@ -267,27 +274,28 @@ def build_cavity():
 
 
 def hexagon_point(a: float, z: float) -> Vector:
-    # Punto del contorno del hexágono de la sala (punta al norte) en la dirección a, desde su centro.
+    # Punto del contorno del hexágono de la sala (punta al norte, cortada en ROOM_NORTH_CUT) en la dirección a, desde su
+    # centro.
     r = ROOM_R * math.cos(math.pi / 6.0) / math.cos(((a - math.pi / 2.0) % (math.pi / 3.0)) - math.pi / 6.0)
+    if math.sin(a) > 1e-6:
+        r = min(r, (ROOM_NORTH_CUT - ROOM_CENTER.y) / math.sin(a))
     return Vector((ROOM_CENTER.x + math.cos(a) * r, ROOM_CENTER.y + math.sin(a) * r, z))
 
 
 def build_room():
-    # Hexágono con la punta al norte: facetas rectas hasta ROOM_WALL; encima, el cono hueco (build_cavity).
+    # Hexágono con la punta al norte (cortada en ROOM_NORTH_CUT): facetas rectas hasta ROOM_WALL; encima, el cono hueco
+    # (build_cavity).
     bm = bmesh.new()
-    levels = [(FLOOR_Z, 1.0), (ROOM_WALL, 1.0)]
+    north = ROOM_NORTH_CUT
+    outline = clip_half_plane(room_hexagon(), Vector((1.0, north)), Vector((0.0, north)))
     rings = []
-    for z, s in levels:
-        ring = []
-        for i in range(6):
-            a = math.pi / 2.0 + i * math.pi / 3.0
-            ring.append(bm.verts.new((ROOM_CENTER.x + math.cos(a) * ROOM_R * s, ROOM_CENTER.y + math.sin(a) * ROOM_R * s, z)))
-        rings.append(ring)
+    for z in (FLOOR_Z, ROOM_WALL):
+        rings.append([bm.verts.new((p.x, p.y, z)) for p in outline])
+    n = len(outline)
     bm.faces.new(list(reversed(rings[0])))
-    for k in range(len(rings) - 1):
-        for i in range(6):
-            j = (i + 1) % 6
-            bm.faces.new((rings[k][i], rings[k][j], rings[k + 1][j], rings[k + 1][i]))
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((rings[0][i], rings[0][j], rings[1][j], rings[1][i]))
     bm.faces.new(rings[-1])
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     return bm
@@ -469,11 +477,13 @@ def gallery_wall_x(z: float) -> float:
 # PROPS_EMBED en la tierra (sin rendijas), y arriba se juntan en una clave.
 MOUTH_Y = -2.48            # la fachada en la boca, a ras de suelo (medido en la malla)
 MOUTH_LEAN = 0.075         # y lo que se va hacia atrás por metro de alto (a 2 m está en −2,33)
-PROPS_POST = 0.17
-PROPS_EMBED = 0.045
-PROPS_Y = MOUTH_Y + PROPS_POST / 2 - 0.01   # cara de fuera 1 cm por delante de la fachada
+PROPS_POST = 0.22          # ancho del madero visto de frente (César: más gruesos)
+PROPS_DEPTH = 0.34         # y su fondo: más que la pared, para que asome por delante de la fachada
+PROPS_STICK_OUT = 0.08     # lo que asoma la cara de fuera por delante de la fachada
+PROPS_EMBED = 0.07
+PROPS_Y = MOUTH_Y + PROPS_DEPTH / 2 - PROPS_STICK_OUT
 PROPS_ANGLES = (0.0, 24.0, 46.0, 66.0, 90.0)   # grados sobre la media elipse de la galería donde se unen los tramos
-KEYSTONE = (0.3, PROPS_POST + 0.05, 0.24)      # ancho, fondo y alto de la clave
+KEYSTONE = (0.34, PROPS_DEPTH + 0.05, 0.28)    # ancho, fondo y alto de la clave
 
 
 def arch_point(angle_deg: float, side: int) -> Vector:
@@ -497,12 +507,12 @@ def build_props(root, mat):
             # Cada tramo se alarga un poco por los dos lados para que las uniones no dejen rendija.
             a = points[k] - d * (0.0 if k == 0 else 0.05)
             b = points[k + 1] + d * (0.05 if k < len(points) - 2 else 0.0)
-            finish("piece_props_post_%d_%d" % (side + 1, k), beam(a, b, PROPS_POST), PLANK, pivot, mat, 0.012)
+            finish("piece_props_post_%d_%d" % (side + 1, k), beam(a, b, PROPS_POST, PROPS_DEPTH), PLANK, pivot, mat, 0.015)
             if 0 < k:
                 # Abrazadera de cuero en cada unión.
-                band = beam(points[k] - d * 0.05, points[k] + d * 0.05, PROPS_POST + 0.025)
+                band = beam(points[k] - d * 0.05, points[k] + d * 0.05, PROPS_POST + 0.025, PROPS_DEPTH + 0.025)
                 finish("piece_props_band_%d_%d" % (side + 1, k), band, BARK_DARK, pivot, mat)
-        finish("piece_props_shim_%d" % (side + 1), box((0.22, 0.15, 0.05), (points[0].x, 0.01, 0.025)), STONE_DARK, pivot, mat, 0.012)
+        finish("piece_props_shim_%d" % (side + 1), box((0.28, PROPS_DEPTH + 0.04, 0.05), (points[0].x, 0.0, 0.025)), STONE_DARK, pivot, mat, 0.012)
     # Clave: el bloque donde se juntan los dos lados, arriba del todo.
     top = arch_point(90.0, 1)
     finish("piece_props_keystone", box(KEYSTONE, (0.0, 0.0, top.z - 0.02)), PLANK_GRAIN, pivot, mat, 0.02)
@@ -524,8 +534,8 @@ GROUT = (1, 5)            # 7a6f58: lechada
 GROUT_TOP = 0.012
 TILE_COLORS = ((1, 4), (1, 4), (1, 3), (1, 2), (1, 6))
 TILE_MIN_AREA = 0.015     # trocitos de borde más pequeños que esto se dejan en lechada
-BED_ALCOVE = ((-2.45, 0.5, 0.35), (0.85, 1.2, 1.05))      # centro y radios (los de `build()`)
-HEARTH_ALCOVE = ((2.5, 0.0, 0.25), (0.75, 0.62, 0.9))
+BED_ALCOVE = ((-2.72, 0.5, 0.35), (0.72, 1.2, 1.05))      # centro y radios (los de `build()`)
+HEARTH_ALCOVE = ((2.8, 0.0, 0.25), (0.62, 0.62, 0.9))
 
 
 def clip_polygon(poly: list, clip: list) -> list:
@@ -590,6 +600,8 @@ def floor_zones(grow: float) -> list:
     hexagon = room_hexagon(grow)
     mouth = MOUTH_Y + 0.01
     room = clip_half_plane(hexagon, Vector((0.0, mouth)), Vector((1.0, mouth)))
+    north = ROOM_NORTH_CUT + grow
+    room = clip_half_plane(room, Vector((1.0, north)), Vector((0.0, north)))   # la punta norte, cortada
     zones = [room]
     # Galería: lo que queda fuera del hexágono a cada lado, entre la boca y la sala.
     south, south_west, south_east = hexagon[3], hexagon[2], hexagon[4]
@@ -678,7 +690,7 @@ def build_awning(root, mat):
 
 
 # Camastro: en la alcoba del oeste (columna 1, filas 2 y 3), a lo largo del eje norte-sur.
-BED_CENTER = (-2.4, 0.5)
+BED_CENTER = (-2.5, 0.5)
 BED_LENGTH = 1.6
 BED_WIDTH = 0.66
 
@@ -823,6 +835,10 @@ def build_hatch(root, mat):
     # pasador. La zona tiene el tamaño `aim_size` de la pieza en `shelter.tres` (César: costaba encontrarla con la
     # palanca abajo).
     empty("hatch_pull", pivot, tuple(pin + inward * 0.22 - origin))
+    # Haz de luz (Godot lo dibuja con la trampilla abierta): de la boca del cráter, algo por debajo del borde, al
+    # centro del suelo de la sala. Baja un poco inclinado porque la boca queda al norte del centro de la sala.
+    empty("light_shaft_top", pivot, (0.0, 0.0, -0.15))
+    empty("light_shaft_bottom", pivot, tuple(Vector((ROOM_CENTER.x, ROOM_CENTER.y, FLOOR_Z + TILE_THICK)) - origin))
     # Comprobación: la cuerda entre poleas tiene que ir por dentro del pozo.
     a, b = rim + Vector((0.0, -0.07, 0.0)), low + Vector((0.0, 0.0, 0.08))
     worst = 99.0
@@ -848,6 +864,57 @@ def pulley(parent, mat, name, at: Vector, axis: Vector):
     finish(name + "_axle", hub, BARK_DARK, parent, mat)
 
 
+# Candil de los nómadas (detalle, no se repara): farol hexagonal de madera colgado de un cordel, en un soporte clavado en
+# la pared suroeste de la sala (entre la galería y la alcoba de la cama). Godot lo enciende al completar el refugio.
+LANTERN_ANGLE = math.radians(240.0)   # centro de la faceta suroeste del hexágono
+LANTERN_BRACKET_Z = 1.78              # altura del soporte (la pared recta llega a ROOM_WALL)
+LANTERN_REACH = 0.36                  # lo que sale el soporte de la pared
+LANTERN_HANG = 0.2                    # cordel desde el soporte hasta el asa
+LANTERN_R = 0.085                     # radio (a las esquinas) de la base y la tapa
+LANTERN_H = 0.2                       # alto del farol, de la base a la tapa
+FLAME = (6, 2)                        # ámbar (el color de la llama apagada; Godot la hace brillar)
+CLAY = (4, 5)                         # cazoleta de barro
+
+
+def build_lantern(root, mat):
+    wall = hexagon_point(LANTERN_ANGLE, 0.0)
+    wall = Vector((wall.x, wall.y, 0.0))
+    inward = (Vector((ROOM_CENTER.x, ROOM_CENTER.y, 0.0)) - wall).normalized()
+    tip = wall + inward * LANTERN_REACH + Vector((0.0, 0.0, LANTERN_BRACKET_Z))
+    top = tip - Vector((0.0, 0.0, LANTERN_HANG))           # asa del farol
+    cap_z = top.z - 0.035                                   # arriba de la tapa
+    base_z = cap_z - LANTERN_H                              # abajo de la base
+    pivot = empty("lantern", root, (top.x, top.y, base_z))
+    o = Vector((top.x, top.y, base_z))
+    # Soporte: madero clavado en la pared con su tornapunta, y una cuña en la punta para el cordel.
+    finish("lantern_bracket", beam(wall - inward * 0.12 + Vector((0, 0, LANTERN_BRACKET_Z)) - o, tip + inward * 0.04 - o, 0.06),
+           PLANK, pivot, mat, 0.008)
+    finish("lantern_strut", beam(wall - inward * 0.08 + Vector((0, 0, LANTERN_BRACKET_Z - 0.32)) - o,
+           tip - inward * 0.12 + Vector((0, 0, -0.01)) - o, 0.04), PLANK_GRAIN, pivot, mat, 0.006)
+    finish("lantern_peg", place(prism(5, 0.02, 0.02, -0.05, 0.05), tip - o, Matrix.Rotation(math.radians(90), 4, "X")),
+           BARK_DARK, pivot, mat)
+    # Cordel y asa.
+    finish("lantern_cord", place(prism(6, 0.009, 0.009, 0.0, LANTERN_HANG + 0.02), top - o - Vector((0, 0, 0.01))), BARK_DARK, pivot, mat)
+    finish("lantern_handle", place(prism(6, 0.03, 0.03, -0.004, 0.004), top - o + Vector((0, 0, 0.022)),
+           Matrix.Rotation(math.radians(90), 4, "X")),
+           BARK_DARK, pivot, mat)
+    # Farol: base y tapa hexagonales de madera, tres varillas y la cazoleta de barro con la llama dentro.
+    finish("lantern_base", prism(6, LANTERN_R, LANTERN_R * 0.92, 0.0, 0.03), PLANK, pivot, mat, 0.006)
+    finish("lantern_cap", prism(6, LANTERN_R, LANTERN_R * 0.35, LANTERN_H - 0.03, LANTERN_H + 0.035), PLANK, pivot, mat, 0.006)
+    for k in range(3):
+        a = k * 2.0 * math.pi / 3.0
+        p = Vector((math.cos(a), math.sin(a), 0.0)) * (LANTERN_R * 0.78)
+        finish("lantern_rod_%d" % k, place(prism(5, 0.008, 0.008, 0.02, LANTERN_H - 0.02), p), BARK_DARK, pivot, mat)
+    finish("lantern_bowl", prism(8, 0.035, 0.05, 0.03, 0.065), CLAY, pivot, mat, 0.005)
+    # Llama: una gota de seis lados (punta arriba), aparte para que Godot la haga brillar.
+    flame = prism(6, 0.017, 0.0, 0.0, 0.075)
+    bmesh.ops.remove_doubles(flame, verts=flame.verts, dist=0.0005)
+    finish("lantern_flame", place(flame, (0.0, 0.0, 0.058)), FLAME, pivot, mat)
+    empty("lantern_light", pivot, (0.0, 0.0, 0.1))
+    n = sum(sum(len(p.vertices) - 2 for p in c.data.polygons) for c in pivot.children_recursive if c.type == "MESH")
+    print("refugio: candil %d triángulos, a %.2f m del suelo" % (n, base_z))
+
+
 def build_pieces(root):
     mat = get_material()
     rng = random.Random(23)
@@ -856,6 +923,7 @@ def build_pieces(root):
     build_awning(root, mat)
     build_bed(root, mat)
     build_hatch(root, mat)
+    build_lantern(root, mat)   # detalle: no es una pieza
     # Donde reaparece Mira al descansar: en la sala, delante de la cama, mirando al este (hacia la sala). Sin girar, en
     # Godot mira a −Z (+Y de Blender); −90° en Z la pone mirando a +X.
     empty("spawn_point", root, (BED_CENTER[0] + 1.05, BED_CENTER[1], 0.0), math.radians(-90.0))

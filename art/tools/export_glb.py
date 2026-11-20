@@ -3,7 +3,7 @@
 # Se quedan aparte, con su nombre, las piezas que Godot necesita tocar:
 #   - las que cuelgan de un vacío intermedio (p. ej. todo lo que cuelga de «bellows_pivot» se une en
 #     una sola malla «bellows_pivot_mesh» bajo ese pivote, para animarlo),
-#   - las que empiezan por un prefijo de KEEP (brasa, aislante, lengüeta de cinta, luz de estado…),
+#   - las que empiezan por un prefijo de KEEP (brasa, aislante, lengüeta de cinta, luz de estado, llama del candil…),
 #   - los vacíos (cable_anchor, smoke_origin, pivotes).
 # El .blend NO cambia: se trabaja sobre copias temporales que se borran al terminar.
 #
@@ -16,7 +16,8 @@
 
 import bpy
 
-KEEP = ("ember_window", "cable_insulator", "belt_tongue", "belt_end", "belt_join", "belt_side", "belt_corner", "belt_hub", "status_light", "work_lamp")
+KEEP = ("ember_window", "cable_insulator", "belt_tongue", "belt_end", "belt_join", "belt_side", "belt_corner", "belt_hub", "status_light", "work_lamp",
+        "lantern_flame")
 
 
 def _is_kept(name: str) -> bool:

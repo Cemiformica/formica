@@ -23,6 +23,12 @@ func _ready() -> void:
 	_check("refugio en el catálogo, con sus 5 piezas", shelter != null and shelter.pieces.size() == 5
 			and shelter.find_piece(&"props") == 0 and shelter.find_piece(&"bed") == 3 and shelter.find_piece(&"hatch") == 4)
 	_check("la cama del refugio es la cama", shelter != null and shelter.pieces[3].action == &"bed")
+	# La sala deja libre un cuadrado de 4 × 4 casillas (columnas 2–5, filas 1–4) para el banco y los arcones (César).
+	var room_free: bool = shelter != null
+	for x: int in range(2, 6):
+		for y: int in range(1, 5):
+			room_free = room_free and not shelter.blocked_cells.has(Vector2i(x, y))
+	_check("la sala del refugio deja libre un cuadrado de 4 × 4 casillas", room_free)
 	var rope_item: ItemData = Content.find_item(&"rope")
 	_check("la trampilla pide 1 madero, 2 cuerdas y 2 de madera, y gira la tapa y la palanca", shelter != null
 			and shelter.pieces[4].cost.get(timber, 0) == 1 and shelter.pieces[4].cost.get(rope_item, 0) == 2
@@ -42,7 +48,15 @@ func _ready() -> void:
 		for n: int in 2:
 			all_nodes = all_nodes and model.find_child("rope_a_%d" % n, true, false) != null \
 					and model.find_child("rope_b_%d" % n, true, false) != null
+		# Haz de luz dentro de la trampilla y candil con su llama (D-180).
+		var hatch_node: Node = model.find_child("piece_hatch", true, false)
+		var shaft_top: Node = model.find_child("light_shaft_top", true, false)
+		var lights_ok: bool = hatch_node != null and shaft_top != null and hatch_node.is_ancestor_of(shaft_top) \
+				and model.find_child("light_shaft_bottom", true, false) != null \
+				and model.find_child("lantern_light", true, false) != null \
+				and model.find_child("lantern_flame", true, false) is MeshInstance3D
 		model.free()
+		_check("el modelo trae el haz de luz (en la trampilla) y el candil con su llama", lights_ok)
 		_check("el modelo del refugio tiene un nodo por pieza (con el tirador, la bisagra, la palanca y las cuerdas) y su spawn_point", all_nodes)
 	# La trampilla: no se abre hasta estar completa; después se abre y se cierra, y abierta se guarda.
 	if shelter != null:

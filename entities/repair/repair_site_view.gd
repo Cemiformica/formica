@@ -13,6 +13,11 @@ const GHOST_COLOR: Color = Color8(255, 184, 58)
 ## Opacidad del fantasma sin nada entregado y casi completo.
 const GHOST_ALPHA_MIN: float = 0.18
 const GHOST_ALPHA_MAX: float = 0.5
+## Los fantasmas «respiran» (César: el suelo por reparar parecía tierra): cada GHOST_PULSE_TIME segundos se aclaran hacia
+## GHOST_PULSE_COLOR y ganan algo de opacidad. Así se distingue lo que falta de lo que ya está.
+const GHOST_PULSE_TIME: float = 2.4
+const GHOST_PULSE_COLOR: Color = Color(1.0, 0.93, 0.7)
+const GHOST_PULSE_ALPHA: float = 0.16
 ## Efecto al completar una pieza: los mismos tiempos que el de colocar (`BuildingView`, B5.4).
 const GROW_TIME: float = 0.2
 const GROW_START: float = 0.15
@@ -40,6 +45,8 @@ var _pieces: Array[Node3D] = []
 var _targets: Array[RepairPieceTarget] = []
 var _ghosts: Array[StandardMaterial3D] = []
 var _done: Array[bool] = []
+## Opacidad de cada fantasma sin el pulso (la pone `_set_ghost_alpha`; `_process` le suma el pulso).
+var _ghost_alpha: Array[float] = []
 ## Por pieza: los nodos que giran al abrirla (vacío si no se abre) y su giro cerrado, en el mismo orden que
 ## `RepairPieceData.toggle_nodes`.
 var _toggles: Array[Array] = []
@@ -50,6 +57,14 @@ var _ropes: Array[Dictionary] = []
 var _ropes_until_ms: int = 0
 const ROPE_THICKNESS: float = 0.05   # como la cuerda fija del modelo (ROPE_R de shelter_blockout.py)
 const ROPE_COLOR: Color = Color(0.36, 0.25, 0.15)
+## Haz de luz (C5.5, D-180): si el modelo trae «light_shaft_top» y «light_shaft_bottom», se ve mientras la pieza que
+## los contiene (la trampilla) esté abierta.
+var _shaft: LightShaft = null
+var _shaft_piece: int = -1
+## Candil (C5.5, D-180): si el modelo trae «lantern_light» (y su llama «lantern_flame»), se enciende al completar la
+## estructura. Lo que cuelga de «lantern» no choca: es un detalle pequeño junto a la pared.
+var _lantern: LanternGlow = null
+var _lantern_pending: bool = false   # ya se pidió encenderlo (prende tras el rebote de la última pieza)
 
 
 ## Prepara la vista. Se llama ANTES de añadirla al árbol.
@@ -80,6 +95,7 @@ func setup(p_site: RepairSite, p_island: IslandState) -> void:
 		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_ghosts.append(material)
+		_ghost_alpha.append(GHOST_ALPHA_MIN)
 		var piece_data: RepairPieceData = site.data.pieces[i]
 		var aim: Node3D = _pieces[i]
 		if _model != null and piece_data.aim_node != &"":
@@ -113,6 +129,8 @@ func setup(p_site: RepairSite, p_island: IslandState) -> void:
 		_done.append(site.is_piece_done(i))
 		_apply(i)
 	_find_ropes()
+	_add_light_shaft()
+	_add_lantern()
 
 
 ## Se entregó algo a la pieza `index` (lo llama `IslandView`).
@@ -125,6 +143,8 @@ func on_piece_changed(index: int) -> void:
 	_apply(index)
 	if now_done and not was_done:
 		_play_complete(index)
+		if site.is_complete():
+			_light_lantern()   # además de `on_completed`, por si esa señal no llegara
 	else:
 		_play_flash(index)
 
@@ -141,6 +161,8 @@ func on_piece_toggled(index: int) -> void:
 		var goal: Vector3 = _toggle_closed[index][k] + (_toggle_angle(piece_data, k) if open else Vector3.ZERO)
 		tween.tween_property(node, "rotation", goal, TOGGLE_TIME).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_animate_ropes(TOGGLE_TIME + 0.1)
+	if _shaft != null and index == _shaft_piece:
+		_shaft.set_on(open)
 	var sound := AudioStreamPlayer3D.new()
 	sound.stream = OPEN_SOUND if open else CLOSE_SOUND
 	sound.bus = &"SFX"
@@ -155,6 +177,10 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	var pulse: float = _pulse()
+	for i: int in _ghosts.size():
+		if not _done[i]:
+			_paint_ghost(i, pulse)
 	if not _ropes.is_empty() and Time.get_ticks_msec() < _ropes_until_ms:
 		_update_ropes()
 
@@ -214,6 +240,47 @@ static func _toggle_angle(piece_data: RepairPieceData, k: int) -> Vector3:
 ## aterriza la última pieza.
 func on_completed() -> void:
 	get_tree().create_timer(GROW_TIME).timeout.connect(_dust_ring)
+	_light_lantern()
+
+
+## Enciende el candil (una vez) cuando la última pieza se asienta.
+func _light_lantern() -> void:
+	if _lantern == null or _lantern.is_lit() or _lantern_pending:
+		return
+	_lantern_pending = true
+	print("%s completo: se enciende el candil" % site.data.id)
+	get_tree().create_timer(GROW_TIME + POP_TIME).timeout.connect(_lantern.set_lit.bind(true))
+
+
+## Haz de luz entre «light_shaft_top» y «light_shaft_bottom», encendido si su pieza ya está abierta.
+func _add_light_shaft() -> void:
+	if _model == null:
+		return
+	var top := _model.find_child("light_shaft_top", true, false) as Node3D
+	var bottom := _model.find_child("light_shaft_bottom", true, false) as Node3D
+	if top == null or bottom == null:
+		return
+	for i: int in _pieces.size():
+		if _pieces[i] != null and _pieces[i].is_ancestor_of(top):
+			_shaft_piece = i
+	_shaft = LightShaft.new()
+	_shaft.setup(_relative_transform(top).origin, _relative_transform(bottom).origin)
+	add_child(_shaft)
+	_shaft.set_on(_shaft_piece >= 0 and site.is_open(_shaft_piece), false)
+
+
+## Candil en «lantern_light», encendido si la estructura ya está completa.
+func _add_lantern() -> void:
+	if _model == null:
+		return
+	var anchor := _model.find_child("lantern_light", true, false) as Node3D
+	if anchor == null:
+		return
+	_lantern = LanternGlow.new()
+	_lantern.setup(_model.find_child("lantern_flame", true, false) as MeshInstance3D)
+	anchor.add_child(_lantern)
+	_lantern.set_lit(site.is_complete(), false)
+	print("%s: candil %s" % [site.data.id, "encendido" if site.is_complete() else "apagado (falta completar)"])
 
 
 ## Pieza `index`: fantasma (con su opacidad según lo entregado) o sólida, y su objetivo al día.
@@ -272,14 +339,25 @@ func _play_flash(index: int) -> void:
 	DustPuff.spawn(get_parent(), _targets[index].global_position, GHOST_COLOR, true)
 	if _done[index]:
 		return
-	var settled: float = _ghosts[index].albedo_color.a
+	var settled: float = _ghost_alpha[index]
 	var tween: Tween = create_tween()
 	tween.tween_method(_set_ghost_alpha.bind(index), minf(settled + 0.35, 0.9), settled, FLASH_TIME)
 
 
 func _set_ghost_alpha(alpha: float, index: int) -> void:
-	var color: Color = _ghosts[index].albedo_color
-	color.a = alpha
+	_ghost_alpha[index] = alpha
+	_paint_ghost(index, _pulse())
+
+
+## Pulso de los fantasmas, de 0 a 1 (suave, de ida y vuelta).
+func _pulse() -> float:
+	return 0.5 - 0.5 * cos(TAU * float(Time.get_ticks_msec()) / 1000.0 / GHOST_PULSE_TIME)
+
+
+## Color y opacidad del fantasma `index` con el pulso `pulse`.
+func _paint_ghost(index: int, pulse: float) -> void:
+	var color: Color = GHOST_COLOR.lerp(GHOST_PULSE_COLOR, pulse * 0.6)
+	color.a = minf(_ghost_alpha[index] + GHOST_PULSE_ALPHA * pulse, 0.95)
 	_ghosts[index].albedo_color = color
 
 
@@ -349,12 +427,13 @@ func _add_base_collision(piece_nodes: Array[Node]) -> void:
 	add_child(body)
 
 
-## Choque con la forma de cada malla de la base (C5.5): se entra por la boca y se anda por dentro.
+## Choque con la forma de cada malla de la base (C5.5): se entra por la boca y se anda por dentro. El candil no choca.
 func _add_exact_collision(piece_nodes: Array[Node]) -> void:
 	var body := StaticBody3D.new()
 	body.name = "BaseCollision"
+	var lantern: Node = _model.find_child("lantern", true, false)
 	for mesh: MeshInstance3D in _meshes_of(_model):
-		var inside_piece: bool = false
+		var inside_piece: bool = lantern != null and (lantern == mesh or lantern.is_ancestor_of(mesh))
 		for piece: Node in piece_nodes:
 			if piece.is_ancestor_of(mesh):
 				inside_piece = true
