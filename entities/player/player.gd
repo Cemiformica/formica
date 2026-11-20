@@ -204,6 +204,7 @@ func work_distance() -> float:
 ## La mochila de Mira enseña un módulo por cada 10 casillas que haya después de la barra (C3).
 func _update_backpack() -> void:
 	var slots: int = WorldState.player_inventory.get_slot_count() - WorldState.HOTBAR_SLOTS
+	@warning_ignore("integer_division")
 	mira.set_backpack_modules(slots / WorldState.BACKPACK_MODULE_SLOTS)
 
 

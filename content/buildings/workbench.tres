@@ -12,6 +12,7 @@
 [ext_resource type="Resource" path="res://content/recipes/make_hand_drill.tres" id="9_drill"]
 [ext_resource type="Resource" path="res://content/recipes/make_timber.tres" id="10_timber"]
 [ext_resource type="Resource" path="res://content/recipes/make_stone_tile.tres" id="11_tile"]
+[ext_resource type="Resource" path="res://content/recipes/make_rope.tres" id="12_rope"]
 
 [resource]
 script = ExtResource("1_building")
@@ -26,4 +27,4 @@ cost = Dictionary[ExtResource("2_itemscript"), int]({
 ExtResource("3_wood"): 6,
 ExtResource("4_stone"): 2
 })
-crafting_recipes = Array[ExtResource("7_recipescript")]([ExtResource("8_biter"), ExtResource("9_drill"), ExtResource("10_timber"), ExtResource("11_tile"), ExtResource("5_recipe")])
+crafting_recipes = Array[ExtResource("7_recipescript")]([ExtResource("8_biter"), ExtResource("9_drill"), ExtResource("10_timber"), ExtResource("11_tile"), ExtResource("12_rope"), ExtResource("5_recipe")])

@@ -20,6 +20,8 @@ signal water_changed
 signal repair_site_added(origin: Vector2i)
 signal repair_changed(origin: Vector2i, piece_index: int)
 signal repair_completed(origin: Vector2i)
+## Se abrió o se cerró una pieza de una estructura (la trampilla del refugio, C5.5).
+signal repair_toggled(origin: Vector2i, piece_index: int)
 
 ## Qué casilla ocupa cada construcción. Se reconstruye al cargar a partir de las construcciones.
 var grid: OccupancyGrid = OccupancyGrid.new()
@@ -86,6 +88,8 @@ const MAX_CABLE_LENGTH: float = 12.0
 
 ## Cables de energía: pares de ids de construcción, siempre con x < y (D-068).
 var cables: Array[Vector2i] = []
+## Cables tensos (rectos); los demás cuelgan un poco. Solo cambia cómo se dibujan. Claves como en `cables`.
+var taut_cables: Dictionary[Vector2i, bool] = {}
 ## Redes eléctricas: grupos unidos por cables. Se recalculan solo cuando algo cambia.
 var _networks: Array[PowerNetwork] = []
 var _network_by_id: Dictionary[int, PowerNetwork] = {}
@@ -220,6 +224,8 @@ func remove(id: int) -> PlacedBuilding:
 	for cable: Vector2i in cables:
 		if cable.x != id and cable.y != id:
 			kept.append(cable)
+		else:
+			taut_cables.erase(cable)
 	var had_cables: bool = kept.size() != cables.size()
 	cables = kept
 	_links_dirty = true
@@ -268,7 +274,8 @@ func to_data() -> Dictionary:
 		list.append(buildings[id].to_data())
 	var cable_list: Array = []
 	for cable: Vector2i in cables:
-		cable_list.append([cable.x, cable.y])
+		# El tercer valor (1) solo aparece en los cables tensos; las partidas antiguas no lo tienen.
+		cable_list.append([cable.x, cable.y, 1] if taut_cables.has(cable) else [cable.x, cable.y])
 	var nature_list: Array = []
 	for cell: Vector2i in nature:
 		nature_list.append(nature[cell].to_data(cell))
@@ -291,6 +298,7 @@ func load_data(data: Dictionary) -> void:
 	buildings.clear()
 	_links_dirty = true
 	cables.clear()
+	taut_cables.clear()
 	nature.clear()
 	veins.clear()
 	_vein_cells.clear()
@@ -373,7 +381,8 @@ func load_data(data: Dictionary) -> void:
 	var cable_list: Variant = data.get("cables", [])
 	if cable_list is Array:
 		for entry: Variant in cable_list:
-			if not entry is Array or entry.size() != 2 or not add_cable(int(entry[0]), int(entry[1])):
+			if not entry is Array or entry.size() < 2 or entry.size() > 3 \
+					or not add_cable(int(entry[0]), int(entry[1]), entry.size() == 3 and int(entry[2]) == 1):
 				push_warning("IslandState: cable no válido ignorado: %s" % str(entry))
 
 
@@ -548,11 +557,16 @@ func cable_problem(a: int, b: int) -> String:
 	return ""
 
 
-## Tiende un cable. Devuelve false (y no toca nada) si no se puede.
-func add_cable(a: int, b: int) -> bool:
+## Tiende un cable, tenso (recto) o normal (con su comba). Devuelve false (y no toca nada) si no se puede.
+func add_cable(a: int, b: int, taut: bool = false) -> bool:
 	if not can_add_cable(a, b):
 		return false
-	cables.append(_cable_key(a, b))
+	var key: Vector2i = _cable_key(a, b)
+	cables.append(key)
+	if taut:
+		taut_cables[key] = true
+	else:
+		taut_cables.erase(key)
 	_networks_dirty = true
 	cables_changed.emit()
 	return true
@@ -564,7 +578,28 @@ func remove_cable(a: int, b: int) -> bool:
 	if not cables.has(key):
 		return false
 	cables.erase(key)
+	taut_cables.erase(key)
 	_networks_dirty = true
+	cables_changed.emit()
+	return true
+
+
+## ¿Es tenso el cable entre `a` y `b`? (false también si no existe)
+func is_cable_taut(a: int, b: int) -> bool:
+	return taut_cables.has(_cable_key(a, b))
+
+
+## Pone tenso o normal un cable que ya existe. Devuelve false si no existe.
+func set_cable_taut(a: int, b: int, taut: bool) -> bool:
+	var key: Vector2i = _cable_key(a, b)
+	if not cables.has(key):
+		return false
+	if taut == taut_cables.has(key):
+		return true
+	if taut:
+		taut_cables[key] = true
+	else:
+		taut_cables.erase(key)
 	cables_changed.emit()
 	return true
 
@@ -906,6 +941,17 @@ func deliver_repair(cell: Vector2i, piece_index: int, from: Inventory) -> int:
 	return given
 
 
+## Abre o cierra la pieza `piece_index` de la estructura que ocupa `cell` (solo si es de las que se abren y está
+## completa). Avisa con `repair_toggled`. Devuelve false si no se pudo.
+func toggle_repair_piece(cell: Vector2i, piece_index: int) -> bool:
+	var site: RepairSite = repair_site_at(cell)
+	if site == null or not site.can_toggle(piece_index):
+		return false
+	site.opened[piece_index] = not site.opened[piece_index]
+	repair_toggled.emit(site.origin, piece_index)
+	return true
+
+
 # --- Plano de la isla (C5.3, D-155) ---
 
 ## Pone el plano de la isla: sus límites pasan a ser los del plano y su agua (ríos, lago, remanso, pozas) se
@@ -952,9 +998,9 @@ func ground_height(cell: Vector2i) -> float:
 
 
 ## Pone en la isla lo que dice su plano (C5.3c), para una PARTIDA NUEVA (al cargar, todo viene del guardado):
-## árboles maduros en las arboledas (`T`) y los salvajes (`t`) (no en casillas demasiado empinadas), y la veta de malaquita (`M`, su esquina es la
-## casilla `M` de arriba a la izquierda). La veta de piedra, el refugio y el portal llegan después (C5.5, C5.7 y
-## C6). Devuelve cuántos árboles ha puesto.
+## árboles maduros en las arboledas (`T`) y los salvajes (`t`) (no en casillas demasiado empinadas), la veta de malaquita (`M`, su esquina es la
+## casilla `M` de arriba a la izquierda) y el refugio (`R`, por reparar, C5.5). La veta de piedra y el portal
+## llegan después (C5.7 y C6). Devuelve cuántos árboles ha puesto.
 func populate_from_layout() -> int:
 	if layout == null:
 		return 0
@@ -962,6 +1008,10 @@ func populate_from_layout() -> int:
 	for vein_origin: Vector2i in _block_origins(layout.cells_of("M")):
 		if not add_vein(malachite, vein_origin):
 			push_warning("IslandState: la veta del plano en %s no cabe" % vein_origin)
+	var shelter: RepairSiteData = Content.find_repair_site(&"shelter")
+	for shelter_origin: Vector2i in _block_origins(layout.cells_of("R")):
+		if add_repair_site(shelter, shelter_origin) == null:
+			push_warning("IslandState: el refugio del plano en %s no cabe" % shelter_origin)
 	var trees: int = 0
 	for ch: String in ["T", "t"]:
 		for cell: Vector2i in layout.cells_of(ch):

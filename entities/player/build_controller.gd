@@ -81,6 +81,8 @@ var _picked: BuildingData = null
 ## y dónde estaba, para devolverla con otro clic derecho, al salir del modo o al guardar.
 var _carried: PlacedBuilding = null
 var _carried_cables: Array[Vector2i] = []
+## Cuáles de esos cables eran tensos, para devolverlos igual.
+var _carried_taut_cables: Array[Vector2i] = []
 var _carried_origin: Vector2i = Vector2i.ZERO
 var _carried_rotation: int = 0
 var _carried_flipped: bool = false
@@ -104,6 +106,9 @@ var _has_target: bool = false
 var _target_origin: Vector2i = Vector2i.ZERO
 ## Cable: id de la construcción donde empieza el cable que estamos tendiendo (0 = ninguno).
 var _cable_from: int = 0
+## Modo del cable que se tiende (César): normal, con su comba, o tenso (recto). F lo cambia y se recuerda,
+## como el giro de cada construcción (D-164).
+var cable_taut: bool = false
 var _cable_preview: MeshInstance3D
 var _cable_ok_material: StandardMaterial3D
 var _cable_bad_material: StandardMaterial3D
@@ -250,7 +255,7 @@ func cancel_carry() -> void:
 	_carried = null
 	if island.drop(placed_back, _carried_origin, _carried_rotation, _carried_flipped, _carried_turn):
 		for cable: Vector2i in _carried_cables:
-			island.add_cable(cable.x, cable.y)
+			island.add_cable(cable.x, cable.y, _carried_taut_cables.has(cable))
 	else:
 		# Muy raro: algo ocupó su sitio mientras se movía (una roca). Se devuelve como al desmontar.
 		var refund: Dictionary[ItemData, int] = placed_back.get_refund()
@@ -258,6 +263,7 @@ func cancel_carry() -> void:
 			WorldState.player_inventory.add_item(item, refund[item])
 		push_warning("BuildController: no se pudo devolver %s a su sitio; se ha reembolsado" % placed_back.data.id)
 	_carried_cables.clear()
+	_carried_taut_cables.clear()
 	selection_changed.emit()
 
 
@@ -300,8 +306,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_select_slot(i)
 			_restore_rotation()
 			return
-	# Mayús + rueda: otra barra (C2.3, César).
-	if Input.is_action_pressed("select_area") and (event.is_action_pressed("hotbar_next") or event.is_action_pressed("hotbar_prev")):
+	# Ctrl + rueda: otra barra (C2.3; antes Mayús + rueda, cambiado a petición de César).
+	if Input.is_action_pressed("bar_switch") and (event.is_action_pressed("hotbar_next") or event.is_action_pressed("hotbar_prev")):
 		switch_bar(1 if event.is_action_pressed("hotbar_next") else -1)
 		return
 	if event.is_action_pressed("hotbar_next"):
@@ -313,6 +319,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif holding_cable():
 		if event.is_action_pressed("build_place") and Aim.pointer_ready():
 			_cable_click()
+		elif event.is_action_pressed("build_flip"):
+			_toggle_cable_taut()
 		elif event.is_action_pressed("ui_cancel"):
 			_cable_from = 0
 	elif event.is_action_pressed("build_rotate"):
@@ -513,6 +521,10 @@ func _lift_aimed() -> void:
 	var island: IslandState = WorldState.get_island(island_id)
 	var target: PlacedBuilding = view.placed
 	_carried_cables = island.cables_of(target.id)
+	_carried_taut_cables.clear()
+	for cable: Vector2i in _carried_cables:
+		if island.taut_cables.has(cable):
+			_carried_taut_cables.append(cable)
 	_carried_origin = target.origin
 	_carried_rotation = target.rotation
 	_carried_flipped = target.flipped
@@ -543,9 +555,10 @@ func _drop_carried() -> void:
 	_carried = null
 	var lost: int = 0
 	for cable: Vector2i in _carried_cables:
-		if not island.add_cable(cable.x, cable.y):
+		if not island.add_cable(cable.x, cable.y, _carried_taut_cables.has(cable)):
 			lost += 1
 	_carried_cables.clear()
+	_carried_taut_cables.clear()
 	if lost > 0:
 		place_failed.emit("BUILD_CABLES_LOST")
 	_play_sound(DROP_SOUND, BuildingView.cable_anchor(moving))
@@ -1099,10 +1112,25 @@ func _cable_click() -> void:
 	if problem != "":
 		place_failed.emit(problem)
 		return
-	island.add_cable(_cable_from, target.id)
+	island.add_cable(_cable_from, target.id, cable_taut)
 	_play_sound(CABLE_SOUND, BuildingView.cable_anchor(target))
 	cable_changed.emit(true)
 	_cable_from = 0
+
+
+## F con el cable: cambia entre normal y tenso. Si hay un cable empezado y se apunta a una construcción ya
+## unida a él, cambia ese cable (así se arreglan los que ya están tendidos) y el modo pasa a ser el suyo.
+func _toggle_cable_taut() -> void:
+	var island: IslandState = WorldState.get_island(island_id)
+	if _cable_from != 0 and island.buildings.has(_cable_from):
+		var target: PlacedBuilding = _aimed_building()
+		if target != null and target.id != _cable_from and island.cables.has(Vector2i(mini(_cable_from, target.id), maxi(_cable_from, target.id))):
+			cable_taut = not island.is_cable_taut(_cable_from, target.id)
+			island.set_cable_taut(_cable_from, target.id, cable_taut)
+			_play_sound(CABLE_SOUND, BuildingView.cable_anchor(target))
+			_cable_from = 0
+			return
+	cable_taut = not cable_taut
 
 
 ## Cable provisional desde el inicio hasta lo que miramos: verde si se puede tender (o quitar), rojo si no.
@@ -1135,7 +1163,7 @@ func _update_cable_preview() -> void:
 		ok = from.distance_to(to) <= IslandState.MAX_CABLE_LENGTH
 	visible = true
 	_cable_preview.visible = true
-	IslandView.place_line(_cable_preview, from, to, CABLE_PREVIEW_THICKNESS)
+	IslandView.place_cable(_cable_preview, from, to, CABLE_PREVIEW_THICKNESS, cable_taut)
 	if ok:
 		_cable_preview.material_override = _cable_ok_material
 	else:
@@ -1144,7 +1172,7 @@ func _update_cable_preview() -> void:
 
 ## Material del fantasma de un cruce: el verde del tramo, recortado para que solo se vea fuera de las paredes de la
 ## cinta que ya existe. Uno por vista (cada una tiene su casilla), guardado en la propia vista.
-func _crossing_material(view: BuildingView, rotation: int) -> ShaderMaterial:
+func _crossing_material(view: BuildingView, turn: int) -> ShaderMaterial:
 	if _cross_shader == null:
 		_cross_shader = Shader.new()
 		_cross_shader.code = CROSS_SHADER_CODE
@@ -1155,7 +1183,7 @@ func _crossing_material(view: BuildingView, rotation: int) -> ShaderMaterial:
 		material.set_shader_parameter("color", COLOR_OK)
 		material.set_shader_parameter("keep_from", CROSS_KEEP_FROM)
 		view.set_meta(&"cross_material", material)
-	var forward: Vector2i = GridMath.rotate_offset(Vector2i(0, -1), rotation)
+	var forward: Vector2i = GridMath.rotate_offset(Vector2i(0, -1), turn)
 	material.set_shader_parameter("cell_center", view.global_position)
 	material.set_shader_parameter("axis", Vector2(forward.x, forward.y))
 	return material

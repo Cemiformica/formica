@@ -20,9 +20,12 @@ const TRACKS: Array[AudioStream] = [
 var _player: AudioStreamPlayer
 var _timer: Timer
 var _last: int = -1
+## Generador propio, sembrado al azar al empezar: así el primer tema cambia de una partida a otra.
+var _rng := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
+	_rng.randomize()
 	_player = AudioStreamPlayer.new()
 	_player.bus = &"Music"
 	_player.finished.connect(_on_track_finished)
@@ -36,13 +39,14 @@ func _ready() -> void:
 
 ## Elige un tema distinto del último y lo pone.
 func _play_next() -> void:
-	var index: int = randi() % TRACKS.size()
+	var index: int = _rng.randi() % TRACKS.size()
 	if TRACKS.size() > 1 and index == _last:
-		index = (index + 1 + randi() % (TRACKS.size() - 1)) % TRACKS.size()
+		index = (index + 1 + _rng.randi() % (TRACKS.size() - 1)) % TRACKS.size()
 	_last = index
 	_player.stream = TRACKS[index]
 	_player.play()
+	print("Música: %s" % TRACKS[index].resource_path.get_file())
 
 
 func _on_track_finished() -> void:
-	_timer.start(randf_range(pause_min, pause_max))
+	_timer.start(_rng.randf_range(pause_min, pause_max))

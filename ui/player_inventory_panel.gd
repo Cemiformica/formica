@@ -23,6 +23,7 @@ func _ready() -> void:
 
 ## Módulos de la mochila que se tienen ahora.
 func module_count() -> int:
+	@warning_ignore("integer_division")
 	return (_inventory.get_slot_count() - WorldState.HOTBAR_SLOTS) / WorldState.BACKPACK_MODULE_SLOTS
 
 

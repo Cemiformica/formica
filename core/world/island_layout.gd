@@ -77,6 +77,8 @@ const FEATURE_CHARS: String = "RPMSTtXAGHQE"
 ## Objetos que tapan la casilla para siempre (rocas modeladas, el árbol singular, los restos…): ahí no se
 ## construye, no se planta y no aparece nada.
 const SOLID_FEATURES: String = "XAGHQE"
+## Casillas alrededor del refugio en las que el terreno no se deforma (ver `_near_shelter()`).
+const SHELTER_CLEARANCE: int = 2
 
 ## Tamaño del plano en casillas (el ancho es el de la fila más larga; las cortas se rellenan con mar).
 var size: Vector2i = Vector2i.ZERO
@@ -153,6 +155,8 @@ const RAMP_WEAR: float = 0.85
 var spawn_cells: Array[Vector2i] = []
 ## Carácter de objeto → sus casillas, en orden de lectura (de arriba abajo y de izquierda a derecha).
 var features: Dictionary[String, Array] = {}
+## Casillas cerca del refugio (ver `_near_shelter()`), calculadas la primera vez que se preguntan.
+var _shelter_zone: Dictionary[Vector2i, bool] = {}
 
 
 ## Lee un plano del disco. Null (con aviso) si no se puede abrir.
@@ -207,7 +211,9 @@ static func from_text(text: String) -> IslandLayout:
 		layout._ground[i] = _GROUND_BY_CHAR.get(layout._chars[i], Ground.SEA)
 	for ch: String in layout.features:
 		for cell: Vector2i in layout.features[ch]:
-			layout._ground[cell.y * width + cell.x] = layout._infer_ground(cell)
+			# El refugio (C5.5) es un hormiguero que se levanta sobre su zona: el suelo, llano y abajo. Sin esto, el
+			# terreno rellenaba la zona con lo de alrededor y salía una aguja suelta junto al acantilado.
+			layout._ground[cell.y * width + cell.x] = Ground.LOW_FLAT if ch == "R" else layout._infer_ground(cell)
 	layout._worn.resize(width * rows.size())
 	for y: int in mini(worn_rows.size(), rows.size()):
 		for x: int in mini(worn_rows[y].length(), width):
@@ -404,6 +410,8 @@ func _point_fixed(x: float, z: float) -> bool:
 			var cell := Vector2i(cx, cz)
 			if is_buildable(cell) or ground(cell) == Ground.RAMP or ground(cell) == Ground.FALL or is_path(cell):
 				return true   # el sendero, sin deformar: sube liso (César: un escalón al empezar la subida)
+			if _near_shelter(cell):
+				return true   # la pared detrás del refugio, recta: el hormiguero se apoya en ella sin grietas (C5.5)
 	# En el agua, solo la línea de la orilla (el borde de la lámina tiene que quedar tapado); el fondo de dentro sí se
 	# deforma, y así la orilla sale irregular (César: bordes rectos en el lago).
 	var touches_water: bool = false
@@ -426,6 +434,18 @@ func relief(x: float, z: float) -> float:
 	return lift + scale * _relief_noise.get_noise_2d(x, z)
 
 
+## ¿Está a SHELTER_CLEARANCE casillas o menos del refugio (`R`)? Ahí el terreno no se deforma ni se suaviza: la pared
+## del acantilado queda recta, de 6 m a 0 en una casilla, y el modelo del hormiguero encaja en ella (C5.5).
+func _near_shelter(cell: Vector2i) -> bool:
+	if _shelter_zone.is_empty():   # se calcula una vez: el terreno pregunta por cada punto
+		_shelter_zone[Vector2i(-9999, -9999)] = true   # marca de «ya calculado», aunque no haya refugio
+		for r: Vector2i in features.get("R", []):
+			for dz: int in range(-SHELTER_CLEARANCE, SHELTER_CLEARANCE + 1):
+				for dx: int in range(-SHELTER_CLEARANCE, SHELTER_CLEARANCE + 1):
+					_shelter_zone[r + Vector2i(dx, dz)] = true
+	return _shelter_zone.has(cell)
+
+
 ## Esquinas que se dibujan: las de siempre, suavizadas unas pasadas fuera de las explanadas, el agua y su orilla (así los
 ## acantilados y las lomas se redondean), con el relieve de las lomas suavizado igual.
 func _compute_drawn_corners() -> void:
@@ -436,7 +456,7 @@ func _compute_drawn_corners() -> void:
 		for i: int in size.x + 1:
 			var water_cells: int = 0
 			for cell: Vector2i in [Vector2i(i - 1, j - 1), Vector2i(i, j - 1), Vector2i(i - 1, j), Vector2i(i, j)]:
-				if is_buildable(cell) or ground(cell) == Ground.RAMP or ground(cell) == Ground.FALL:
+				if is_buildable(cell) or ground(cell) == Ground.RAMP or ground(cell) == Ground.FALL or _near_shelter(cell):
 					fixed[j * row + i] = 1
 				if ground(cell) == Ground.WATER:
 					water_cells += 1
@@ -627,9 +647,9 @@ func is_land(cell: Vector2i) -> bool:
 
 
 ## ¿Pueden aparecer rocas o palos aquí? En tierra que no sea empinada, salvo en el rellano (es el mirador: se
-## deja despejado) y en el sendero.
+## deja despejado), en el sendero y en el refugio (ni en su sala ni en su porche).
 func can_spawn(cell: Vector2i) -> bool:
-	return is_land(cell) and ground(cell) != Ground.LANDING and ground(cell) != Ground.RAMP and not is_path(cell) \
+	return is_land(cell) and char_at(cell) != "R" and ground(cell) != Ground.LANDING and ground(cell) != Ground.RAMP and not is_path(cell) \
 			and not is_steep(cell) and not _debris_cells.has(cell)
 
 

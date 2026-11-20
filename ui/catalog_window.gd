@@ -123,8 +123,8 @@ func _input(event: InputEvent) -> void:
 		return
 	if not WindowManager.is_showing(_panel) or _builder == null:
 		return
-	# Mayús + rueda: otra barra, también con el catálogo abierto.
-	if Input.is_action_pressed("select_area") and (event.is_action_pressed("hotbar_next") or event.is_action_pressed("hotbar_prev")):
+	# Ctrl + rueda: otra barra, también con el catálogo abierto.
+	if Input.is_action_pressed("bar_switch") and (event.is_action_pressed("hotbar_next") or event.is_action_pressed("hotbar_prev")):
 		_builder.switch_bar(1 if event.is_action_pressed("hotbar_next") else -1)
 		get_viewport().set_input_as_handled()
 		return

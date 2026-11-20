@@ -221,6 +221,8 @@ func _build_hint() -> String:
 			parts.append(_key_hint(&"ui_cancel", "BUILD_HINT_CANCEL"))
 		else:
 			parts.append(_key_hint(&"build_place", "BUILD_HINT_CABLE_START"))
+		# F cambia entre cable normal y tenso; se enseña el modo actual.
+		parts.append(_key_hint(&"build_flip", "BUILD_HINT_CABLE_TAUT" if _builder.cable_taut else "BUILD_HINT_CABLE_SLACK"))
 	else:
 		var held: BuildingData = _builder.get_held()
 		if held != null:

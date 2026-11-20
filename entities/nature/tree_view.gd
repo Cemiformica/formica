@@ -54,8 +54,27 @@ const TOOL_FX_MS: int = 180
 ## Madera mordida, en bucle mientras la mordedora trabaja (C3).
 const SAW_SOUND: AudioStreamWAV = preload("res://assets/audio/wood_saw_loop.wav")
 
+## Tono de cada árbol (César, sesión 23): la madera y las hojas varían un poco por casilla (como la variante, el giro
+## y el tamaño: al rebrotar sale el mismo tono). Los árboles jóvenes, más claros y verdosos; oscurecen al madurar.
+## Los palos caídos llevan la misma variación de madera. Dónde tocar: estos valores y `nature.gdshader`.
+const NATURE_SHADER: Shader = preload("res://entities/nature/nature.gdshader")
+const PALETTE_TEXTURE: Texture2D = preload("res://assets/textures/palette.png")
+const SURFACE_TEXTURE: Texture2D = preload("res://assets/textures/palette_surface.png")
+## Ojo: el color se multiplica en espacio lineal, así que en pantalla se ve más o menos la mitad (0,55 se ve como
+## un 25 % más oscuro). Primera versión 0,82–1,12: apenas se notaba (César).
+const WOOD_BRIGHTNESS_MIN: float = 0.55   # madera más oscura
+const WOOD_BRIGHTNESS_MAX: float = 1.45   # madera más clara
+const WOOD_WARMTH: Vector3 = Vector3(0.2, 0.02, -0.28)   # de más fría y grisácea (−) a más rojiza (+)
+const LEAF_BRIGHTNESS_MIN: float = 0.75
+const LEAF_BRIGHTNESS_MAX: float = 1.25
+const LEAF_WARMTH: Vector3 = Vector3(0.18, 0.03, -0.22)   # de verde azulado (−) a verde amarillento (+)
+## Tronco del árbol joven sobre el del maduro: más claro y verdoso.
+const YOUNG_WOOD: Vector3 = Vector3(1.25, 1.45, 0.9)
+
 ## Mallas de `nature.glb` por nombre, compartidas por todas las vistas.
 static var _meshes: Dictionary[String, Mesh] = {}
+## Material de naturaleza, compartido por todas las vistas.
+static var _material: ShaderMaterial = null
 
 ## Casilla que ocupa.
 var cell: Vector2i
@@ -116,7 +135,7 @@ func refresh() -> void:
 		return
 	if state.is_sticks():
 		display_name_key = "PROP_STICKS"
-		_add_model("sticks_%d" % ((seed_value >> 4) % STICKS_VARIANTS))
+		_add_model("sticks_%d" % ((seed_value >> 4) % STICKS_VARIANTS), wood_tint_for(seed_value, false))
 		_shape.radius = 0.35
 		_shape.height = 0.15
 		(get_child(0) as CollisionShape3D).position.y = 0.075
@@ -134,7 +153,8 @@ func refresh() -> void:
 	var phase_scale: Vector2 = PHASE_SCALE[species][phase]
 	_visual.scale = Vector3(phase_scale.x, phase_scale.y, phase_scale.x) * size
 	var variants: int = MODELS[species][phase]
-	_add_model("tree_%s_%s_%d" % [species, phase, (seed_value >> 5) % variants])
+	_add_model("tree_%s_%s_%d" % [species, phase, (seed_value >> 5) % variants],
+			wood_tint_for(seed_value, phase == "young"), leaf_tint_for(seed_value))
 	var collision: Vector2 = COLLISION[phase]
 	_shape.radius = collision.y
 	_shape.height = collision.x
@@ -290,8 +310,9 @@ func _process(delta: float) -> void:
 	_visual.rotation.z = 0.06 * sin(_shake * PI * 3.0) * _shake + jitter
 
 
-## Pone la malla `model_name` de `nature.glb` (si no existe, avisa y no dibuja nada).
-func _add_model(model_name: String) -> void:
+## Pone la malla `model_name` de `nature.glb` (si no existe, avisa y no dibuja nada), con el tono de madera y de
+## hojas dado (las rocas, sin teñir).
+func _add_model(model_name: String, wood_tint: Vector3 = Vector3.ONE, leaf_tint: Vector3 = Vector3.ONE) -> void:
 	if _meshes.is_empty():
 		_load_meshes()
 	var mesh: Mesh = _meshes.get(model_name, null)
@@ -300,7 +321,36 @@ func _add_model(model_name: String) -> void:
 		return
 	var instance := MeshInstance3D.new()
 	instance.mesh = mesh
+	instance.material_override = _nature_material()
 	_visual.add_child(instance)
+	instance.set_instance_shader_parameter(&"wood_tint", wood_tint)
+	instance.set_instance_shader_parameter(&"leaf_tint", leaf_tint)
+
+
+## Tono de la madera de la casilla (`seed_value` = `NatureState.cell_hash`): más clara u oscura y más fría o
+## cálida. Usa bits del número que no usan la variante, el giro ni el tamaño.
+static func wood_tint_for(seed_value: int, young: bool) -> Vector3:
+	var brightness: float = lerpf(WOOD_BRIGHTNESS_MIN, WOOD_BRIGHTNESS_MAX, float((seed_value >> 17) % 101) / 100.0)
+	var warmth: float = lerpf(-1.0, 1.0, float((seed_value >> 21) % 101) / 100.0)
+	var tint: Vector3 = (Vector3.ONE + WOOD_WARMTH * warmth) * brightness
+	return tint * YOUNG_WOOD if young else tint
+
+
+## Tono de las hojas de la casilla: varía menos que la madera.
+static func leaf_tint_for(seed_value: int) -> Vector3:
+	var brightness: float = lerpf(LEAF_BRIGHTNESS_MIN, LEAF_BRIGHTNESS_MAX, float((seed_value >> 25) % 31) / 30.0)
+	var warmth: float = lerpf(-1.0, 1.0, float((seed_value >> 13) % 31) / 30.0)
+	return (Vector3.ONE + LEAF_WARMTH * warmth) * brightness
+
+
+## Material de naturaleza (`nature.gdshader` con la paleta y su mapa de superficie), creado una vez.
+static func _nature_material() -> ShaderMaterial:
+	if _material == null:
+		_material = ShaderMaterial.new()
+		_material.shader = NATURE_SHADER
+		_material.set_shader_parameter(&"palette_texture", PALETTE_TEXTURE)
+		_material.set_shader_parameter(&"surface_texture", SURFACE_TEXTURE)
+	return _material
 
 
 ## Malla de `nature.glb` por su nombre (p. ej., «rock_1»), para quien la use fuera de los árboles (las rocas caídas del

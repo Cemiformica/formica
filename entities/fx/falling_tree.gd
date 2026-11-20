@@ -33,6 +33,13 @@ static func spawn(parent: Node, visual: Node3D, from: Vector3) -> void:
 	var copy: Node3D = visual.duplicate() as Node3D
 	fall._pivot.add_child(copy)
 	copy.global_transform = visual.global_transform
+	# El tono de cada malla (madera y hojas, por casilla) va por instancia: se copia para que caiga el mismo árbol.
+	var originals: Array[Node] = visual.find_children("*", "MeshInstance3D", true, false)
+	var copies: Array[Node] = copy.find_children("*", "MeshInstance3D", true, false)
+	for i: int in mini(originals.size(), copies.size()):
+		for parameter: StringName in [&"wood_tint", &"leaf_tint"]:
+			(copies[i] as MeshInstance3D).set_instance_shader_parameter(parameter,
+					(originals[i] as MeshInstance3D).get_instance_shader_parameter(parameter))
 	var away: Vector3 = visual.global_position - from
 	away.y = 0.0
 	if away.length() < 0.01:

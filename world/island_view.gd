@@ -10,6 +10,13 @@ extends Node3D
 const CABLE_COLOR: Color = Color(0.1, 0.1, 0.11)
 ## Grosor de los cables (B3: más gruesos para que se vean bien, petición de César).
 const CABLE_THICKNESS: float = 0.04
+## Comba de los cables normales: cuánto baja el centro, en proporción a su largo (un cable de 12 m baja 0,48 m).
+const CABLE_SAG_RATIO: float = 0.04
+## Comba mínima, para que también se note en los cables cortos.
+const CABLE_SAG_MIN: float = 0.06
+## Tramos del cable que cuelga y caras del tubo (hexagonal, como todo en Formica).
+const CABLE_SEGMENTS: int = 12
+const CABLE_SIDES: int = 6
 ## Material de la banda de las cintas, compartido por todas: se desplaza una sola vez por fotograma
 ## para que todas las bandas avancen (B3.7). Su textura se repite BELT_TEXTURE_PER_M veces por metro.
 ## Si la banda avanzara hacia atrás, cambiar el signo de BELT_SCROLL_SIGN.
@@ -76,6 +83,7 @@ func _rebuild() -> void:
 		_island.repair_site_added.disconnect(_on_repair_site_added)
 		_island.repair_changed.disconnect(_on_repair_changed)
 		_island.repair_completed.disconnect(_on_repair_completed)
+		_island.repair_toggled.disconnect(_on_repair_toggled)
 	for view: BuildingView in _views.values():
 		view.queue_free()
 	_views.clear()
@@ -99,6 +107,7 @@ func _rebuild() -> void:
 	_island.repair_site_added.connect(_on_repair_site_added)
 	_island.repair_changed.connect(_on_repair_changed)
 	_island.repair_completed.connect(_on_repair_completed)
+	_island.repair_toggled.connect(_on_repair_toggled)
 	_on_water_changed()
 	for vein_origin: Vector2i in _island.veins:
 		_on_vein_added(vein_origin)
@@ -165,6 +174,11 @@ func _on_repair_completed(site_origin: Vector2i) -> void:
 		_repair_views[site_origin].on_completed()
 
 
+func _on_repair_toggled(site_origin: Vector2i, piece_index: int) -> void:
+	if _repair_views.has(site_origin):
+		_repair_views[site_origin].on_piece_toggled(piece_index)
+
+
 ## El agua cambió: el suelo y el agua se rehacen enteros (pasa al empezar o al cargar, no en cada
 ## fotograma). Se espera al final del fotograma, porque al empezar la isla aún puede estar poniendo
 ## sus límites (`bounds`) y su agua.
@@ -205,7 +219,8 @@ func _redraw_cables() -> void:
 			continue
 		var line := MeshInstance3D.new()
 		add_child(line)
-		place_line(line, BuildingView.cable_anchor(_island.buildings[cable.x]), BuildingView.cable_anchor(_island.buildings[cable.y]), CABLE_THICKNESS)
+		place_cable(line, BuildingView.cable_anchor(_island.buildings[cable.x]), BuildingView.cable_anchor(_island.buildings[cable.y]),
+				CABLE_THICKNESS, _island.taut_cables.has(cable))
 		line.material_override = _cable_material
 		_cable_meshes.append(line)
 	_refresh_cabled()
@@ -255,3 +270,54 @@ static func place_line(line: MeshInstance3D, from: Vector3, to: Vector3, thickne
 		if absf((to - from).normalized().dot(Vector3.UP)) > 0.99:
 			up = Vector3.FORWARD # casi vertical: otro «arriba» para que look_at no falle
 		line.look_at(to, up)
+
+
+## Convierte `line` en un cable de `from` a `to`: un tubo fino que cuelga un poco en el centro o, si es
+## `taut`, recto. El cable provisional del modo construcción usa la misma función.
+static func place_cable(line: MeshInstance3D, from: Vector3, to: Vector3, thickness: float, taut: bool) -> void:
+	var span: Vector3 = to - from
+	var length: float = span.length()
+	var sag: float = 0.0 if taut else maxf(length * CABLE_SAG_RATIO, CABLE_SAG_MIN)
+	var segments: int = 1 if taut else CABLE_SEGMENTS
+	var radius: float = thickness * 0.5
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var indices := PackedInt32Array()
+	for i: int in segments + 1:
+		var t: float = float(i) / segments
+		# Parábola: baja `sag` en el centro y nada en los extremos (parecida a la catenaria si cuelga poco).
+		var point: Vector3 = span * t + Vector3.DOWN * (4.0 * sag * t * (1.0 - t))
+		var tangent: Vector3 = span + Vector3.DOWN * (4.0 * sag * (1.0 - 2.0 * t))
+		if tangent.length_squared() < 0.000001:
+			tangent = Vector3.FORWARD
+		tangent = tangent.normalized()
+		var side: Vector3 = tangent.cross(Vector3.UP)
+		if side.length_squared() < 0.0001:
+			side = tangent.cross(Vector3.FORWARD) # cable casi vertical
+		side = side.normalized()
+		var up: Vector3 = side.cross(tangent)
+		for k: int in CABLE_SIDES:
+			var angle: float = TAU * k / CABLE_SIDES
+			var normal: Vector3 = side * cos(angle) + up * sin(angle)
+			vertices.append(point + normal * radius)
+			normals.append(normal)
+	for i: int in segments:
+		for k: int in CABLE_SIDES:
+			var a: int = i * CABLE_SIDES + k
+			var b: int = i * CABLE_SIDES + (k + 1) % CABLE_SIDES
+			var c: int = a + CABLE_SIDES
+			var d: int = b + CABLE_SIDES
+			indices.append_array(PackedInt32Array([a, b, c, b, d, c])) # en el sentido de las agujas del reloj, visto desde fuera (cara delantera en Godot)
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := line.mesh as ArrayMesh
+	if mesh == null:
+		mesh = ArrayMesh.new()
+		line.mesh = mesh
+	mesh.clear_surfaces()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	# Los vértices van relativos a `from`, sin giro: la malla ya tiene la forma en el mundo.
+	line.global_transform = Transform3D(Basis.IDENTITY, from)

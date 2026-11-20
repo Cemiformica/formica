@@ -253,6 +253,7 @@ func _spread_water_surface(surface: PackedFloat32Array, row: int, rows: int) -> 
 
 ## Valor de una rejilla de esquinas en un punto (interpolado entre las cuatro esquinas de su casilla).
 func _lerp_corners(values: PackedFloat32Array, row: int, x: float, z: float) -> float:
+	@warning_ignore("integer_division")
 	var height_count: int = values.size() / row
 	var i: int = clampi(floori(x), 0, row - 2)
 	var j: int = clampi(floori(z), 0, height_count - 2)
@@ -282,7 +283,6 @@ func _build_layout_ground(island: IslandState) -> void:
 		values.resize(row * (h + 1))
 	for j: int in h + 1:
 		for i: int in w + 1:
-			var corner_y: float = layout.corner_height(i, j)   # la misma regla que usa todo lo de encima
 			var sand: float = 0.0
 			var path: float = 0.0
 			var flat: float = 0.0
@@ -379,8 +379,8 @@ func _build_debris(layout: IslandLayout) -> void:
 		multi.instance_count = items.size()
 		for k: int in items.size():
 			var item: Dictionary = items[k]
-			var basis := Basis(Vector3.UP, item["yaw"]) * Basis(Vector3.RIGHT, item["tilt"])
-			multi.set_instance_transform(k, Transform3D(basis.scaled(Vector3.ONE * float(item["scale"])), item["position"]))
+			var turn := Basis(Vector3.UP, item["yaw"]) * Basis(Vector3.RIGHT, item["tilt"])
+			multi.set_instance_transform(k, Transform3D(turn.scaled(Vector3.ONE * float(item["scale"])), item["position"]))
 			var shape := CollisionShape3D.new()
 			var sphere := SphereShape3D.new()
 			sphere.radius = DEBRIS_RADIUS * float(item["scale"])
@@ -410,8 +410,11 @@ const CASCADE_LAUNCH_INNER: float = 0.5
 const CASCADE_BRINK: float = 0.5
 const CASCADE_GRAVITY: float = 9.8
 const CASCADE_ARC_ROWS: int = 16
-## Lo que la cortina se separa de cada lado del cauce (m), para no meterse en la roca de al lado.
-const CASCADE_SIDE_INSET: float = 0.25
+## Lo que la cortina se separa de cada lado del cauce (m), para no meterse en la roca de al lado. Cada lado tiene el
+## suyo: «MIN» es el lado de menor coordenada (en Isla Alba, el oeste) y «MAX» el de mayor (el este, donde la esquina
+## de la roca aún rozaba con 0,25 y con 0,4: César).
+const CASCADE_SIDE_INSET_MIN: float = 0.25
+const CASCADE_SIDE_INSET_MAX: float = 0.55
 ## Filas del salto en las que los lados pasan de deshilachados (cauce) a cerrados por las paredes: así no hay corte
 ## en la esquina del filo (César).
 const CASCADE_SIDE_BLEND_ROWS: int = 4
@@ -470,8 +473,8 @@ func _build_cascade(island: IslandState) -> void:
 	# El cauce va recto, a ras del lago, hasta el filo (César: bajaba una casilla y volvía a subir).
 	var brink: float = length - CASCADE_BRINK
 	# La cortina, un poco más estrecha que el cauce: si no, su borde rozaba la roca de los lados al caer (César).
-	var curtain0: float = across0 + CASCADE_SIDE_INSET
-	var curtain1: float = across1 - CASCADE_SIDE_INSET
+	var curtain0: float = across0 + CASCADE_SIDE_INSET_MIN
+	var curtain1: float = across1 - CASCADE_SIDE_INSET_MAX
 	var lip_y: float = top_y
 	var fall_time: float = sqrt(2.0 * maxf(lip_y - pool_y, 0.1) / CASCADE_GRAVITY)
 	var columns: int = int(roundf((across1 - across0) / CASCADE_STEP)) * 2

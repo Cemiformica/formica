@@ -10,6 +10,8 @@ var origin: Vector2i
 var rotation: int = 0
 ## Lo entregado a cada pieza (ítem → cantidad), en el mismo orden que `data.pieces`.
 var delivered: Array[Dictionary] = []
+## Piezas abiertas (las que se abren y cierran, `RepairPieceData.action` &"toggle"), en el mismo orden.
+var opened: Array[bool] = []
 
 
 func _init(p_data: RepairSiteData, p_origin: Vector2i, p_rotation: int = 0) -> void:
@@ -18,6 +20,7 @@ func _init(p_data: RepairSiteData, p_origin: Vector2i, p_rotation: int = 0) -> v
 	rotation = posmod(p_rotation, 4)
 	for i: int in data.pieces.size():
 		delivered.append({})
+		opened.append(false)
 
 
 ## Casillas que ocupa (con su giro): las de `data.blocked_cells` o, si no hay, todo el rectángulo.
@@ -100,6 +103,16 @@ func deliver(index: int, from: Inventory) -> int:
 	return given
 
 
+## ¿Está abierta la pieza `index`?
+func is_open(index: int) -> bool:
+	return index >= 0 and index < opened.size() and opened[index]
+
+
+## ¿Se puede abrir o cerrar la pieza `index`? Solo las de acción &"toggle" y ya completas.
+func can_toggle(index: int) -> bool:
+	return index >= 0 and index < data.pieces.size() and data.pieces[index].action == &"toggle" and is_piece_done(index)
+
+
 ## Estado → datos para el guardado.
 func to_data() -> Dictionary:
 	var progress: Array = []
@@ -108,7 +121,11 @@ func to_data() -> Dictionary:
 		for item: ItemData in piece_delivered:
 			entry[String(item.id)] = piece_delivered[item]
 		progress.append(entry)
-	return {"id": String(data.id), "x": origin.x, "y": origin.y, "r": rotation, "d": progress}
+	var open_list: Array = []
+	for i: int in opened.size():
+		if opened[i]:
+			open_list.append(i)
+	return {"id": String(data.id), "x": origin.x, "y": origin.y, "r": rotation, "d": progress, "o": open_list}
 
 
 ## Datos del guardado → estructura, o null si su tipo no existe. Lo entregado de más o de ítems que la
@@ -118,6 +135,11 @@ static func from_data(entry: Dictionary) -> RepairSite:
 	if site_data == null:
 		return null
 	var site := RepairSite.new(site_data, Vector2i(int(entry.get("x", 0)), int(entry.get("y", 0))), int(entry.get("r", 0)))
+	var open_list: Variant = entry.get("o", [])   # las partidas de antes no lo tienen: todo cerrado
+	if open_list is Array:
+		for value: Variant in open_list:
+			if (value is int or value is float) and int(value) >= 0 and int(value) < site.opened.size():
+				site.opened[int(value)] = true
 	var progress: Variant = entry.get("d", [])
 	if not progress is Array:
 		return site

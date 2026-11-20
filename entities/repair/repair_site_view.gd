@@ -25,6 +25,10 @@ const PLACE_SOUND: AudioStream = preload("res://assets/audio/build_place.wav")
 const DELIVER_SOUND: AudioStream = preload("res://assets/audio/link_pneumatic.wav")
 ## Lado mínimo de la caja de choque de una pieza (m), para poder apuntarle aunque sea fina.
 const MIN_BOX: float = 0.25
+## Abrir y cerrar (la trampilla, C5.5): lo que tarda en girar y los sonidos (provisionales: los de mover).
+const TOGGLE_TIME: float = 0.7
+const OPEN_SOUND: AudioStream = preload("res://assets/audio/move_lift.wav")
+const CLOSE_SOUND: AudioStream = preload("res://assets/audio/move_drop.wav")
 
 var site: RepairSite
 var island: IslandState
@@ -36,6 +40,16 @@ var _pieces: Array[Node3D] = []
 var _targets: Array[RepairPieceTarget] = []
 var _ghosts: Array[StandardMaterial3D] = []
 var _done: Array[bool] = []
+## Por pieza: los nodos que giran al abrirla (vacío si no se abre) y su giro cerrado, en el mismo orden que
+## `RepairPieceData.toggle_nodes`.
+var _toggles: Array[Array] = []
+var _toggle_closed: Array[Array] = []
+## Cuerdas que se mueven (C5.5): el modelo trae parejas de vacíos «rope_a_N» y «rope_b_N» y aquí se dibuja una cuerda
+## tensa entre cada pareja. Se rehacen mientras algo se mueve (abrir, cerrar o crecer al completar una pieza).
+var _ropes: Array[Dictionary] = []
+var _ropes_until_ms: int = 0
+const ROPE_THICKNESS: float = 0.05   # como la cuerda fija del modelo (ROPE_R de shelter_blockout.py)
+const ROPE_COLOR: Color = Color(0.36, 0.25, 0.15)
 
 
 ## Prepara la vista. Se llama ANTES de añadirla al árbol.
@@ -66,12 +80,39 @@ func setup(p_site: RepairSite, p_island: IslandState) -> void:
 		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_ghosts.append(material)
+		var piece_data: RepairPieceData = site.data.pieces[i]
+		var aim: Node3D = _pieces[i]
+		if _model != null and piece_data.aim_node != &"":
+			var found := _model.find_child(String(piece_data.aim_node), true, false) as Node3D
+			if found != null:
+				aim = found
+		var nodes: Array[Node3D] = []
+		var closed: Array[Vector3] = []
+		for k: int in piece_data.toggle_nodes.size():
+			var node: Node3D = _pieces[i].find_child(String(piece_data.toggle_nodes[k]), true, false) as Node3D \
+					if _pieces[i] != null else null
+			if node == null:
+				push_warning("RepairSiteView: la pieza %s no tiene el nodo %s" % [piece_data.id, piece_data.toggle_nodes[k]])
+				continue
+			nodes.append(node)
+			closed.append(node.rotation)
+			if site.is_open(i):
+				node.rotation = node.rotation + _toggle_angle(piece_data, k)   # ya abierta al cargar
+		_toggles.append(nodes)
+		_toggle_closed.append(closed)
 		var target := RepairPieceTarget.new()
-		target.setup(self, i, _piece_box(_pieces[i]))
+		var aim_box: AABB = _piece_box(aim)
+		if piece_data.aim_size != Vector3.ZERO and aim != null:
+			var aim_center: Vector3 = _relative_transform(aim).origin
+			aim_box = AABB(aim_center - piece_data.aim_size * 0.5, piece_data.aim_size)
+		target.setup(self, i, aim_box)
+		if site.data.exact_collision and _pieces[i] != null:
+			target.exact_body = _add_piece_collision(_pieces[i], i)
 		add_child(target)
 		_targets.append(target)
 		_done.append(site.is_piece_done(i))
 		_apply(i)
+	_find_ropes()
 
 
 ## Se entregó algo a la pieza `index` (lo llama `IslandView`).
@@ -86,6 +127,87 @@ func on_piece_changed(index: int) -> void:
 		_play_complete(index)
 	else:
 		_play_flash(index)
+
+
+## Se abrió o se cerró la pieza `index` (lo llama `IslandView`): el nodo gira con un pequeño rebote al final.
+func on_piece_toggled(index: int) -> void:
+	if index < 0 or index >= _toggles.size() or _toggles[index].is_empty():
+		return
+	var open: bool = site.is_open(index)
+	var piece_data: RepairPieceData = site.data.pieces[index]
+	var tween := create_tween().set_parallel(true)
+	for k: int in _toggles[index].size():
+		var node: Node3D = _toggles[index][k]
+		var goal: Vector3 = _toggle_closed[index][k] + (_toggle_angle(piece_data, k) if open else Vector3.ZERO)
+		tween.tween_property(node, "rotation", goal, TOGGLE_TIME).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_animate_ropes(TOGGLE_TIME + 0.1)
+	var sound := AudioStreamPlayer3D.new()
+	sound.stream = OPEN_SOUND if open else CLOSE_SOUND
+	sound.bus = &"SFX"
+	add_child(sound)
+	sound.global_position = _targets[index].global_position
+	sound.finished.connect(sound.queue_free)
+	sound.play()
+
+
+func _ready() -> void:
+	_update_ropes()
+
+
+func _process(_delta: float) -> void:
+	if not _ropes.is_empty() and Time.get_ticks_msec() < _ropes_until_ms:
+		_update_ropes()
+
+
+## Busca en el modelo las parejas «rope_a_N» / «rope_b_N» y crea una cuerda por pareja (de la pieza que las contiene).
+func _find_ropes() -> void:
+	if _model == null:
+		return
+	var material := StandardMaterial3D.new()
+	material.albedo_color = ROPE_COLOR
+	material.roughness = 1.0
+	for n: int in 16:
+		var a := _model.find_child("rope_a_%d" % n, true, false) as Node3D
+		var b := _model.find_child("rope_b_%d" % n, true, false) as Node3D
+		if a == null or b == null:
+			break
+		var piece: int = -1
+		for i: int in _pieces.size():
+			if _pieces[i] != null and _pieces[i].is_ancestor_of(b):
+				piece = i
+		var line := MeshInstance3D.new()
+		line.name = "Rope_%d" % n
+		add_child(line)
+		_ropes.append({"a": a, "b": b, "line": line, "piece": piece, "material": material})
+	_paint_ropes()
+
+
+## Cada cuerda, del color de cuerda o, si su pieza aún falta, de fantasma (como el resto de la pieza).
+func _paint_ropes() -> void:
+	for rope: Dictionary in _ropes:
+		var piece: int = rope["piece"]
+		var ghost: bool = piece >= 0 and piece < _done.size() and not _done[piece]
+		var line: MeshInstance3D = rope["line"]
+		line.material_override = _ghosts[piece] if ghost else rope["material"]
+		line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if ghost else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+
+
+## Rehace las cuerdas durante `seconds` segundos (mientras gira o crece algo).
+func _animate_ropes(seconds: float) -> void:
+	_ropes_until_ms = maxi(_ropes_until_ms, Time.get_ticks_msec() + int(seconds * 1000.0))
+
+
+func _update_ropes() -> void:
+	if not is_inside_tree():
+		return
+	for rope: Dictionary in _ropes:
+		IslandView.place_cable(rope["line"], (rope["a"] as Node3D).global_position, (rope["b"] as Node3D).global_position,
+				ROPE_THICKNESS, true)
+
+
+## Giro al abrir del nodo `k` de una pieza, en radianes (el `.tres` lo da en grados).
+static func _toggle_angle(piece_data: RepairPieceData, k: int) -> Vector3:
+	return piece_data.toggle_rotations[k] * (PI / 180.0) if k < piece_data.toggle_rotations.size() else Vector3.ZERO
 
 
 ## La estructura entera se ha completado (lo llama `IslandView`): polvo alrededor de la base cuando
@@ -104,6 +226,7 @@ func _apply(index: int) -> void:
 			mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if done \
 					else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_targets[index].set_done(done)
+	_paint_ropes()
 
 
 ## Pieza completa: crece desde pequeña, se aplasta al llegar, rebota y suelta polvo, con el sonido de
@@ -115,6 +238,7 @@ func _play_complete(index: int) -> void:
 		return
 	var base_scale: Vector3 = node.scale
 	_grow(0.0, node, base_scale)
+	_animate_ropes(GROW_TIME + POP_TIME + 0.1)
 	var tween: Tween = create_tween()
 	tween.tween_method(_grow.bind(node, base_scale), 0.0, 1.0, GROW_TIME)
 	tween.tween_callback(_land.bind(node))
@@ -196,6 +320,9 @@ func spawn_transform() -> Transform3D:
 func _add_base_collision(piece_nodes: Array[Node]) -> void:
 	if _model == null:
 		return
+	if site.data.exact_collision:
+		_add_exact_collision(piece_nodes)
+		return
 	var box := AABB()
 	var first: bool = true
 	for mesh: MeshInstance3D in _meshes_of(_model):
@@ -220,6 +347,42 @@ func _add_base_collision(piece_nodes: Array[Node]) -> void:
 	collision.position = box.get_center()
 	body.add_child(collision)
 	add_child(body)
+
+
+## Choque con la forma de cada malla de la base (C5.5): se entra por la boca y se anda por dentro.
+func _add_exact_collision(piece_nodes: Array[Node]) -> void:
+	var body := StaticBody3D.new()
+	body.name = "BaseCollision"
+	for mesh: MeshInstance3D in _meshes_of(_model):
+		var inside_piece: bool = false
+		for piece: Node in piece_nodes:
+			if piece.is_ancestor_of(mesh):
+				inside_piece = true
+				break
+		if inside_piece or mesh.mesh == null:
+			continue
+		var collision := CollisionShape3D.new()
+		collision.shape = mesh.mesh.create_trimesh_shape()
+		collision.transform = _relative_transform(mesh)
+		body.add_child(collision)
+	add_child(body)
+
+
+## Choque con la forma real de una pieza (C5.5): un cuerpo con una forma por malla, apagado hasta completarla
+## (`RepairPieceTarget.set_done`).
+func _add_piece_collision(node: Node3D, index: int) -> StaticBody3D:
+	var body := StaticBody3D.new()
+	body.name = "PieceCollision_%d" % index
+	body.collision_layer = 0
+	for mesh: MeshInstance3D in _meshes_of(node):
+		if mesh.mesh == null:
+			continue
+		var collision := CollisionShape3D.new()
+		collision.shape = mesh.mesh.create_trimesh_shape()
+		collision.transform = _relative_transform(mesh)
+		body.add_child(collision)
+	add_child(body)
+	return body
 
 
 ## Caja de una pieza en el espacio de esta vista (para su choque y para apuntarle).

@@ -20,6 +20,8 @@ const START_COILS: int = 10
 ## reparar sin fabricarlos antes.
 const START_TIMBER: int = 10
 const START_TILES: int = 10
+## Fibra de esparto para hacer cuerda en el banco (C5.5), hasta que haya esparto que recoger (C5.6).
+const START_FIBER: int = 15
 ## Arboleda de 3×3 ya plantada (B2.7b), desde esta esquina noroeste: casillas x 3–5, y −9…−7.
 ## Para probar el talador (3×1): colócalo en x 3–5, y −6, justo al sur de la arboleda, mirando al norte.
 const GROVE_ORIGIN: Vector2i = Vector2i(3, -9)
@@ -60,6 +62,7 @@ func _ready() -> void:
 	inventory.add_item(Content.find_item(&"copper_coil"), START_COILS)
 	inventory.add_item(Content.find_item(&"timber"), START_TIMBER)
 	inventory.add_item(Content.find_item(&"stone_tile"), START_TILES)
+	inventory.add_item(Content.find_item(&"fiber"), START_FIBER)
 	print("Inventario inicial: ", inventory.debug_string())
 	# Naturaleza de prueba: una arboleda de 3×3 madura y unos árboles sueltos en distintas fases.
 	var island: IslandState = WorldState.get_island(player.build_controller.island_id)

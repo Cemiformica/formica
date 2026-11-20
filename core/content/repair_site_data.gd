@@ -16,6 +16,9 @@ extends Resource
 ## todo el rectángulo. Sirve para que el refugio bloquee sus paredes y su loma y deje libre la sala de
 ## dentro y la entrada, donde se puede construir el banco o el arcón.
 @export var blocked_cells: Array[Vector2i] = []
+## Choque con la forma real del modelo (C5.5): sí para lo que se recorre por dentro, como el refugio (sus paredes,
+## su galería y su sala); no = una caja que envuelve la base, que basta para una ruina.
+@export var exact_collision: bool = false
 ## Piezas que faltan, en el orden en que se enseñan.
 @export var pieces: Array[RepairPieceData] = []
 ## Para qué sirve al completarse (&"shelter", &"threshold", &"stabilizer"…). Lo usa quien escucha

@@ -281,6 +281,49 @@ for y in range(45, 56):
             if any(grid[y][xx] == ':' for xx in range(x - 6, x)):
                 grid[y][x] = 'm'
 
+# 11) El refugio es un hormiguero que se levanta en la explanada (C5.5, César). Donde estaba la zona del refugio en
+# el plano v2 se escribe el suelo que el juego le deducía (la misma regla que `_infer_ground()` de
+# `island_layout.gd`), para que el sendero y la loma alta de al lado queden igual. Ninguna casilla del sendero cambia.
+SHELTER_AT = (44, 56)      # esquina noroeste de sus 8 × 7 casillas: de espaldas al acantilado, al este del portal (César)
+SHELTER_SIZE = (8, 7)
+_GROUND = {'~': 'SEA', ',': 'BEACH', '.': 'LOW', '=': 'LOW_FLAT', '^': 'HIGH', '#': 'HIGH_FLAT', '-': 'MID',
+           '+': 'MID_FLAT', 'n': 'HILL', '*': 'TOP', '%': 'TOP_FLAT', 'r': 'RAMP', 'm': 'HIGH_HILL', '/': 'SLOPE',
+           ':': 'SLOPE', '_': 'LANDING', 'O': 'WATER', 'o': 'WATER', 'v': 'WATER', '<': 'WATER', '>': 'WATER',
+           's': 'WATER', 'C': 'FALL'}
+_CHAR = {'BEACH': ',', 'LOW': '.', 'LOW_FLAT': '=', 'HIGH': '^', 'HIGH_FLAT': '#', 'MID': '-', 'MID_FLAT': '+',
+         'HILL': 'n', 'TOP': '*', 'TOP_FLAT': '%', 'RAMP': 'r', 'HIGH_HILL': 'm', 'SLOPE': '/', 'LANDING': '_'}
+_FEATURES = 'RPMSTtXAGHQE'
+
+def _inferred(x, y):
+    counts = {}
+    for dy in range(-2, 3):
+        for dx in range(-2, 3):
+            ox, oy = x + dx, y + dy
+            if not (0 <= ox < W and 0 <= oy < H) or grid[oy][ox] in _FEATURES:
+                continue
+            g = _GROUND.get(grid[oy][ox], 'SEA')
+            if g in ('SEA', 'WATER', 'FALL'):
+                continue
+            counts[g] = counts.get(g, 0) + 1
+    best, best_count = 'LOW', -1
+    for g, c in counts.items():   # el primero que se encuentra gana en un empate, como en Godot
+        if c > best_count:
+            best, best_count = g, c
+    return _CHAR[best]
+
+_shelter = [(x, y) for y in range(H) for x in range(W) if grid[y][x] == 'R']
+if _shelter:
+    _path_before = [(x, y) for y in range(H) for x in range(W) if grid[y][x] == ':']
+    _fill = {(x, y): _inferred(x, y) for x, y in _shelter}
+    for (x, y), c in _fill.items():
+        grid[y][x] = c
+    sx, sy = SHELTER_AT
+    for y in range(sy, sy + SHELTER_SIZE[1]):
+        for x in range(sx, sx + SHELTER_SIZE[0]):
+            assert grid[y][x] != ':', 'el refugio pisaría el sendero en %d, %d' % (x, y)
+            grid[y][x] = 'R'
+    assert _path_before == [(x, y) for y in range(H) for x in range(W) if grid[y][x] == ':']
+
 legend_add = [
     '//  -  parte media (terraza a 3 m; se anda, no se construye)      +  explanada media (plana; se construye)  nivel 2 (3 m)',
     '//  *  cumbre (se anda, no se construye)       %  explanada de la cumbre (plana; se construye)   nivel 3 (9 m)',

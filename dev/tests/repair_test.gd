@@ -18,6 +18,52 @@ func _ready() -> void:
 	_check("ruina en el catálogo, con sus 4 piezas", ruin != null and ruin.pieces.size() == 4
 			and ruin.find_piece(&"lintel") == 2 and ruin.find_piece(&"no_existe") == -1)
 	_check("la cama es la cama", ruin != null and ruin.pieces[3].action == &"bed")
+	# El refugio (C5.5): sus cuatro piezas, la cama, y un nodo en el modelo por pieza más el punto de reaparición.
+	var shelter: RepairSiteData = Content.find_repair_site(&"shelter")
+	_check("refugio en el catálogo, con sus 5 piezas", shelter != null and shelter.pieces.size() == 5
+			and shelter.find_piece(&"props") == 0 and shelter.find_piece(&"bed") == 3 and shelter.find_piece(&"hatch") == 4)
+	_check("la cama del refugio es la cama", shelter != null and shelter.pieces[3].action == &"bed")
+	var rope_item: ItemData = Content.find_item(&"rope")
+	_check("la trampilla pide 1 madero, 2 cuerdas y 2 de madera, y gira la tapa y la palanca", shelter != null
+			and shelter.pieces[4].cost.get(timber, 0) == 1 and shelter.pieces[4].cost.get(rope_item, 0) == 2
+			and shelter.pieces[4].toggle_nodes.size() == 2 and shelter.pieces[4].toggle_rotations.size() == 2)
+	var make_rope: RecipeData = Content.find_recipe(&"make_rope")
+	_check("receta de la cuerda: 3 de fibra → 1 cuerda", make_rope != null
+			and make_rope.inputs.get(Content.find_item(&"fiber"), 0) == 3 and make_rope.outputs.get(rope_item, 0) == 1)
+	if shelter != null and shelter.scene != null:
+		var model: Node = shelter.scene.instantiate()
+		var all_nodes: bool = model.find_child("spawn_point", true, false) != null
+		for piece: RepairPieceData in shelter.pieces:
+			all_nodes = all_nodes and model.find_child(String(piece.node_name), true, false) != null
+			if piece.aim_node != &"":
+				all_nodes = all_nodes and model.find_child(String(piece.aim_node), true, false) != null
+			for node_name: StringName in piece.toggle_nodes:
+				all_nodes = all_nodes and model.find_child(String(node_name), true, false) != null
+		for n: int in 2:
+			all_nodes = all_nodes and model.find_child("rope_a_%d" % n, true, false) != null \
+					and model.find_child("rope_b_%d" % n, true, false) != null
+		model.free()
+		_check("el modelo del refugio tiene un nodo por pieza (con el tirador, la bisagra, la palanca y las cuerdas) y su spawn_point", all_nodes)
+	# La trampilla: no se abre hasta estar completa; después se abre y se cierra, y abierta se guarda.
+	if shelter != null:
+		var hatch_island: IslandState = IslandState.new()
+		var hatch_site: RepairSite = hatch_island.add_repair_site(shelter, Vector2i(40, 40))
+		var hatch: int = shelter.find_piece(&"hatch")
+		var toggles: Array[int] = []
+		hatch_island.repair_toggled.connect(func(_o: Vector2i, index: int) -> void: toggles.append(index))
+		_check("la trampilla sin reparar no se abre", hatch_site != null and not hatch_island.toggle_repair_piece(Vector2i(40, 40), hatch))
+		var stock := Inventory.new(4)
+		stock.add_item(timber, 1)
+		stock.add_item(Content.find_item(&"rope"), 2)
+		stock.add_item(Content.find_item(&"wood"), 2)
+		hatch_island.deliver_repair(Vector2i(40, 40), hatch, stock)
+		var opened_ok: bool = hatch_island.toggle_repair_piece(Vector2i(40, 40), hatch) and hatch_site.is_open(hatch)
+		_check("reparada, se abre (y avisa)", opened_ok and toggles == [hatch])
+		var hatch_restored: RepairSite = RepairSite.from_data(hatch_site.to_data())
+		_check("abierta se guarda y se carga abierta", hatch_restored != null and hatch_restored.is_open(hatch)
+				and not hatch_restored.is_open(0))
+		_check("y se vuelve a cerrar", hatch_island.toggle_repair_piece(Vector2i(40, 40), hatch) and not hatch_site.is_open(hatch))
+		_check("la cama no se abre", not hatch_island.toggle_repair_piece(Vector2i(40, 40), shelter.find_piece(&"bed")))
 
 	Simulation.running = false
 	WorldState.reset()

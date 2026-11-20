@@ -9,6 +9,9 @@
 #
 # Uso (en Blender, con el .blend abierto):
 #   export_hierarchy("furnace", "//../../assets/models/buildings/furnace.glb")
+# Opciones del exportador de glTF que cambien para un modelo concreto, al final (p. ej. el refugio, que lleva el color
+# de vértice para el shader del terreno):
+#   export_hierarchy("shelter", "//../../assets/models/props/shelter.glb", export_vertex_color="ACTIVE")
 # Dónde tocar: KEEP, si una máquina nueva tiene otra pieza que Godot deba encender o mover.
 
 import bpy
@@ -34,7 +37,7 @@ def _join(objects: list, name: str):
     return joined
 
 
-def export_hierarchy(root_name: str, filepath: str) -> None:
+def export_hierarchy(root_name: str, filepath: str, **gltf_options) -> None:
     if bpy.context.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
     root = bpy.data.objects[root_name]
@@ -86,7 +89,7 @@ def export_hierarchy(root_name: str, filepath: str) -> None:
     bpy.context.view_layer.objects.active = root_copy
     bpy.ops.export_scene.gltf(filepath=bpy.path.abspath(filepath), export_format="GLB", use_selection=True,
                               export_yup=True, export_apply=True, export_cameras=False, export_lights=False,
-                              export_animations=False)
+                              export_animations=False, **gltf_options)
     meshes = [o for o in temp.objects if o.type == "MESH"]
     print("exportado:", filepath, "| mallas:", sorted(o.name for o in meshes),
           "| vacíos:", sorted(o.name for o in temp.objects if o.type == "EMPTY"))

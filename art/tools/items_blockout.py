@@ -35,9 +35,12 @@ CHARCOAL, CHARCOAL_LIGHT = (5, 7), (5, 6)
 CELL, CELL_LIGHT, CELL_DEEP = (7, 3), (7, 2), (7, 4)
 SEED, SEED_CAP = (0, 4), (0, 6)
 PLANK, PLANK_GRAIN = (0, 2), (0, 4)   # madera labrada del madero (C4.2)
+STRAW, STRAW_LIGHT, STRAW_DARK = (0, 1), (0, 0), (0, 3)   # esparto seco (C5.5): fibra y cuerda
+ROPE_STRAND = (0, 2)                                     # franjas del trenzado
+ESPARTO_GREEN = (2, 4)
 
 ITEMS = ["wood", "stone", "acorn", "copper_ore", "charcoal", "copper_ingot", "slag", "copper_coil",
-        "iron_ingot", "solar_cell", "gravel", "pine_cone", "timber", "stone_tile"]
+        "iron_ingot", "solar_cell", "gravel", "pine_cone", "timber", "stone_tile", "fiber", "rope", "esparto_seed"]
 
 
 def swatch_uv(row: int, col: int) -> Vector:
@@ -332,6 +335,144 @@ def stone_tile(root, mat, rng):
 
 
 # --- Construir ---
+
+def tube(points, radius, sides=6, radius_at=None):
+    # Tubo que sigue `points` (lista de Vector), con `sides` lados; `radius_at(k)` da el radio en el punto k (o
+    # `radius`). Devuelve (bmesh, [(tramo, lado) de cada cara, en orden]) para pintar cada cara por su sitio.
+    bm = bmesh.new()
+    rings = []
+    up_ref = Vector((0.0, 0.0, 1.0))
+    for k, p in enumerate(points):
+        a = points[max(k - 1, 0)]
+        b = points[min(k + 1, len(points) - 1)]
+        t = (b - a).normalized()
+        ref = up_ref if abs(t.dot(up_ref)) < 0.95 else Vector((1.0, 0.0, 0.0))
+        side = t.cross(ref).normalized()
+        up = side.cross(t).normalized()
+        r = radius_at(k) if radius_at is not None else radius
+        ring = []
+        for j in range(sides):
+            ang = 2.0 * math.pi * j / sides
+            ring.append(bm.verts.new(p + (side * math.cos(ang) + up * math.sin(ang)) * r))
+        rings.append(ring)
+    where = []
+    for k in range(len(rings) - 1):
+        for j in range(sides):
+            jj = (j + 1) % sides
+            bm.faces.new((rings[k][j], rings[k][jj], rings[k + 1][jj], rings[k + 1][j]))
+            where.append((k, j))
+    bm.faces.new(list(reversed(rings[0])))
+    bm.faces.new(rings[-1])
+    where += [(-1, 0), (len(rings) - 1, 0)]
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return bm, where
+
+
+def finish_colored(name, bm, colors, parent, material):
+    # Como `finish`, pero con un color por cara (en el orden de `bm.faces`).
+    uv = bm.loops.layers.uv.new("UVMap")
+    bm.faces.ensure_lookup_table()
+    for f, color in zip(bm.faces, colors):
+        for loop in f.loops:
+            loop[uv].uv = swatch_uv(*color)
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.materials.append(material)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj.parent = parent
+    for poly in mesh.polygons:
+        poly.use_smooth = True
+    mesh.set_sharp_from_angle(angle=math.radians(50))
+    return obj
+
+
+def twisted(where, base, strand, period=3):
+    # Colores de una cuerda trenzada: franjas en diagonal (el tramo y el lado avanzan a la vez).
+    return [strand if (k + j) % period == 0 else base for k, j in where]
+
+
+def fiber(root, mat, rng):
+    # Fibra de esparto (C5.5, César): un manojo de hojas finas y secas, tumbado en X, apretado por el medio, donde lo
+    # rodea una atadura de cuerda de dos vueltas, y abierto hacia las puntas; cada hoja se curva un poco a su manera.
+    half = 0.115
+    pinch = 0.011            # radio del manojo en la atadura
+    flare = 0.03             # radio en las puntas
+    for n in range(16):
+        a0 = 2.0 * math.pi * n / 16 + rng.uniform(-0.25, 0.25)
+        depth = rng.uniform(0.35, 1.0)                     # unas hojas por dentro y otras por fuera del manojo
+        bend = rng.uniform(-0.25, 0.25)
+        length = half * rng.uniform(0.85, 1.05)
+        pts = []
+        for k in range(9):
+            x = -length + 2.0 * length * k / 8
+            u = abs(x) / half
+            r = (pinch + (flare - pinch) * u ** 1.6) * depth
+            a = a0 + bend * (x / half) + rng.uniform(-0.04, 0.04)
+            pts.append(Vector((x, r * math.cos(a), r * math.sin(a))))
+        bm, where = tube(pts, 0.0034, 4, lambda k: 0.0038 * (1.0 - 0.5 * abs(k - 4) / 4))
+        finish_colored("fiber_blade_%d" % n, bm, [rng.choice((STRAW, STRAW, STRAW_LIGHT))] * len(bm.faces), root, mat)
+    # Atadura: dos vueltas apretadas de cuerda alrededor de la parte estrecha.
+    pts = []
+    turns, steps = 2, 28
+    for k in range(steps + 1):
+        a = 2.0 * math.pi * turns * k / steps
+        x = -0.007 + 0.014 * k / steps
+        pts.append(Vector((x, (pinch + 0.004) * math.cos(a), (pinch + 0.004) * math.sin(a))))
+    bm, where = tube(pts, 0.0035, 5)
+    finish_colored("fiber_tie", bm, twisted(where, STRAW_DARK, ROPE_STRAND, 2), root, mat)
+
+
+def rope(root, mat, rng):
+    # Cuerda (C5.5, César: componente del banco, 3 fibras → 1): una madeja, como se recoge y se guarda una cuerda. Tres
+    # lazos alargados en abanico, lisos y en dos tonos de paja, apretados por el medio con una atadura de varias vueltas
+    # más oscura. Sin cabos sueltos (se leían raros). Antes fue un rollo de vueltas apiladas: de cerca bien, pero en el
+    # inventario parecía un nudo (César).
+    half_len, half_w = 0.11, 0.055
+    rope_r = 0.0085
+    pinch = 0.26                # ancho de cada lazo en la atadura, respecto al de los extremos
+    steps = 28
+    # Tumbados (poca inclinación) y algo abiertos en abanico sobre el plano: así se ve el hueco de cada lazo.
+    for n, (tilt, fan) in enumerate(((-16.0, -9.0), (2.0, 0.0), (18.0, 9.0))):
+        turn = Matrix.Rotation(math.radians(fan), 3, "Z") @ Matrix.Rotation(math.radians(tilt), 3, "X")
+        length = half_len * (1.0 - 0.06 * (n % 2))
+        pts = []
+        for k in range(steps):
+            a = 2.0 * math.pi * k / steps
+            x = length * math.cos(a)
+            u = abs(x) / half_len
+            w = half_w * (pinch + (1.0 - pinch) * u ** 0.8)
+            pts.append(turn @ Vector((x, w * math.sin(a), 0.0)))
+        pts.append(pts[0])
+        bm, where = tube(pts, rope_r, 6)
+        finish_colored("rope_loop_%d" % n, bm, [(STRAW, STRAW_LIGHT)[n % 2]] * len(bm.faces), root, mat)
+    # Atadura: vueltas apretadas alrededor del medio de la madeja.
+    bind_r = half_w * pinch + rope_r * 1.6
+    pts = []
+    turns, per_turn = 3, 12
+    for k in range(turns * per_turn + 1):
+        a = 2.0 * math.pi * k / per_turn
+        x = -0.018 + 0.036 * k / (turns * per_turn)
+        pts.append(Vector((x, bind_r * math.cos(a), bind_r * math.sin(a))))
+    bm, where = tube(pts, rope_r * 0.85, 5)
+    finish_colored("rope_bind", bm, [STRAW_DARK] * len(bm.faces), root, mat)
+
+
+def esparto_seed(root, mat, rng):
+    # Semilla de esparto (C5.5): una espiga corta con sus granos alargados en dos filas y un par de hojitas verdes en la
+    # base, para que se lea como «semilla de una mata» y no como un fruto.
+    finish("seed_stem", prism(4, 0.004, 0.003, -0.09, 0.07), STRAW_DARK, root, mat)
+    for k in range(7):
+        z = -0.04 + k * 0.018
+        for side in (-1, 1):
+            grain = place(prism(6, 0.009, 0.004, 0.0, 0.028), (0.0, side * 0.004, z),
+                          Matrix.Rotation(math.radians(28 * side), 4, "X") @ Matrix.Rotation(math.radians(k * 25), 4, "Z"))
+            finish("seed_grain_%d_%d" % (k, side + 1), grain, STRAW_LIGHT if (k + side) % 2 else STRAW, root, mat)
+    for k, angle in enumerate((-35, 30)):
+        leaf = place(prism(3, 0.006, 0.001, 0.0, 0.09), (0.0, 0.0, -0.085), Matrix.Rotation(math.radians(angle), 4, "Y"))
+        finish("seed_leaf_%d" % k, leaf, ESPARTO_GREEN, root, mat)
+
 
 def clear_previous():
     for item_id in ITEMS:

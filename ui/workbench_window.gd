@@ -132,6 +132,7 @@ func _craftable(recipe: RecipeData) -> int:
 	var inventory: Inventory = WorldState.player_inventory
 	var times: int = 999
 	for item: ItemData in recipe.inputs:
+		@warning_ignore("integer_division")
 		times = mini(times, inventory.get_total(item) / recipe.inputs[item])
 	return times
 

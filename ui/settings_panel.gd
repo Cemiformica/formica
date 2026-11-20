@@ -97,4 +97,8 @@ func _refresh() -> void:
 
 func _on_item_selected(index: int, option: StringName) -> void:
 	var current: Variant = Settings.get(option)
-	Settings.set_option(option, bool(index) if current is bool else index)
+	# Las opciones de sí o no guardan un bool; las demás, el número de la lista.
+	var value: Variant = index
+	if current is bool:
+		value = bool(index)
+	Settings.set_option(option, value)

@@ -192,6 +192,11 @@ func _ready() -> void:
 		_check("Isla Alba: la rampa de la cumbre sube entre 6 y 9 m", summit_ramp_ok)
 		_check("Isla Alba: refugio de 8 × 7, portal y veta de malaquita", alba.cells_of("R").size() == 56
 				and alba.cells_of("P").size() == 6 and alba.cells_of("M").size() == 9)
+		var shelter_flat: bool = true
+		for cell: Vector2i in alba.cells_of("R"):
+			if alba.ground(cell) != IslandLayout.Ground.LOW_FLAT or not is_zero_approx(alba.terrain_height(cell.x + 0.5, cell.y + 0.5)):
+				shelter_flat = false
+		_check("Isla Alba: la zona del refugio es llana y está abajo (el hormiguero va encima)", shelter_flat)
 		_check("Isla Alba: la veta de malaquita está en la explanada baja", alba.ground(alba.cells_of("M")[4]) == IslandLayout.Ground.LOW_FLAT)
 		# Poblar desde el plano (C5.3c): árboles y la veta, solo en una partida nueva.
 		var isle: IslandState = WorldState.get_island(&"test_alba")

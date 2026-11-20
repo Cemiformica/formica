@@ -11,17 +11,17 @@ var _last_keep_ms: int = -100000
 var _max_db: float = 0.0
 
 
-## Crea el sonido dentro de `parent` (en su origen) con el .wav `stream`, que se repite, a `max_db` como mucho.
-static func create(parent: Node3D, stream: AudioStreamWAV, max_db: float = 0.0) -> LoopSound:
-	if stream.loop_mode == AudioStreamWAV.LOOP_DISABLED:
-		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
-		stream.loop_begin = 0
-		stream.loop_end = int(stream.get_length() * stream.mix_rate)
+## Crea el sonido dentro de `parent` (en su origen) con el .wav `sound_stream`, que se repite, a `peak_db` como mucho.
+static func create(parent: Node3D, sound_stream: AudioStreamWAV, peak_db: float = 0.0) -> LoopSound:
+	if sound_stream.loop_mode == AudioStreamWAV.LOOP_DISABLED:
+		sound_stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		sound_stream.loop_begin = 0
+		sound_stream.loop_end = int(sound_stream.get_length() * sound_stream.mix_rate)
 	var sound := LoopSound.new()
-	sound.stream = stream
+	sound.stream = sound_stream
 	sound.bus = &"SFX"
 	sound.volume_db = QUIET_DB
-	sound._max_db = max_db
+	sound._max_db = peak_db
 	parent.add_child(sound)
 	return sound
 

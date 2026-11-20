@@ -44,11 +44,16 @@
 [ext_resource type="Resource" path="res://content/recipes/make_timber.tres" id="42_make_timber"]
 [ext_resource type="Resource" path="res://content/recipes/make_stone_tile.tres" id="43_make_tile"]
 [ext_resource type="Resource" path="res://content/repair_sites/test_ruin.tres" id="39_test_ruin"]
+[ext_resource type="Resource" path="res://content/repair_sites/shelter.tres" id="60_shelter"]
+[ext_resource type="Resource" path="res://content/items/fiber.tres" id="61_fiber"]
+[ext_resource type="Resource" path="res://content/items/rope.tres" id="62_rope"]
+[ext_resource type="Resource" path="res://content/items/esparto_seed.tres" id="63_esparto_seed"]
+[ext_resource type="Resource" path="res://content/recipes/make_rope.tres" id="64_make_rope"]
 
 [resource]
 script = ExtResource("1_catalog")
-items = Array[ExtResource("2_itemscript")]([ExtResource("4_wood"), ExtResource("5_stone"), ExtResource("6_gravel"), ExtResource("13_seed"), ExtResource("90_pinecone"), ExtResource("15_ore"), ExtResource("16_charcoal"), ExtResource("17_ingot"), ExtResource("18_slag"), ExtResource("21_iron"), ExtResource("22_cell"), ExtResource("28_coil"), ExtResource("34_biter"), ExtResource("35_drill"), ExtResource("40_timber"), ExtResource("41_tile")])
-recipes = Array[ExtResource("3_recipescript")]([ExtResource("7_crush"), ExtResource("19_smelt"), ExtResource("26_charcoal_recipe"), ExtResource("32_coil_recipe"), ExtResource("36_make_biter"), ExtResource("37_make_drill"), ExtResource("42_make_timber"), ExtResource("43_make_tile")])
+items = Array[ExtResource("2_itemscript")]([ExtResource("4_wood"), ExtResource("5_stone"), ExtResource("6_gravel"), ExtResource("13_seed"), ExtResource("90_pinecone"), ExtResource("15_ore"), ExtResource("16_charcoal"), ExtResource("17_ingot"), ExtResource("18_slag"), ExtResource("21_iron"), ExtResource("22_cell"), ExtResource("28_coil"), ExtResource("34_biter"), ExtResource("35_drill"), ExtResource("40_timber"), ExtResource("41_tile"), ExtResource("61_fiber"), ExtResource("62_rope"), ExtResource("63_esparto_seed")])
+recipes = Array[ExtResource("3_recipescript")]([ExtResource("7_crush"), ExtResource("19_smelt"), ExtResource("26_charcoal_recipe"), ExtResource("32_coil_recipe"), ExtResource("36_make_biter"), ExtResource("37_make_drill"), ExtResource("42_make_timber"), ExtResource("43_make_tile"), ExtResource("64_make_rope")])
 buildings = Array[ExtResource("8_buildingscript")]([ExtResource("9_crusher"), ExtResource("10_conveyor"), ExtResource("11_pole"), ExtResource("12_solar"), ExtResource("14_cutter"), ExtResource("20_furnace"), ExtResource("25_extractor"), ExtResource("27_kiln"), ExtResource("29_chest"), ExtResource("30_logistic"), ExtResource("31_wheel"), ExtResource("33_workbench")])
 veins = Array[ExtResource("23_veinscript")]([ExtResource("24_malachite")])
-repair_sites = Array[ExtResource("38_repairscript")]([ExtResource("39_test_ruin")])
+repair_sites = Array[ExtResource("38_repairscript")]([ExtResource("39_test_ruin"), ExtResource("60_shelter")])

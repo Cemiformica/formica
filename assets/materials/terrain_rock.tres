@@ -1,0 +1,8 @@
+[gd_resource type="ShaderMaterial" format=3]
+
+[ext_resource type="Shader" path="res://entities/nature/terrain.gdshader" id="1_terrain"]
+
+[resource]
+resource_name = "terrain_rock"
+shader = ExtResource("1_terrain")
+shader_parameter/object_mode = true
