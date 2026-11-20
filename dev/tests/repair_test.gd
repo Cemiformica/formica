@@ -168,14 +168,21 @@ func _ready() -> void:
 	_check("bloqueadas: girada, la entrada pasa al oeste", turned_ring != null
 			and island.repair_site_at(Vector2i(40, 31)) == null and island.repair_site_at(Vector2i(42, 31)) == turned_ring)
 
-	# 9) Punto de reaparición (C4): se guarda con la partida.
+	# 9) Punto de reaparición (C4): se guarda con la partida, aparte de dónde estaba el jugador (C5.5, César):
+	# cargar te deja donde guardaste; la cama solo cuenta al morir.
 	WorldState.set_respawn(&"test_repair", Vector3(1.5, 0.05, -2.0), 0.5)
+	WorldState.player_position = Vector3(20.0, 0.1, 7.0)
 	var saved: Dictionary = JSON.parse_string(JSON.stringify(WorldState.to_data()))
 	WorldState.reset()
 	_check("reaparición: sin partida, no hay", not WorldState.has_respawn(&"test_repair"))
 	WorldState.load_data(saved)
 	_check("reaparición: vuelve al cargar", WorldState.has_respawn(&"test_repair") and not WorldState.has_respawn(&"otra")
 			and WorldState.respawn_position.is_equal_approx(Vector3(1.5, 0.05, -2.0)) and is_equal_approx(WorldState.respawn_rotation_y, 0.5))
+	_check("reaparición: cargar te deja donde guardaste, no en la cama",
+			WorldState.player_position.is_equal_approx(Vector3(20.0, 0.1, 7.0)))
+	# Dormir en otra cama cambia el punto (como en Minecraft).
+	WorldState.set_respawn(&"test_repair", Vector3(9.0, 0.05, 4.0), 1.0)
+	_check("reaparición: la última cama manda", WorldState.respawn_position.is_equal_approx(Vector3(9.0, 0.05, 4.0)))
 
 	WorldState.reset()
 	Simulation.running = true
