@@ -1068,8 +1068,8 @@ def build_hearth(root, mat):
 # Detalles de fuera y cacharros de los nómadas (no se reparan; `Refugio.md` §5, D-192):
 #   - dos aros de tierra en relieve alrededor de la boca, siguiendo el arco (los «anillos de la galería»: dentro ya no
 #     caben, porque la sala de 16 casillas llega casi hasta la boca);
-#   - tres cacharros de barro: una tinaja en la alcoba de la cama, un cántaro junto al fogón y una vasija rota bajo el
-#     candil.
+#   - dos cacharros de barro: una tinaja en la alcoba de la cama y un cántaro junto al fogón (la vasija rota bajo el
+#     candil se quitó en la sesión 25: seguía rota con el refugio reparado, César).
 # El emblema gastado y las columnas de la colonia antigua se probaron aquí y se quitaron (César): los restos de la
 # colonia irán sueltos por la isla (`H` en el plano).
 MOUTH_RINGS = (0.22, 0.46)                                         # lo que se separa cada aro del borde de la boca
@@ -1078,7 +1078,6 @@ POTS = {
     "jar": ((-2.75, 1.45), [(0.05, 0.0), (0.1, 0.04), (0.13, 0.14), (0.11, 0.26), (0.06, 0.32), (0.075, 0.36)], (4, 2)),
     "jug": ((2.98, -0.38), [(0.045, 0.0), (0.085, 0.05), (0.095, 0.12), (0.06, 0.2), (0.045, 0.25), (0.055, 0.28)], (4, 1)),
 }
-BROKEN_POT_AT = (-1.12, -1.72)
 
 
 def surface_hit(tree, x, z, depth=-7.0):
@@ -1120,17 +1119,8 @@ def build_ruins(root, shell):
         pot = pot_shell(profile, 10, 0.012)
         place(pot, (px, py, base))
         finish("ruins_%s" % name, pot, color, pivot, mat)
-    # Vasija rota bajo el candil: la mitad de abajo y tres cascos por el suelo.
-    half = pot_shell([(0.05, 0.0), (0.1, 0.04), (0.12, 0.12), (0.115, 0.16)], 10, 0.012)
-    place(half, (BROKEN_POT_AT[0], BROKEN_POT_AT[1], base), Matrix.Rotation(math.radians(14), 4, "X"))
-    finish("ruins_broken_pot", half, (4, 2), pivot, mat)
-    rng = random.Random(7)
-    for k in range(3):
-        a = rng.uniform(0, 2 * math.pi)
-        shard = prism(3, 0.06, 0.05, 0.0, 0.012, rng.uniform(0, 3))
-        place(shard, (BROKEN_POT_AT[0] + math.cos(a) * 0.22, BROKEN_POT_AT[1] + math.sin(a) * 0.22, base),
-              Matrix.Rotation(rng.uniform(-0.3, 0.3), 4, "X"))
-        finish("ruins_shard_%d" % k, shard, (4, 2), pivot, mat)
+    # La vasija rota bajo el candil, junto a la entrada, se quitó (César, sesión 25): seguía rota con el refugio ya
+    # reparado.
     n = sum(sum(len(p.vertices) - 2 for p in c.data.polygons) for c in pivot.children_recursive if c.type == "MESH")
     print("refugio: restos y cacharros %d triángulos" % n)
 

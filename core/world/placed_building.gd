@@ -328,6 +328,49 @@ func predict_belt_progress(dt: float, front_limit: float = 1.0) -> Array[float]:
 	return result
 
 
+## Ritmo por minuto trabajando sin parar (sesión 25, César), sin contar esperas (falta de entrada, salida llena o
+## sin energía): {"in": {ItemData: float}, "out": {ItemData: float}, "approx": bool}.
+## - Máquina: su receta × 60 / la duración del ciclo.
+## - Extractor: 1 ítem de su veta cada `extract_time`.
+## - Talador (`approx`): la madera de los árboles de su área al ritmo al que rebrotan (cada uno da TREE_WOOD cada
+##   ciclo de tocón a maduro, más lo que tarda en talarlo), sin pasar de un árbol por `harvest_time`. Con `island`
+##   cuenta los árboles que hay ahora; sin ella, el área llena.
+## Las cintas, con `belt_rate_per_minute()`. Lo demás (almacenes, postes, generadores), vacío.
+func rates_per_minute(island: IslandState = null) -> Dictionary:
+	var inputs: Dictionary = {}
+	var outputs: Dictionary = {}
+	var approx: bool = false
+	if is_machine() and data.recipe.duration > 0.0:
+		var cycles: float = 60.0 / data.recipe.duration
+		for item: ItemData in data.recipe.inputs:
+			inputs[item] = data.recipe.inputs[item] * cycles
+		for item: ItemData in data.recipe.outputs:
+			outputs[item] = data.recipe.outputs[item] * cycles
+	elif is_extractor() and vein_item != null:
+		outputs[vein_item] = 60.0 / data.extract_time
+	elif is_harvester() and data.harvest_time > 0.0:
+		var trees: int = data.harvest_area.x * data.harvest_area.y
+		if island != null:
+			trees = 0
+			for cell: Vector2i in get_harvest_cells():
+				var state: NatureState = island.nature.get(cell, null)
+				if state != null and state.kind == NatureState.Kind.TREE:
+					trees += 1
+		var regrow: float = float(NatureState.Stage.MATURE - NatureState.Stage.STUMP) * NatureState.STAGE_TIME
+		var per_minute: float = minf(trees * IslandState.TREE_WOOD * 60.0 / (regrow + data.harvest_time),
+				IslandState.TREE_WOOD * 60.0 / data.harvest_time)
+		var wood: ItemData = Content.find_item(&"wood")
+		if wood != null and per_minute > 0.0:
+			outputs[wood] = per_minute
+			approx = true
+	return {"in": inputs, "out": outputs, "approx": approx}
+
+
+## Solo cintas: ítems por minuto que caben que pasen (velocidad × ítems por casilla).
+func belt_rate_per_minute() -> float:
+	return data.belt_speed * data.belt_capacity * 60.0
+
+
 ## Distancia mínima entre dos ítems de la cinta (en fracción de casilla).
 func _belt_spacing() -> float:
 	return 1.0 / data.belt_capacity

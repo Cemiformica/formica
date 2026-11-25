@@ -13,15 +13,26 @@ signal focus_changed(interactable: Interactable)
 signal building_opened(view: BuildingView)
 
 @export_group("Movimiento")
-@export var walk_speed: float = 5.0 ## Velocidad al caminar (m/s).
+@export var walk_speed: float = 4.5 ## Velocidad al caminar (m/s; César: 5 se sentía rápido).
+@export var sprint_speed: float = 7.0 ## Velocidad al correr con Mayús (m/s; César: 8,5 se sentía rápido).
+@export var crouch_speed: float = 2.5 ## Velocidad agachada, con Ctrl (m/s).
 @export var acceleration: float = 40.0 ## Rapidez para alcanzar la velocidad (m/s²).
-@export var jump_velocity: float = 6.3 ## Impulso vertical del salto (m/s). Con gravedad ×2 da ~1 m de altura.
-@export var gravity_multiplier: float = 2.0 ## Gravedad del personaje respecto a la del mundo: ×2 = salto más firme, menos flotante.
+@export var jump_velocity: float = 6.3 ## Impulso vertical del salto (m/s). Con gravedad ×2 al subir da ~1 m de altura.
+@export var gravity_multiplier: float = 2.0 ## Gravedad al subir respecto a la del mundo: ×2 = salto más firme, menos flotante.
+@export var fall_gravity_multiplier: float = 3.2 ## Gravedad al caer (César: caía lento): baja antes y cada vez más deprisa.
+@export var max_fall_speed: float = 30.0 ## Velocidad máxima de caída (m/s).
+@export var jump_cut: float = 0.5 ## Al soltar el salto mientras sube, se queda con esta parte de la velocidad: salto corto.
+@export var coyote_time: float = 0.1 ## Segundos tras salir de un borde en los que aún se puede saltar.
+@export var jump_buffer_time: float = 0.12 ## Segundos que se recuerda el salto pulsado justo antes de tocar el suelo.
 @export var step_height: float = 0.3 ## Bordes que sube solo al caminar, sin saltar (cintas, losas bajas) (B3.7).
 
 @export_group("Cámara")
 @export var mouse_sensitivity: float = 0.002 ## Radianes girados por cada píxel de ratón.
 @export var max_pitch_degrees: float = 89.0 ## Límite para mirar arriba y abajo.
+@export var crouch_head_drop: float = 0.5 ## Lo que baja la cabeza al agacharse (m).
+@export var sprint_fov_boost: float = 8.0 ## Grados que se abre el campo de visión al correr.
+@export var landing_dip_max: float = 0.18 ## Lo que baja la cámara, como mucho, al aterrizar de una caída alta (m).
+@export var landing_dust_speed: float = 7.0 ## Velocidad de caída (m/s) desde la que sale polvo al aterrizar.
 
 @export_group("Herramientas")
 @export var tool_reach: float = 2.5 ## Alcance para talar y picar con una herramienta (m); la E sigue llegando a 3 m (C3).
@@ -49,6 +60,17 @@ var dismantler: DismantleController
 ## El clic izquierdo de trabajar (talar, picar…) empezó con el ratón ya capturado. Así, el clic que solo
 ## recaptura el ratón no da un golpe.
 var _using: bool = false
+## Movimiento (sesión 25, D-190): tiempo desde que dejó el suelo, salto pulsado que espera al suelo, si se agacha y
+## cuánto (0–1, suavizado), si corre, la velocidad de caída del paso anterior y lo que baja la cámara al aterrizar.
+var _air_time: float = 0.0
+var _jump_buffer: float = 0.0
+var _crouching: bool = false
+var _crouch_t: float = 0.0
+var _sprinting: bool = false
+var _last_fall_speed: float = 0.0
+var _landing_dip: float = 0.0
+var _head_height: float = 1.6
+var _base_fov: float = 75.0
 
 
 func _ready() -> void:
@@ -63,6 +85,8 @@ func _ready() -> void:
 	spawn_transform = global_transform
 	# Interpolación de la física (B3): la cámara va suelta y se coloca en cada fotograma (ver _process).
 	camera.top_level = true
+	_head_height = head.position.y
+	_base_fov = camera.fov
 	camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	# Primera persona: Mira oculta (sin sombra). Sigue animándose por dentro, lista para la tercera persona.
 	mira.visible = false
@@ -115,27 +139,65 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## Cámara en cada fotograma: en la posición suavizada de la cabeza (interpolación de la física) y con su
 ## giro actual, sin esperar al siguiente paso de física, para que el ratón responda al instante.
-func _process(_delta: float) -> void:
-	camera.global_transform = Transform3D(head.global_transform.basis, head.get_global_transform_interpolated().origin)
+## Encima, lo del movimiento (sesión 25): la cámara baja un poco al aterrizar y vuelve, y el campo de visión se
+## abre al correr.
+func _process(delta: float) -> void:
+	_landing_dip = move_toward(_landing_dip, 0.0, landing_dip_max * 3.0 * delta)
+	var origin: Vector3 = head.get_global_transform_interpolated().origin - Vector3.UP * _landing_dip
+	camera.global_transform = Transform3D(head.global_transform.basis, origin)
+	var moving: bool = Vector2(velocity.x, velocity.z).length() > walk_speed + 0.5
+	var target_fov: float = _base_fov + (sprint_fov_boost if _sprinting and moving else 0.0)
+	camera.fov = lerpf(camera.fov, target_fov, 1.0 - exp(-8.0 * delta))
 
 
 func _physics_process(delta: float) -> void:
-	if not is_on_floor():
-		velocity += get_gravity() * gravity_multiplier * delta
+	var playing: bool = not WindowManager.is_open()
+	# Gravedad (sesión 25, César: caía lento): normal al subir, más fuerte al caer, con un tope.
+	if is_on_floor():
+		_air_time = 0.0
+	else:
+		_air_time += delta
+		var falling: bool = velocity.y < 0.0
+		velocity += get_gravity() * (fall_gravity_multiplier if falling else gravity_multiplier) * delta
+		velocity.y = maxf(velocity.y, -max_fall_speed)
 
-	if Input.is_action_just_pressed("jump") and is_on_floor() and not WindowManager.is_open():
+	# Salto con margen: vale pulsarlo un poco antes de tocar el suelo (se recuerda) y un poco después de salir de
+	# un borde. Soltarlo mientras sube lo corta: salto corto o largo según lo que se mantenga.
+	_jump_buffer = maxf(0.0, _jump_buffer - delta)
+	if playing and Input.is_action_just_pressed("jump"):
+		_jump_buffer = jump_buffer_time
+	if _jump_buffer > 0.0 and _air_time <= coyote_time and velocity.y <= 0.5:
 		velocity.y = jump_velocity
+		_jump_buffer = 0.0
+		_air_time = coyote_time + 1.0   # el margen ya se ha usado: no se encadena otro salto en el aire
+		_crouching = false
+	if Input.is_action_just_released("jump") and velocity.y > 0.0:
+		velocity.y *= jump_cut
+
+	# Correr (Mayús) y agacharse (Ctrl). En construir y desmontar, Ctrl + rueda cambia de barra y Mayús elige un
+	# recuadro: ahí no se agacha, y en desmontar no corre.
+	_sprinting = playing and Input.is_action_pressed("sprint") and not (dismantler != null and dismantler.active)
+	_crouching = playing and Input.is_action_pressed("crouch") and not in_tool_mode() and is_on_floor()
+	if _crouching:
+		_sprinting = false
+	_crouch_t = move_toward(_crouch_t, 1.0 if _crouching else 0.0, 6.0 * delta)
+	head.position.y = _head_height - crouch_head_drop * smoothstep(0.0, 1.0, _crouch_t)
 
 	# Dirección según WASD, relativa a hacia dónde mira el cuerpo.
 	var input_dir: Vector2 = Vector2.ZERO
 	if not WindowManager.is_open():
 		input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var direction: Vector3 = (transform.basis * Vector3(input_dir.x, 0.0, input_dir.y)).normalized()
-	var target_velocity: Vector3 = direction * walk_speed
+	var speed: float = crouch_speed if _crouching else (sprint_speed if _sprinting else walk_speed)
+	var target_velocity: Vector3 = direction * speed
 	velocity.x = move_toward(velocity.x, target_velocity.x, acceleration * delta)
 	velocity.z = move_toward(velocity.z, target_velocity.z, acceleration * delta)
 	_step_up(delta)
+	var was_on_floor: bool = is_on_floor()
+	_last_fall_speed = -velocity.y
 	move_and_slide()
+	if not was_on_floor and is_on_floor():
+		_land(_last_fall_speed)
 
 	if global_position.y < fall_limit_y:
 		respawn()
@@ -155,6 +217,16 @@ func _physics_process(delta: float) -> void:
 	# La herramienta se enciende con el clic aunque no haya nada delante; solo da materiales si trabaja algo
 	# (César).
 	arm.set_working(_using and holding_tool())
+
+
+## Al tocar el suelo tras caer a `fall_speed` m/s (sesión 25): la cámara baja un poco, más cuanto más fuerte la
+## caída, y en las caídas altas sale una nubecita de polvo a los pies.
+func _land(fall_speed: float) -> void:
+	if fall_speed <= 4.0:
+		return
+	_landing_dip = maxf(_landing_dip, landing_dip_max * clampf((fall_speed - 4.0) / 12.0, 0.15, 1.0))
+	if fall_speed >= landing_dust_speed and get_parent() != null:
+		DustPuff.spawn(get_parent(), global_position + Vector3.UP * 0.05)
 
 
 ## Elige la casilla de la barra (C1.6; lo llama la barra de abajo). Mira lleva en la mano lo que haya en ella.

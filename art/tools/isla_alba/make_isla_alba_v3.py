@@ -284,7 +284,7 @@ for y in range(45, 56):
 # 11) El refugio es un hormiguero que se levanta en la explanada (C5.5, César). Donde estaba la zona del refugio en
 # el plano v2 se escribe el suelo que el juego le deducía (la misma regla que `_infer_ground()` de
 # `island_layout.gd`), para que el sendero y la loma alta de al lado queden igual. Ninguna casilla del sendero cambia.
-SHELTER_AT = (44, 56)      # esquina noroeste de sus 8 × 7 casillas: de espaldas al acantilado, al este del portal (César)
+SHELTER_AT = (44, 56)      # esquina noroeste de sus 8 × 7 casillas: de espaldas al acantilado (César)
 SHELTER_SIZE = (8, 7)
 _GROUND = {'~': 'SEA', ',': 'BEACH', '.': 'LOW', '=': 'LOW_FLAT', '^': 'HIGH', '#': 'HIGH_FLAT', '-': 'MID',
            '+': 'MID_FLAT', 'n': 'HILL', '*': 'TOP', '%': 'TOP_FLAT', 'r': 'RAMP', 'm': 'HIGH_HILL', '/': 'SLOPE',
@@ -323,6 +323,22 @@ if _shelter:
             assert grid[y][x] != ':', 'el refugio pisaría el sendero en %d, %d' % (x, y)
             grid[y][x] = 'R'
     assert _path_before == [(x, y) for y in range(H) for x in range(W) if grid[y][x] == ':']
+
+# 12) El portal, delante de la boca del refugio (César, sesión 25): Mira llega de espaldas al portal y con el refugio
+# de frente, a unos 7 m. Donde estaba (al oeste del refugio, de cara al acantilado) se escribe el suelo deducido,
+# como en el paso 11. El portal ocupa 3 × 2 casillas de explanada baja.
+PORTAL_AT = (47, 70)       # esquina noroeste de sus 3 × 2 casillas: centrado con la boca del refugio (x 47–48), con una fila libre antes de la loma del sur
+PORTAL_SIZE = (3, 2)
+_portal = [(x, y) for y in range(H) for x in range(W) if grid[y][x] == 'P']
+if _portal:
+    _fill = {(x, y): _inferred(x, y) for x, y in _portal}
+    for (x, y), c in _fill.items():
+        grid[y][x] = c
+    px0, py0 = PORTAL_AT
+    for y in range(py0, py0 + PORTAL_SIZE[1]):
+        for x in range(px0, px0 + PORTAL_SIZE[0]):
+            assert grid[y][x] == '=', 'el portal no cae en explanada baja en %d, %d' % (x, y)
+            grid[y][x] = 'P'
 
 legend_add = [
     '//  -  parte media (terraza a 3 m; se anda, no se construye)      +  explanada media (plana; se construye)  nivel 2 (3 m)',

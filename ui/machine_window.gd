@@ -1,9 +1,12 @@
 class_name MachineWindow
 extends CanvasLayer
-## Ventana de una construcción (C1.3; tema y dos columnas en C2), con E. Sustituye al intercambio rápido.
-## A la izquierda, la construcción; a la derecha, la mochila (César: así cabe toda aunque crezca; la barra se
-## queda abajo en la pantalla).
+## Ventana de una construcción (C1.3; tema en C2), con E. Sustituye al intercambio rápido.
+## Desde la sesión 25, con el diseño de tres columnas del banco (César: en las ventanas manda lo que se hace):
+## a la izquierda, lo que trabaja (entrada, progreso y salida, o el contenido de un almacén); en el centro, la
+## información (receta, ritmo por minuto, estado de la red y el fusible), que no sale si no hay nada que decir
+## (arcones); a la derecha, la mochila compacta. La barra se queda abajo en la pantalla.
 ## - Máquina (horno, carbonera…): entrada, progreso por celdas, salida y la receta con iconos.
+## - Máquinas, extractores y taladores: lo que piden y dan por minuto (sesión 25, César, `UiRateRow`).
 ## - Extractor y talador: progreso y lo que guardan.
 ## - Almacén (arcón, caja logística): su contenido.
 ## - Generador y poste: la red y, en los generadores, el botón para rearmar el fusible.
@@ -11,6 +14,7 @@ extends CanvasLayer
 ## E, Esc o el botón de cerrar la cierran.
 
 const LEFT_WIDTH: float = 340.0
+const INFO_WIDTH: float = 360.0   # si el ritmo del horno (dos entradas y dos salidas) no cabe, la columna se ensancha sola
 const RECIPE_ICON: Vector2 = Vector2(28, 28)
 
 var _window: UiWindow
@@ -24,10 +28,16 @@ var _output_box: VBoxContainer
 var _output_grid: InventoryGrid
 var _recipe_box: VBoxContainer
 var _recipe_row: HBoxContainer
+var _rates_box: VBoxContainer
+var _rates_row: UiRateRow
+var _status_box: VBoxContainer
 var _status_row: HBoxContainer
 var _status_hex: UiHex
 var _status: Label
 var _fuse_button: Button
+## Columna de la información y su separador (se ocultan si no hay nada que enseñar).
+var _info: VBoxContainer
+var _info_separator: VSeparator
 ## Construcción que se está viendo.
 var _view: BuildingView = null
 
@@ -73,6 +83,13 @@ func _ready() -> void:
 	_output_grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_output_box.add_child(_output_grid)
 	left.add_child(_output_box)
+	# Información, en el centro
+	_info_separator = VSeparator.new()
+	row.add_child(_info_separator)
+	_info = VBoxContainer.new()
+	_info.custom_minimum_size.x = INFO_WIDTH
+	_info.add_theme_constant_override("separation", 14)
+	row.add_child(_info)
 	# Receta
 	_recipe_box = VBoxContainer.new()
 	_recipe_box.add_theme_constant_override("separation", 8)
@@ -81,24 +98,37 @@ func _ready() -> void:
 	_recipe_row.add_theme_constant_override("separation", 4)
 	_recipe_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	_recipe_box.add_child(_recipe_row)
-	left.add_child(_recipe_box)
+	_info.add_child(_recipe_box)
+	# Por minuto
+	_rates_box = VBoxContainer.new()
+	_rates_box.add_theme_constant_override("separation", 8)
+	_rates_box.add_child(UiSection.new(tr("WINDOW_RATES")))
+	_rates_row = UiRateRow.new(RECIPE_ICON, 14)
+	_rates_box.add_child(_rates_row)
+	_info.add_child(_rates_box)
 	# Estado
+	_status_box = VBoxContainer.new()
+	_status_box.add_theme_constant_override("separation", 8)
+	_status_box.add_child(UiSection.new(tr("WINDOW_STATUS")))
+	_info.add_child(_status_box)
 	_status_row = HBoxContainer.new()
 	_status_row.add_theme_constant_override("separation", 8)
 	_status_hex = UiHex.new(UiStyle.GREEN, 12.0)
 	_status_row.add_child(_status_hex)
 	_status = _make_label("", 14, UiStyle.GREEN)
+	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status.custom_minimum_size.x = INFO_WIDTH - 24.0
 	_status_row.add_child(_status)
-	left.add_child(_status_row)
+	_status_box.add_child(_status_row)
 	_fuse_button = Button.new()
 	_fuse_button.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	_fuse_button.text = tr("WINDOW_RESET_FUSE")
 	_fuse_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_fuse_button.pressed.connect(_on_reset_fuse)
-	left.add_child(_fuse_button)
-	# Mochila a la derecha
+	_info.add_child(_fuse_button)
+	# Mochila compacta a la derecha
 	row.add_child(VSeparator.new())
-	row.add_child(PlayerInventoryPanel.new())
+	row.add_child(PlayerInventoryPanel.new(true))
 	_window.visible = false
 	WindowManager.window_closed.connect(_on_window_closed)
 
@@ -187,6 +217,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _refresh() -> void:
 	var placed: PlacedBuilding = _view.placed
 	var island: IslandState = _view.island
+	_rates_box.visible = _rates_row.show_for(placed, island)
 	var duration: float = 0.0
 	if placed.is_machine():
 		duration = placed.data.recipe.duration
@@ -213,11 +244,14 @@ func _refresh() -> void:
 			lines.append(tr("POWER_NO_POWER"))
 			ok = false
 	_status.text = "\n".join(lines)
-	_status_row.visible = not lines.is_empty()
+	_status_box.visible = not lines.is_empty()
 	var color: Color = UiStyle.GREEN if ok else UiStyle.RED
 	_status.add_theme_color_override("font_color", color)
 	_status_hex.color = color
 	_status_hex.queue_redraw()
+	var has_info: bool = _recipe_box.visible or _rates_box.visible or _status_box.visible or _fuse_button.visible
+	_info.visible = has_info
+	_info_separator.visible = has_info
 
 
 func _on_reset_fuse() -> void:

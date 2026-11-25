@@ -13,6 +13,9 @@ var index: int = 0 ## Posición dentro de ese inventario.
 
 ## ¿Dibuja su propio marco? (la barra de abajo pone el suyo)
 var framed: bool = true
+## Tamaño de la casilla: el normal, o más pequeño en la mochila compacta de las ventanas (sesión 25).
+## Se fija antes de añadirla a la escena.
+var slot_size: Vector2 = SLOT_SIZE
 
 var _hover: bool = false
 var _swatch: ColorRect
@@ -33,7 +36,7 @@ func setup(p_inventory: Inventory, p_index: int) -> void:
 
 
 func _ready() -> void:
-	custom_minimum_size = SLOT_SIZE
+	custom_minimum_size = slot_size
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	add_to_group(&"inventory_slots") # para soltar una pila arrastrada (WindowManager)
 	_apply_frame()
@@ -63,7 +66,7 @@ func _make_label(horizontal: HorizontalAlignment, vertical: VerticalAlignment) -
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_color_override("font_outline_color", Color.BLACK)
 	label.add_theme_constant_override("outline_size", 4)
-	label.add_theme_font_size_override("font_size", 15)
+	label.add_theme_font_size_override("font_size", 15 if slot_size.x >= SLOT_SIZE.x else 12)
 	add_child(label)
 	return label
 

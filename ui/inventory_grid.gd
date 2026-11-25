@@ -8,8 +8,10 @@ var start: int = 0
 var count: int = 0
 
 
-## Crea (o rehace) las casillas. `p_count` < 0 = hasta el final del inventario.
-func setup(p_inventory: Inventory, p_start: int = 0, p_count: int = -1, p_columns: int = 10) -> void:
+## Crea (o rehace) las casillas. `p_count` < 0 = hasta el final del inventario. `p_slot_size`: tamaño de cada
+## casilla (más pequeño en la mochila compacta, sesión 25).
+func setup(p_inventory: Inventory, p_start: int = 0, p_count: int = -1, p_columns: int = 10,
+		p_slot_size: Vector2 = SlotUI.SLOT_SIZE) -> void:
 	inventory = p_inventory
 	start = p_start
 	count = p_inventory.get_slot_count() - p_start if p_count < 0 else p_count
@@ -20,5 +22,6 @@ func setup(p_inventory: Inventory, p_start: int = 0, p_count: int = -1, p_column
 		child.queue_free()
 	for i: int in count:
 		var slot := SlotUI.new()
+		slot.slot_size = p_slot_size
 		slot.setup(inventory, start + i)
 		add_child(slot)

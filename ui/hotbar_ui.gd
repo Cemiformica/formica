@@ -29,8 +29,56 @@ var _bar_label: Label
 var _bar_buttons: Array[Button] = []
 var _hint_label: Label
 
+## La barra en pantalla, para que el icono de lo recogido (`ItemPop`) sepa adónde volar.
+static var _instance: HotbarUI = null
+
+
+## Centro en la pantalla de la casilla de la barra normal que tiene `item`; si no está en la barra (ha ido a la
+## mochila) o se enseña la de construcción, el centro de la barra. (-1, -1) si no hay barra en pantalla.
+static func item_target(item: ItemData) -> Vector2:
+	if _instance == null or not is_instance_valid(_instance) or _instance._cells.is_empty():
+		return Vector2(-1.0, -1.0)
+	var index: int = _instance._slot_with(item)
+	if index >= 0:
+		return _instance._cells[index].get_global_rect().get_center()
+	var first: Rect2 = _instance._cells[0].get_global_rect()
+	var last: Rect2 = _instance._cells[_instance._cells.size() - 1].get_global_rect()
+	return (first.get_center() + last.get_center()) * 0.5
+
+
+## Rebote corto de la casilla que tiene `item`, cuando le llega el icono de lo recogido.
+static func pulse_item(item: ItemData) -> void:
+	if _instance == null or not is_instance_valid(_instance):
+		return
+	var index: int = _instance._slot_with(item)
+	if index < 0:
+		return
+	var cell: PanelContainer = _instance._cells[index]
+	cell.pivot_offset = cell.size * 0.5
+	var tween := cell.create_tween()
+	cell.scale = Vector2.ONE * 1.12
+	tween.tween_property(cell, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+## Casilla de la barra normal (a la vista) con `item`, o -1. En el modo construcción, -1: se ve la otra barra.
+func _slot_with(item: ItemData) -> int:
+	if item == null or _slots.is_empty() or not _slots[0].visible:
+		return -1
+	var inventory: Inventory = WorldState.player_inventory
+	for i: int in mini(_cells.size(), inventory.slots.size()):
+		var stack: ItemStack = inventory.slots[i]
+		if stack != null and stack.item == item:
+			return i
+	return -1
+
+
+func _exit_tree() -> void:
+	if _instance == self:
+		_instance = null
+
 
 func _ready() -> void:
+	_instance = self
 	layer = 4
 	# Todo el ancho de abajo (C2b, César): así la barra queda siempre centrada y con su tamaño, aunque el
 	# texto de ayuda de encima cambie de largo (antes la columna se ensanchaba y no volvía a encoger).

@@ -8,9 +8,10 @@ extends Node
 signal state_replaced
 
 ## Casillas de la barra (las 10 primeras del inventario del jugador) y de cada módulo de la mochila, que va
-## después (C1, César): se empieza con 1 módulo; cada mejora añade otro.
+## después (C1, César): se empieza con 1 módulo; cada mejora añade otro. Módulos de 8 desde la sesión 25 (César:
+## con 10, los 6 módulos daban 60 casillas, demasiadas; ahora 48 más la barra).
 const HOTBAR_SLOTS: int = 10
-const BACKPACK_MODULE_SLOTS: int = 10
+const BACKPACK_MODULE_SLOTS: int = 8
 const START_BACKPACK_MODULES: int = 1
 
 ## Inventario del jugador: casillas 0–9, la barra; desde la 10, la mochila. Al cargar se rellena el MISMO

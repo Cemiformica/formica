@@ -206,6 +206,25 @@ func _ready() -> void:
 		_check("Isla Alba: la rampa de la cumbre sube entre 6 y 9 m", summit_ramp_ok)
 		_check("Isla Alba: refugio de 8 × 7, portal y veta de malaquita", alba.cells_of("R").size() == 56
 				and alba.cells_of("P").size() == 6 and alba.cells_of("M").size() == 9)
+		# El portal, delante de la boca del refugio (sesión 25): centrado con ella, a unos pasos al sur y con
+		# explanada baja libre entre los dos, para que Mira llegue con el refugio de frente.
+		var portal_front_ok: bool = not alba.cells_of("P").is_empty()
+		if portal_front_ok:
+			var shelter_south: int = 0
+			for cell: Vector2i in alba.cells_of("R"):
+				shelter_south = maxi(shelter_south, cell.y)
+			var portal_north: int = 1000
+			var portal_x: float = 0.0
+			for cell: Vector2i in alba.cells_of("P"):
+				portal_north = mini(portal_north, cell.y)
+				portal_x += cell.x + 0.5
+			portal_x /= alba.cells_of("P").size()
+			var gap: int = portal_north - shelter_south - 1
+			portal_front_ok = portal_x > 46.0 and portal_x < 50.0 and gap >= 5 and gap <= 9
+			for y: int in range(shelter_south + 1, portal_north):
+				if alba.ground(Vector2i(floori(portal_x), y)) != IslandLayout.Ground.LOW_FLAT:
+					portal_front_ok = false
+		_check("Isla Alba: el portal, delante de la boca del refugio y con explanada libre entre los dos", portal_front_ok)
 		var shelter_flat: bool = true
 		for cell: Vector2i in alba.cells_of("R"):
 			if alba.ground(cell) != IslandLayout.Ground.LOW_FLAT or not is_zero_approx(alba.terrain_height(cell.x + 0.5, cell.y + 0.5)):

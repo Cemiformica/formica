@@ -2,8 +2,9 @@ class_name FocusPanel
 extends CanvasLayer
 ## Letrero de arriba (C1.8, César; como el mod Jade de Minecraft): nombre de lo que miras, su estado de
 ## energía si es una construcción, la primera fila de lo que guarda si es un almacén, y qué hacen la E y el
-## clic. Sustituye a los textos flotantes de las construcciones. Se oculta en el modo construcción y con una
-## ventana abierta. Uso: `add_child(FocusPanel.new())` y `set_player(player)`.
+## clic. Sustituye a los textos flotantes de las construcciones. Debajo del estado, el ritmo por minuto: lo que
+## pide y lo que da (sesión 25, César, `UiRateRow`). Se oculta en el modo construcción y con una ventana abierta.
+## Uso: `add_child(FocusPanel.new())` y `set_player(player)`.
 
 const COLOR_BACKGROUND: Color = Color(0.11, 0.09, 0.08, 0.92)
 ## Naranja de la arcilla (4,2), el acento de las máquinas (Guía de arte), y uno más claro (4,1) para leerse bien.
@@ -27,6 +28,7 @@ var _player: Player = null
 var _top: MarginContainer
 var _name_label: Label
 var _status_label: Label
+var _rates_row: UiRateRow
 var _storage_row: HBoxContainer
 var _preview_cells: Array[ColorRect] = []
 var _preview_icons: Array[TextureRect] = []
@@ -73,6 +75,8 @@ func _ready() -> void:
 	panel.add_child(column)
 	_name_label = _make_label(column, 22, COLOR_NAME) # destaca por tamaño y color (sin engrosar: César)
 	_status_label = _make_label(column, 15, COLOR_POWER_NONE)
+	_rates_row = UiRateRow.new(Vector2(24, 24), 15)
+	column.add_child(_rates_row)
 	_storage_row = HBoxContainer.new()
 	_storage_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	_storage_row.add_theme_constant_override("separation", 3)
@@ -132,6 +136,7 @@ func _process(_delta: float) -> void:
 	if view != null and view.placed == null:
 		view = null
 	_update_status(view)
+	_rates_row.show_for(view.placed if view != null else null, view.island if view != null else null)
 	_update_storage(view)
 	_update_needs(target)
 	_update_hint(target)

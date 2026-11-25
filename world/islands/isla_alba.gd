@@ -13,6 +13,8 @@ const LAYOUT_PATH: String = "res://content/islands/isla_alba.txt"
 const DEV_KIT: bool = true
 ## Rocas y palos que ya hay al llegar: se dejan aparecer los que saldrían en unos minutos.
 const START_SPAWN_STEPS: int = 12
+## Distancia (m) del borde norte del portal a la que aparece Mira.
+const SPAWN_GAP: float = 1.5
 
 @onready var player: Player = $Player
 
@@ -36,18 +38,19 @@ func _ready() -> void:
 	add_child(hud)
 
 
-## Mira aparece dos casillas delante del portal (al sur), mirando al norte, hacia el refugio y la cuesta.
+## Mira aparece delante del portal, por su lado norte, de espaldas a él y mirando al norte: con la boca del
+## refugio de frente, a unos 6 m (el portal está al sur del refugio desde la sesión 25).
 func _place_player_at_portal(layout: IslandLayout) -> void:
 	var portal: Array[Vector2i] = layout.cells_of("P")
 	if portal.is_empty():
 		return
 	var center := Vector2(0.0, 0.0)
-	var bottom: int = 0
+	var top: int = 1000
 	for cell: Vector2i in portal:
 		center += Vector2(cell.x + 0.5, cell.y + 0.5)
-		bottom = maxi(bottom, cell.y)
+		top = mini(top, cell.y)
 	center /= portal.size()
-	player.global_position = Vector3(center.x, 0.2, bottom + 3.0)
+	player.global_position = Vector3(center.x, 0.2, top - SPAWN_GAP)
 	player.rotation.y = 0.0
 	player.spawn_transform = player.global_transform
 	player.reset_physics_interpolation()

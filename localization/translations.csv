@@ -166,3 +166,37 @@ HINT_LIGHT_ON,Encender,Encendre,Light
 HINT_LIGHT_OFF,Apagar,Apagar,Put out
 REPAIR_LIGHT_LANTERN,Candil,Gresol,Oil lamp
 REPAIR_LIGHT_HEARTH,Fogón,Fogó,Hearth
+WINDOW_RATES,Por minuto,Per minut,Per minute
+RATE_BELT_MAX,Hasta %s,Fins a %s,Up to %s
+TAB_ALL,Todo,Tot,All
+TAB_COMPONENTS,Componentes,Components,Components
+TAB_TOOLS,Herramientas,Eines,Tools
+TAB_COMPONENTS_ONE,Componente,Component,Component
+TAB_TOOLS_ONE,Herramienta,Eina,Tool
+WINDOW_MAX,Máx,Màx,Max
+CRAFT_CAN_MAKE,Puedes hacer %d,En pots fer %d,You can make %d
+CRAFT_CANNOT_MAKE,No te llega para ninguna,No et n'arriba per a cap,Not enough for any
+CRAFT_YIELD,Recibirás %d × %s,Rebràs %d × %s,You'll get %d × %s
+CATALOG_CATEGORIES,Categorías,Categories,Categories
+CATALOG_COUNT,%d construcciones,%d construccions,%d buildings
+CATALOG_COUNT_ONE,1 construcción,1 construcció,1 building
+CATALOG_DETAIL,Detalle,Detall,Details
+CATALOG_COST,Coste,Cost,Cost
+CATALOG_KIND,%s · %d × %d casillas,%s · %d × %d caselles,%s · %d × %d tiles
+CATALOG_POWER_MAKES,Genera %d de energía,Genera %d d'energia,Makes %d power
+CATALOG_POWER_USES,Consume %d de energía,Consumeix %d d'energia,Uses %d power
+CATALOG_CAN_BUILD,Puedes construirla,La pots construir,You can build it
+CATALOG_MISSING,Te faltan materiales,Et falten materials,Missing materials
+BUILDING_SOLAR_PANEL_DESC,Energía del Nexo: no necesita nada para funcionar.,Energia del Nexe: no necessita res per funcionar.,Nexus power: needs nothing to run.
+BUILDING_POWER_POLE_DESC,Reparte la energía: une hasta 4 cables.,Reparteix l'energia: uneix fins a 4 cables.,Shares power: joins up to 4 cables.
+BUILD_CABLE_DESC,"Une dos construcciones eléctricas, a 12 m como mucho.","Uneix dues construccions elèctriques, a 12 m com a molt.","Joins two electric buildings, up to 12 m apart."
+BUILDING_WATER_WHEEL_DESC,Genera energía en la orilla de un río que corre.,Genera energia a la vora d'un riu que corre.,Makes power on the bank of a flowing river.
+BUILDING_FURNACE_DESC,Funde mineral de cobre con carbón vegetal: da lingotes y escoria.,Fon mineral de coure amb carbó vegetal: dona lingots i escòria.,Smelts copper ore with charcoal into ingots and slag.
+BUILDING_CHARCOAL_KILN_DESC,Convierte madera en carbón vegetal.,Converteix fusta en carbó vegetal.,Turns wood into charcoal.
+BUILDING_EXTRACTOR_DESC,Saca mineral de una veta: la cabeza va sobre su borde.,Treu mineral d'una veta: el cap va sobre la vora.,Mines ore from a vein: its head sits on the edge.
+BUILDING_TREE_CUTTER_DESC,Tala los árboles de la zona de 3 × 3 que tiene delante.,Talla els arbres de la zona de 3 × 3 que té davant.,Cuts the trees in the 3 × 3 area in front of it.
+BUILDING_WORKBENCH_DESC,Fabrica componentes y herramientas a mano.,Fabrica components i eines a mà.,Crafts components and tools by hand.
+BUILDING_CONVEYOR_DESC,Lleva ítems de una construcción a otra: hasta 90/min.,Porta ítems d'una construcció a una altra: fins a 90/min.,Carries items between buildings: up to 90/min.
+BUILDING_LOGISTIC_BOX_DESC,Guarda 8 casillas y pasa lo que le llega a la cinta de salida.,Guarda 8 caselles i passa el que li arriba a la cinta de sortida.,Holds 8 slots and passes items on to the output belt.
+BUILDING_STORAGE_CHEST_DESC,Guarda 16 casillas.,Guarda 16 caselles.,Holds 16 slots.
+WINDOW_STATUS,Estado,Estat,Status
