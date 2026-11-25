@@ -2,7 +2,7 @@
 # Uso (desde esta carpeta):  python make_isla_alba_v3.py isla_alba_v2.txt ../../../content/islands/isla_alba.txt isla_alba_v3.png
 # Lee también terrace_mask.json (forma de la terraza dibujada por César) y paint_v3.json (lomas altas en amarillo y
 # tierra pisada en morado y rosa, de sus dibujos). Necesita Pillow para la imagen de comprobación.
-# Ojo: si se retoca isla_alba.txt a mano, volver a generar lo machaca.
+# Ojo: si se retoca isla_alba.txt a mano, volver a generar lo machaca. Para pintar a mano está paint_alba.png (paso 13).
 # Parte del plano v2 con sendero y añade: bolsas en la explanada baja separadas por lomas con árboles y peñascos,
 # una terraza a 3 m (explanada media) con su rampa, y la explanada alta más pequeña y con el borde roto.
 import math, sys, random
@@ -340,6 +340,142 @@ if _portal:
             assert grid[y][x] == '=', 'el portal no cae en explanada baja en %d, %d' % (x, y)
             grid[y][x] = 'P'
 
+# 13) La pintura de César (`paint_alba.png`, sesión 26): tierra pisada, árboles salvajes, arboledas, barandilla, césped
+# (hierba aunque haya sendero o rellano) y escala, pintados en Paint sobre el plano (8 píxeles por casilla; los colores,
+# en la columna de la derecha; el amarillo y el azul, los de Paint que eligió César). Si la imagen no existe, se crea con
+# lo que hay ahora; si existe, manda ella en todo eso (lo que no esté pintado de su color, no lo lleva).
+# Una casilla lleva una cosa si tiene al menos PAINT_MIN píxeles de su color (con tolerancia; PAINT_MIN_THIN para las
+# líneas finas), así no hace falta pintar con cuidado; la tierra pisada se puede combinar con un árbol o con la barandilla. El resto de colores no cuenta.
+from PIL import Image, ImageDraw, ImageFont
+PAINT_FILE = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'paint_alba.png')
+CELL_PX = 8
+PAINT_MIN = 12
+# Lo que se pinta con líneas finas (barandilla, escala y la franja de césped a su lado): con unos pocos píxeles basta.
+PAINT_MIN_THIN = {'fence': 3, 'ladder': 3, 'grass': 4}
+PAINT_TOLERANCE = 70
+PAINT_MARGIN = 330
+PAINT_COLORS = {'worn': (170, 0, 210), 'tree': (0, 80, 0), 'grove': (0, 210, 80), 'fence': (255, 0, 0),
+                'grass': (255, 242, 0), 'ladder': (0, 162, 232)}
+PAINT_LABELS = {'worn': 'Tierra pisada', 'tree': 'Árbol salvaje (t)', 'grove': 'Arboleda (T, mejor 3 × 3)',
+                'fence': 'Barandilla', 'grass': 'Césped (sin tierra)', 'ladder': 'Escala'}
+GROUND_COLORS = {"~": (143, 208, 236), ",": (238, 217, 166), ".": (169, 214, 126), "=": (188, 224, 143), "^": (94, 158, 78),
+                 "#": (123, 180, 99), "/": (150, 160, 88), ":": (190, 150, 100), "_": (196, 176, 118), "O": (63, 169, 216),
+                 "o": (90, 185, 225), "v": (40, 140, 205), "<": (40, 140, 205), ">": (40, 140, 205), "C": (233, 246, 252),
+                 "s": (150, 140, 125), "R": (200, 85, 61), "P": (242, 177, 58), "M": (46, 158, 126), "S": (142, 138, 128),
+                 "X": (120, 112, 100), "A": (90, 84, 76), "G": (120, 60, 30), "H": (200, 120, 70), "Q": (40, 35, 30),
+                 "E": (140, 100, 60), "n": (130, 175, 95), "-": (170, 190, 120), "+": (215, 228, 160), "r": (160, 150, 90),
+                 "m": (80, 140, 70), "*": (70, 128, 60), "%": (150, 200, 110)}
+fence = [['.'] * W for _ in range(H)]
+lawn = [['.'] * W for _ in range(H)]
+ladder = [['.'] * W for _ in range(H)]
+
+def _ground_char(x, y):
+    # Lo que hay debajo de un árbol, para el fondo de la imagen.
+    return _inferred(x, y) if grid[y][x] in 'tT' else grid[y][x]
+
+def _write_paint_image():
+    img = Image.new('RGB', (W * CELL_PX + PAINT_MARGIN, H * CELL_PX), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    for y in range(H):
+        for x in range(W):
+            # El plano, apagado (mezclado con blanco) para que no se confunda con los colores de pintar.
+            col = GROUND_COLORS.get(_ground_char(x, y), (255, 0, 255))
+            # (el sendero y el rellano, menos apagados: por ahí va la barandilla).
+            fade = 0.3 if _ground_char(x, y) in ':_' else 0.55
+            col = tuple(int(c * (1.0 - fade) + 255 * fade) for c in col)
+            x0, y0 = x * CELL_PX, y * CELL_PX
+            draw.rectangle([x0, y0, x0 + CELL_PX - 1, y0 + CELL_PX - 1], fill=col)
+            line = tuple(int(c * 0.8) for c in col)   # cuadrícula cada 10 casillas, de 1 píxel, para orientarse
+            if x % 10 == 0:
+                draw.line([x0, y0, x0, y0 + CELL_PX - 1], fill=line)
+            if y % 10 == 0:
+                draw.line([x0, y0, x0 + CELL_PX - 1, y0], fill=line)
+            if worn[y][x] == 'x':
+                draw.rectangle([x0, y0, x0 + CELL_PX - 1, y0 + CELL_PX - 1], fill=PAINT_COLORS['worn'])
+            elif lawn[y][x] == 'g':
+                draw.rectangle([x0, y0, x0 + CELL_PX - 1, y0 + CELL_PX - 1], fill=PAINT_COLORS['grass'])
+            mark = ('tree' if grid[y][x] == 't' else 'grove' if grid[y][x] == 'T' else 'fence' if fence[y][x] == 'b'
+                    else 'ladder' if ladder[y][x] == 'e' else '')
+            if mark:   # un cuadrado en el centro, para que se vea la tierra pisada de debajo
+                draw.rectangle([x0 + 2, y0 + 2, x0 + CELL_PX - 3, y0 + CELL_PX - 3], fill=PAINT_COLORS[mark])
+    font = None
+    for name in ('arial.ttf', 'DejaVuSans.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'):   # con tildes
+        try:
+            font = ImageFont.truetype(name, 16)
+            break
+        except OSError:
+            pass
+    if font is None:
+        font = ImageFont.load_default()
+    left = W * CELL_PX + 16
+    draw.text((left, 12), 'Colores para pintar', fill=(0, 0, 0), font=font)
+    draw.text((left, 32), '(cógelos con el cuentagotas)', fill=(90, 90, 90), font=font)
+    for i, key in enumerate(PAINT_COLORS):
+        top = 66 + i * 52
+        draw.rectangle([left, top, left + 40, top + 40], fill=PAINT_COLORS[key])
+        draw.text((left + 50, top + 10), PAINT_LABELS[key], fill=(0, 0, 0), font=font)
+    top = 66 + len(PAINT_COLORS) * 52 + 10
+    for line in ['Borrar: pinta de blanco', '(o de cualquier otro color).', '', '1 casilla = 8 × 8 píxeles.',
+                 'Cuadrícula cada 10 casillas.', 'Casilla = píxel / 8 (la posición', 'del ratón sale abajo en Paint).',
+                 '', 'El sendero y el resto del plano', 'no se pintan aquí: son el fondo.']:
+        draw.text((left, top), line, fill=(60, 60, 60), font=font)
+        top += 22
+    img.save(PAINT_FILE)
+
+def _read_paint_image():
+    img = Image.open(PAINT_FILE).convert('RGB')
+    assert img.width >= W * CELL_PX and img.height >= H * CELL_PX, 'paint_alba.png es más pequeña que el plano'
+    px = img.load()
+    painted = {key: [[False] * W for _ in range(H)] for key in PAINT_COLORS}
+    for y in range(H):
+        for x in range(W):
+            counts = dict.fromkeys(PAINT_COLORS, 0)
+            for b in range(CELL_PX):
+                for a in range(CELL_PX):
+                    c = px[x * CELL_PX + a, y * CELL_PX + b]
+                    for key, ref in PAINT_COLORS.items():
+                        if sum((c[k] - ref[k]) ** 2 for k in range(3)) <= PAINT_TOLERANCE ** 2:
+                            counts[key] += 1
+            for key in PAINT_COLORS:
+                painted[key][y][x] = counts[key] >= PAINT_MIN_THIN.get(key, PAINT_MIN)
+    return painted
+
+if not os.path.exists(PAINT_FILE):
+    _write_paint_image()
+    print('paint_alba.png creada con lo que hay ahora en el plano')
+painted = _read_paint_image()
+_NO_TREE = 'RPMSXAGHQE~OovC<>s'   # objetos, mar y agua: ahí no se pone un árbol ni la barandilla
+skipped = {'tree': 0, 'fence': 0, 'ladder': 0}
+# Primero se quitan los árboles que ya no están pintados (su suelo, el de alrededor, como en el paso 11)...
+_fill = {(x, y): _inferred(x, y) for y in range(H) for x in range(W)
+         if (grid[y][x] == 't' and not painted['tree'][y][x]) or (grid[y][x] == 'T' and not painted['grove'][y][x])}
+for (x, y), c in _fill.items():
+    grid[y][x] = c
+# ...y después se ponen los pintados.
+for y in range(H):
+    for x in range(W):
+        # El césped manda sobre la tierra pisada.
+        lawn[y][x] = 'g' if painted['grass'][y][x] and grid[y][x] not in _NO_TREE else '.'
+        worn[y][x] = 'x' if painted['worn'][y][x] and lawn[y][x] != 'g' else '.'
+        for key, ch in (('tree', 't'), ('grove', 'T')):
+            if painted[key][y][x] and grid[y][x] not in 'tT':
+                if grid[y][x] in _NO_TREE:
+                    skipped['tree'] += 1
+                else:
+                    grid[y][x] = ch
+        for key, layer, ch in (('fence', fence, 'b'), ('ladder', ladder, 'e')):
+            if painted[key][y][x]:
+                if grid[y][x] in _NO_TREE:
+                    skipped[key] += 1
+                else:
+                    layer[y][x] = ch
+if any(skipped.values()):
+    print('pintura sobre agua u objetos, sin poner: %d árboles, %d de barandilla, %d de escala' % (
+        skipped['tree'], skipped['fence'], skipped['ladder']))
+print('pintura: %d casillas de tierra pisada, %d árboles salvajes, %d de arboleda, %d de barandilla, %d de césped, '
+      '%d de escala' % (sum(r.count('x') for r in worn), sum(r.count('t') for r in grid), sum(r.count('T') for r in grid),
+                        sum(r.count('b') for r in fence), sum(r.count('g') for r in lawn), sum(r.count('e') for r in ladder)))
+
 legend_add = [
     '//  -  parte media (terraza a 3 m; se anda, no se construye)      +  explanada media (plana; se construye)  nivel 2 (3 m)',
     '//  *  cumbre (se anda, no se construye)       %  explanada de la cumbre (plana; se construye)   nivel 3 (9 m)',
@@ -354,10 +490,15 @@ for k, l in enumerate(legend_add):
 head.append('//')
 head.append('// Al final, la capa [tierra pisada]: el mismo tamaño que el plano; x = tierra pisada (se pinta como el sendero,')
 head.append('// sin cambiar dónde se construye). Se puede dibujar a mano.')
+head.append('// Después, las capas de la sesión 26: [barandilla] (b = casilla con un tramo, C5.6b), [césped] (g = hierba aunque')
+head.append('// sea sendero, rellano o tierra pisada) y [escala] (e = casilla de la escala reparable, C5.6b).')
+head.append('// Las capas y los árboles salen de art/tools/isla_alba/paint_alba.png (paso 13 del generador).')
 open(out, 'w', encoding='utf-8', newline='\n').write('\n'.join(head) + '\n' + '\n'.join(''.join(r) for r in grid) + '\n'
-        + '[tierra pisada]\n' + '\n'.join(''.join(r) for r in worn) + '\n')
+        + '[tierra pisada]\n' + '\n'.join(''.join(r) for r in worn) + '\n'
+        + '[barandilla]\n' + '\n'.join(''.join(r) for r in fence) + '\n'
+        + '[césped]\n' + '\n'.join(''.join(r) for r in lawn) + '\n'
+        + '[escala]\n' + '\n'.join(''.join(r) for r in ladder) + '\n')
 
-from PIL import Image
 COLORS = {"~": (143, 208, 236), ",": (238, 217, 166), ".": (169, 214, 126), "=": (188, 224, 143), "^": (94, 158, 78),
           "#": (123, 180, 99), "/": (150, 160, 88), ":": (190, 150, 100), "_": (196, 176, 118), "O": (63, 169, 216), "o": (90, 185, 225),
           "v": (40, 140, 205), "<": (40, 140, 205), ">": (40, 140, 205), "C": (233, 246, 252), "s": (150, 140, 125),

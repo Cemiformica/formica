@@ -86,6 +86,13 @@ func get_occupant(cell: Vector2i) -> int:
 	return _cells.get(cell, 0)
 
 
+## Todas las casillas ocupadas (para el césped 3D, C5.6).
+func occupied_cells() -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	result.assign(_cells.keys())
+	return result
+
+
 ## Número de construcciones colocadas.
 func get_occupant_count() -> int:
 	return _placements.size()

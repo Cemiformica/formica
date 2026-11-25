@@ -38,6 +38,14 @@ const HILL_CUT_RAMP: float = 1.2
 const PATH_CUT_REACH: float = 4.0
 ## Cabecera de la capa de tierra pisada al final del plano: debajo, filas del mismo tamaño; `x` = tierra pisada.
 const WEAR_LAYER_HEADER: String = "[tierra pisada]"
+## Capa de la barandilla (sesión 26, para C5.6b): `b` = casilla con un tramo. La pinta César en `paint_alba.png`.
+const FENCE_LAYER_HEADER: String = "[barandilla]"
+## Capa del césped (sesión 26): `g` = hierba aunque sea sendero, rellano o tierra pisada (César: junto a la barandilla
+## del mirador). Solo cambia el color y el césped 3D, no las alturas ni dónde se construye.
+const GRASS_LAYER_HEADER: String = "[césped]"
+## Capa de la escala (sesión 26, para C5.6b): `e` = casilla de la escala reparable entre las dos alturas.
+const LADDER_LAYER_HEADER: String = "[escala]"
+const LAYER_HEADERS: PackedStringArray = [WEAR_LAYER_HEADER, FENCE_LAYER_HEADER, GRASS_LAYER_HEADER, LADDER_LAYER_HEADER]
 ## Hondura del fondo del agua de la isla bajo su nivel, y fondo del mar (C5.3d).
 const WATER_DEPTH: float = 0.8
 const SEA_BED: float = -1.6
@@ -136,6 +144,12 @@ const LANDMARK_MOUND_RADIUS: float = 5.0
 ## Tierra pisada de cada casilla (0 a 1): 1 en el sendero y, donde el sendero llega a la parte baja o a la alta, una
 ## mancha que se va apagando para que no empiece de golpe (C5.4a, César). La usa el terreno para pintar.
 var _wear: PackedFloat32Array = PackedFloat32Array()
+## Casillas con un tramo de barandilla (`FENCE_LAYER_HEADER`), en orden de lectura.
+var fence_cells: Array[Vector2i] = []
+## Casillas de la escala (`LADDER_LAYER_HEADER`), en orden de lectura.
+var ladder_cells: Array[Vector2i] = []
+## Casillas con césped pintado (`GRASS_LAYER_HEADER`): 1 = sin tierra pisada.
+var _forced_grass: PackedByteArray = PackedByteArray()
 ## Casillas pintadas de tierra pisada en la capa del plano (`WEAR_LAYER_HEADER`).
 var _worn: PackedByteArray = PackedByteArray()
 ## Desnivel de cada casilla en lo dibujado (m), para no pintar tierra pisada en lo inclinado.
@@ -168,24 +182,40 @@ static func load_file(path: String) -> IslandLayout:
 	return from_text(file.get_as_text())
 
 
+## Casillas de una capa marcadas con `mark`, en orden de lectura (lo que se sale del plano no cuenta).
+static func _layer_cells(layer_rows: PackedStringArray, mark: String, plan_size: Vector2i) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	for y: int in mini(layer_rows.size(), plan_size.y):
+		for x: int in mini(layer_rows[y].length(), plan_size.x):
+			if layer_rows[y][x] == mark:
+				cells.append(Vector2i(x, y))
+	return cells
+
+
+## ¿Tiene la casilla césped pintado (capa `GRASS_LAYER_HEADER`)? Ahí no hay tierra pisada.
+func is_forced_grass(cell: Vector2i) -> bool:
+	return has_cell(cell) and not _forced_grass.is_empty() and _forced_grass[cell.y * size.x + cell.x] == 1
+
+
 ## Lee un plano de un texto. Las líneas que empiezan por // son comentarios; un carácter desconocido se
 ## lee como mar, con aviso.
 static func from_text(text: String) -> IslandLayout:
 	var layout := IslandLayout.new()
-	var rows: PackedStringArray = []
-	var worn_rows: PackedStringArray = []
-	var in_wear_layer: bool = false
+	# Las filas de cada capa (`LAYER_HEADERS`) van aparte; "" es el plano.
+	var layers: Dictionary[String, Array] = {"": []}
+	var layer: String = ""
 	for line: String in text.split("\n"):
 		line = line.trim_suffix("\r")
 		if line.begins_with("//") or line.strip_edges() == "":
 			continue
-		if line.strip_edges() == WEAR_LAYER_HEADER:
-			in_wear_layer = true
+		if LAYER_HEADERS.has(line.strip_edges()):
+			layer = line.strip_edges()
+			if not layers.has(layer):
+				layers[layer] = []
 			continue
-		if in_wear_layer:
-			worn_rows.append(line)
-		else:
-			rows.append(line)
+		layers[layer].append(line)
+	var rows := PackedStringArray(layers[""])
+	var worn_rows := PackedStringArray(layers.get(WEAR_LAYER_HEADER, []))
 	var width: int = 0
 	for row: String in rows:
 		width = maxi(width, row.length())
@@ -219,6 +249,11 @@ static func from_text(text: String) -> IslandLayout:
 		for x: int in mini(worn_rows[y].length(), width):
 			if worn_rows[y][x] == "x":
 				layout._worn[y * width + x] = 1
+	layout.fence_cells = _layer_cells(PackedStringArray(layers.get(FENCE_LAYER_HEADER, [])), "b", layout.size)
+	layout.ladder_cells = _layer_cells(PackedStringArray(layers.get(LADDER_LAYER_HEADER, [])), "e", layout.size)
+	layout._forced_grass.resize(width * rows.size())
+	for cell: Vector2i in _layer_cells(PackedStringArray(layers.get(GRASS_LAYER_HEADER, [])), "g", layout.size):
+		layout._forced_grass[cell.y * width + cell.x] = 1
 	layout._compute_heights()
 	layout._compute_corners()
 	return layout
@@ -360,6 +395,38 @@ func terrain_height(x: float, z: float) -> float:
 				- _warp_noise.get_noise_2d(x * 0.5 - 13.0, z * 0.5 + 29.0) * LEDGE_WOBBLE
 		base = lerpf(base, stepped, cliff * LEDGE_AMOUNT)
 	return _keep_above_water(x, z, _keep_above_sea(base, relief(x, z)))
+
+
+## Lo que es pared en un punto (0 a 1), leído también con el desplazamiento que deforma la forma del terreno, para que
+## coincida con las paredes dibujadas (C5.6). El terreno solo pinta roca en las paredes de verdad (en las lomas salían
+## manchas de roca pequeñas y sin estratos, captura de César) y el césped no crece en ellas.
+## Se lee de `_wall_zone`: lo que es pared ensanchado una esquina a cada lado, porque las esquinas de las explanadas no
+## cuentan como pared (son fijas) y el pie y lo alto de cada pared salían de hierba (captura de César).
+func wall_amount(x: float, z: float) -> float:
+	if _wall_zone.is_empty():
+		_compute_wall_zone()
+	var here: float = _bilinear_corners(_wall_zone, x, z)
+	if _point_fixed(x, z):
+		return here
+	var wx: float = x + _warp_noise.get_noise_2d(x, z) * WARP_AMOUNT
+	var wz: float = z + _warp_noise.get_noise_2d(x + 71.3, z - 37.9) * WARP_AMOUNT
+	return maxf(here, _bilinear_corners(_wall_zone, clampf(wx, 0.0, size.x), clampf(wz, 0.0, size.y)))
+
+
+var _wall_zone: PackedFloat32Array = PackedFloat32Array()
+
+
+func _compute_wall_zone() -> void:
+	var row: int = size.x + 1
+	var rows: int = size.y + 1
+	_wall_zone.resize(row * rows)
+	for j: int in rows:
+		for i: int in row:
+			var most: float = 0.0
+			for dj: int in range(-1, 2):
+				for di: int in range(-1, 2):
+					most = maxf(most, _cliffness[clampi(j + dj, 0, rows - 1) * row + clampi(i + di, 0, row - 1)])
+			_wall_zone[j * row + i] = most
 
 
 ## Junto a un río o un lago, la tierra (lo que no es casilla de agua) nunca queda por debajo del agua: si no, al
@@ -1185,6 +1252,11 @@ func _compute_wear() -> void:
 				continue
 			var index: int = y * size.x + x
 			_wear[index] *= 1.0 - smoothstep(WEAR_FLAT_FROM, WEAR_FLAT_TO, _drops[index])
+	# El césped pintado manda (sesión 26): sin tierra pisada, también en el sendero.
+	for y: int in size.y:
+		for x: int in size.x:
+			if is_forced_grass(Vector2i(x, y)):
+				_wear[y * size.x + x] = 0.0
 
 func _average(cells: Array[Vector2i]) -> Vector2:
 	var sum := Vector2.ZERO

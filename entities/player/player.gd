@@ -12,6 +12,9 @@ signal focus_changed(interactable: Interactable)
 ## Se emite al pulsar E sobre una construcción: la interfaz abre su ventana (C1.3).
 signal building_opened(view: BuildingView)
 
+## Parámetro global del shader del césped (Project Settings → Shader Globals, C5.6): la hierba se aparta de Mira.
+const GRASS_PLAYER_PARAM: StringName = &"player_position"
+
 @export_group("Movimiento")
 @export var walk_speed: float = 4.5 ## Velocidad al caminar (m/s; César: 5 se sentía rápido).
 @export var sprint_speed: float = 7.0 ## Velocidad al correr con Mayús (m/s; César: 8,5 se sentía rápido).
@@ -148,6 +151,8 @@ func _process(delta: float) -> void:
 	var moving: bool = Vector2(velocity.x, velocity.z).length() > walk_speed + 0.5
 	var target_fov: float = _base_fov + (sprint_fov_boost if _sprinting and moving else 0.0)
 	camera.fov = lerpf(camera.fov, target_fov, 1.0 - exp(-8.0 * delta))
+	# Césped (C5.6): los pies de Mira, con la posición suavizada para que la hierba no dé tirones.
+	RenderingServer.global_shader_parameter_set(GRASS_PLAYER_PARAM, get_global_transform_interpolated().origin)
 
 
 func _physics_process(delta: float) -> void:

@@ -19,11 +19,6 @@ const DEPTH: float = 0.4
 const WATER_Y: float = -0.08
 ## En las islas con plano, el agua del río y del lago va casi a ras de la orilla, como un río lleno (C5.3d).
 const LAYOUT_WATER_Y: float = -0.02
-## Colores del suelo: hierba (la del suelo de antes), arena en la orilla y, en el fondo, un azul verdoso
-## oscuro: como el agua es transparente, se ve clara en la orilla y más oscura cuanto más hondo (César).
-const GRASS: Color = Color(0.45, 0.6, 0.38)
-const SAND: Color = Color(0.86, 0.79, 0.6)
-const BED_DEEP: Color = Color(0.1, 0.38, 0.5)
 ## Velocidad de la corriente de los ríos (m/s; el shader la multiplica por `flow_visual`).
 const FLOW_SPEED: float = 0.6
 ## Rapidez de cada tramo de río: RIVER_PACE_WIDTH / su ancho, entre el mínimo y el máximo (C5.4d).
@@ -55,6 +50,30 @@ const MOUTH_CELLS: int = 4
 const MOUTH_ABOVE_SEA: float = 0.01   # un pelo por encima del mar, para que las dos láminas no parpadeen
 ## Hasta cuántas esquinas de distancia se lleva la superficie del agua tierra adentro.
 const WATER_SURFACE_SPREAD: int = 3
+
+## Césped 3D (C5.6, D-179): en las islas con plano, `GrassField` pregunta aquí la altura del suelo y dónde puede crecer.
+## Se guarda la rejilla del suelo (un punto cada medio metro, la misma de la malla) con su altura, cuánta hierba admite
+## cada punto (0 a 1) y lo metido que está en su explanada (para los claros, que quita el shader del césped).
+const GRASS_MATERIAL: ShaderMaterial = preload("res://assets/materials/grass.tres")
+## Sin césped por debajo de esta altura sobre el agua cercana (la orilla). Donde el terreno pinta roca, el césped lo quita
+## su shader con la misma cuenta y el mismo ruido que `terrain.gdshader` (le llegan la pendiente y la pared de cada mata,
+## `get_up_at` y `get_wall_at`). Aquí solo se descarta lo que seguro es roca (pendiente por debajo de *_ROCK_UP, más allá
+## del ruido del borde), para no generar matas que no se verían.
+const GRASS_ABOVE_WATER: float = 0.03
+const GRASS_SLOPE_ROCK_UP: float = 0.58
+const GRASS_WALL_ROCK_UP: float = 0.64
+const GRASS_ROCK_FADE: float = 0.04
+const GRASS_WALL_FROM: float = 0.15
+## Objetos del plano bajo los que no crece: todos menos las arboledas y los árboles sueltos.
+const GRASS_FREE_FEATURES: String = "Tt"
+var _grass: GrassField = null
+var _grid_count: Vector2i = Vector2i.ZERO
+var _grid_step: float = 0.5
+var _grid_heights: PackedFloat32Array = PackedFloat32Array()
+var _grid_grass: PackedFloat32Array = PackedFloat32Array()
+var _grid_flat: PackedFloat32Array = PackedFloat32Array()
+var _grid_wall: PackedFloat32Array = PackedFloat32Array()
+var _grid_up: PackedFloat32Array = PackedFloat32Array()
 
 ## Agua de juguete (C5.4d): el mismo shader, con corriente en los ríos y sin ella en lagos, estanques y el mar.
 const WATER_SHADER: Shader = preload("res://entities/nature/water.gdshader")
@@ -95,6 +114,7 @@ func rebuild(island: IslandState) -> void:
 		_build_sea(island.layout)
 		_build_debris(island.layout)
 		_build_cascade(island)
+		_refresh_grass(island.layout)
 	else:
 		_build_ground(island, bounds)
 		_sea.mesh = null
@@ -120,12 +140,12 @@ func _build_ground(island: IslandState, bounds: Rect2i) -> void:
 					all_water = false
 			if all_water and shore:
 				depth = DEPTH
-			var color: Color = GRASS
-			if depth > 0.0:
-				color = BED_DEEP
-			elif shore:
-				color = SAND
-			tool.set_color(color)
+			# Mismos datos que `_build_layout_ground()` para usar `terrain.gdshader` (C5.6, César: el sandbox con el
+			# suelo de Isla Alba, para juzgar el césped): arena y mojado en la orilla, todo explanada y, junto al agua,
+			# su superficie, para que el fondo se oscurezca con la hondura.
+			var near: float = 1.0 if shore else 0.0
+			tool.set_color(Color(near, near, 0.0, 0.0))
+			tool.set_uv2(Vector2(WATER_Y if shore else NO_WATER_SURFACE, 1.0))
 			tool.add_vertex(Vector3(bounds.position.x + i * 0.5, -depth, bounds.position.y + j * 0.5))
 	for j: int in count_z - 1:
 		for i: int in count_x - 1:
@@ -137,11 +157,8 @@ func _build_ground(island: IslandState, bounds: Rect2i) -> void:
 				tool.add_index(index)
 	tool.generate_normals()
 	var mesh: ArrayMesh = tool.commit()
-	var material := StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	material.vertex_color_is_srgb = true # los colores de arriba están en sRGB (sin esto salen lavados)
-	material.roughness = 1.0
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var material := ShaderMaterial.new()
+	material.shader = TERRAIN_SHADER
 	mesh.surface_set_material(0, material)
 	_ground.mesh = mesh
 	_collision.shape = mesh.create_trimesh_shape()
@@ -383,6 +400,11 @@ func _build_layout_ground(island: IslandState) -> void:
 			var flat: float = 0.0
 			var wet: float = 0.0
 			var water_surface: float = -INF
+			# Junto al césped pintado (sesión 26), sin arena ni tierra: la hierba llega hasta el filo del acantilado del
+			# mirador (el mar de al lado ponía una franja de arena en lo alto, César).
+			var lawn: bool = false
+			for cell: Vector2i in [Vector2i(i - 1, j - 1), Vector2i(i, j - 1), Vector2i(i - 1, j), Vector2i(i, j)]:
+				lawn = lawn or layout.is_forced_grass(cell)
 			for cell: Vector2i in [Vector2i(i - 1, j - 1), Vector2i(i, j - 1), Vector2i(i - 1, j), Vector2i(i, j)]:
 				match layout.ground(cell):
 					IslandLayout.Ground.BEACH:
@@ -395,11 +417,15 @@ func _build_layout_ground(island: IslandState) -> void:
 						wet = 1.0
 						water_surface = maxf(water_surface, island.ground_height(cell) + LAYOUT_WATER_Y)
 					IslandLayout.Ground.LANDING:
-						path += 0.25 * LANDING_AS_PATH
+						if not layout.is_forced_grass(cell):   # el césped pintado (sesión 26) quita la tierra del rellano
+							path += 0.25 * LANDING_AS_PATH
 				path += 0.25 * layout.wear(cell)
 				# Lo metida que está en su explanada, suave: los claros se apagan antes del borde (César: junto al lago
 				# salía uno cortado en seco por las casillas).
 				flat += 0.25 * smoothstep(0.5, FLAT_FADE_CELLS, layout.flat_depth(cell))
+			if lawn:
+				sand = 0.0
+				path = 0.0
 			var index: int = j * row + i
 			sand_at[index] = sand
 			wet_at[index] = wet
@@ -415,6 +441,10 @@ func _build_layout_ground(island: IslandState) -> void:
 	var step: float = 1.0 / GROUND_SUBDIVISIONS
 	var count_x: int = w * GROUND_SUBDIVISIONS + 1
 	var count_z: int = h * GROUND_SUBDIVISIONS + 1
+	_grid_count = Vector2i(count_x, count_z)
+	_grid_step = step
+	for values: PackedFloat32Array in [_grid_heights, _grid_grass, _grid_flat, _grid_wall, _grid_up]:
+		values.resize(count_x * count_z)
 	var tool := SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for b: int in count_z:
@@ -422,10 +452,20 @@ func _build_layout_ground(island: IslandState) -> void:
 			var x: float = a * step
 			var z: float = b * step
 			var y: float = layout.terrain_height(x, z)
-			tool.set_color(Color(_lerp_corners(sand_at, row, x, z), _lerp_corners(wet_at, row, x, z),
-					_lerp_corners(path_at, row, x, z), clampf(y / IslandLayout.LEVEL_HEIGHT, 0.0, 1.0)))
-			tool.set_uv2(Vector2(_lerp_corners(depth_at, row, x, z), _lerp_corners(flat_at, row, x, z)))
-			tool.set_uv(Vector2(layout.wall_lip(x, z), 0.0))   # el borde de hierba que asoma por lo alto de una pared
+			var sand: float = _lerp_corners(sand_at, row, x, z)
+			var path: float = _lerp_corners(path_at, row, x, z)
+			var water_surface: float = _lerp_corners(depth_at, row, x, z)
+			var flat: float = _lerp_corners(flat_at, row, x, z)
+			var wall: float = layout.wall_amount(x, z)
+			var grid_index: int = b * count_x + a
+			_grid_heights[grid_index] = y
+			_grid_flat[grid_index] = flat
+			_grid_wall[grid_index] = wall
+			_grid_grass[grid_index] = _grass_amount(layout, x, z, y, sand, path, water_surface)
+			tool.set_color(Color(sand, _lerp_corners(wet_at, row, x, z), path, clampf(y / IslandLayout.LEVEL_HEIGHT, 0.0, 1.0)))
+			tool.set_uv2(Vector2(water_surface, flat))
+			# UV.x: el borde de hierba que asoma por lo alto de una pared; UV.y: lo que es pared (solo ahí hay roca, C5.6).
+			tool.set_uv(Vector2(layout.wall_lip(x, z), wall))
 			tool.add_vertex(Vector3(x, y, z))
 	for b: int in count_z - 1:
 		for a: int in count_x - 1:
@@ -442,6 +482,123 @@ func _build_layout_ground(island: IslandState) -> void:
 	mesh.surface_set_material(0, material)
 	_ground.mesh = mesh
 	_collision.shape = mesh.create_trimesh_shape()
+	_remove_steep_grass()
+
+
+## Cuánta hierba admite un punto del suelo (0 a 1): nada bajo el agua ni en la orilla, en la arena, en el sendero y la
+## tierra pisada, ni en las casillas de agua, de los objetos del plano (refugio, portal, vetas…) o de las rocas caídas.
+## En el borde entre dos casillas manda la peor, así el césped no asoma medio metro dentro del refugio.
+func _grass_amount(layout: IslandLayout, x: float, z: float, y: float, sand: float, path: float,
+		water_surface: float) -> float:
+	if water_surface > NO_WATER_SURFACE + 1.0 and y < water_surface + GRASS_ABOVE_WATER:
+		return 0.0
+	var offsets: Array[Vector2] = [Vector2(-0.01, -0.01), Vector2(0.01, -0.01), Vector2(-0.01, 0.01), Vector2(0.01, 0.01)]
+	# Junto al césped pintado, el mar de al lado no lo quita: llega hasta el filo (lo de bajo el agua sigue fuera).
+	var lawn: bool = false
+	for offset: Vector2 in offsets:
+		lawn = lawn or layout.is_forced_grass(Vector2i(floori(x + offset.x), floori(z + offset.y)))
+	for offset: Vector2 in offsets:
+		var cell := Vector2i(floori(x + offset.x), floori(z + offset.y))
+		if not layout.has_cell(cell) or (not layout.is_land(cell) and not lawn) or layout.has_debris(cell):
+			return 0.0
+		var ch: String = layout.char_at(cell)
+		if IslandLayout.FEATURE_CHARS.contains(ch) and not GRASS_FREE_FEATURES.contains(ch):
+			return 0.0
+	# Hasta donde el terreno empieza a pintar arena o tierra (hacia 0,45 en `terrain.gdshader`), algo más allá en
+	# degradado: `is_grass_at` lo usa como probabilidad y alguna mata se mete en el borde (César).
+	return (1.0 - smoothstep(0.35, 0.6, sand)) * (1.0 - smoothstep(0.38, 0.62, path))
+
+
+## Sin césped donde el terreno pinta roca (acantilados y cuestas fuertes): se mira la pendiente en cada punto.
+func _remove_steep_grass() -> void:
+	for b: int in _grid_count.y:
+		for a: int in _grid_count.x:
+			var slope_x: float = (_grid_height(a + 1, b) - _grid_height(a - 1, b)) / (2.0 * _grid_step)
+			var slope_z: float = (_grid_height(a, b + 1) - _grid_height(a, b - 1)) / (2.0 * _grid_step)
+			var up: float = 1.0 / sqrt(1.0 + slope_x * slope_x + slope_z * slope_z)
+			var index: int = b * _grid_count.x + a
+			_grid_up[index] = up
+			var rock_up: float = GRASS_WALL_ROCK_UP if _grid_wall[index] > GRASS_WALL_FROM else GRASS_SLOPE_ROCK_UP
+			_grid_grass[index] *= smoothstep(rock_up, rock_up + GRASS_ROCK_FADE, up)
+
+
+func _grid_height(a: int, b: int) -> float:
+	return _grid_heights[clampi(b, 0, _grid_count.y - 1) * _grid_count.x + clampi(a, 0, _grid_count.x - 1)]
+
+
+## Crea el césped la primera vez y lo rehace después (se genera al siguiente fotograma, con la rejilla ya lista).
+func _refresh_grass(layout: IslandLayout) -> void:
+	if _grass == null:
+		_grass = GrassField.new()
+		_grass.name = "Grass"
+		_grass.height_source = GrassField.HeightSource.PROVIDER
+		_grass.height_provider = self
+		_grass.material = GRASS_MATERIAL
+		_grass.area_size = Vector2(layout.size)
+		_grass.position = Vector3(layout.size.x * 0.5, 0.0, layout.size.y * 0.5)
+		add_child(_grass)
+	else:
+		_grass.regenerate()
+
+
+## Para `GrassField` (coordenadas del mundo): altura del suelo, la misma que dibuja la malla (sus triángulos tienen la
+## diagonal de la esquina p0 a la p3, ver `_build_layout_ground()`).
+func get_height_at(x: float, z: float) -> float:
+	var local: Vector3 = to_local(Vector3(x, 0.0, z))
+	var gx: float = clampf(local.x / _grid_step, 0.0, _grid_count.x - 1.001)
+	var gz: float = clampf(local.z / _grid_step, 0.0, _grid_count.y - 1.001)
+	var a: int = floori(gx)
+	var b: int = floori(gz)
+	var fx: float = gx - a
+	var fz: float = gz - b
+	var h0: float = _grid_height(a, b)
+	var h1: float = _grid_height(a + 1, b)
+	var h2: float = _grid_height(a, b + 1)
+	var h3: float = _grid_height(a + 1, b + 1)
+	var y: float = h0 + fx * (h1 - h0) + fz * (h3 - h1) if fx >= fz else h0 + fz * (h2 - h0) + fx * (h3 - h2)
+	return to_global(Vector3(local.x, y, local.z)).y
+
+
+## Para `GrassField`: ¿puede crecer césped aquí? En los bordes, la cantidad de hierba es una probabilidad (con un
+## número fijo por punto), así el borde no es una línea y alguna mata se adelanta (César).
+func is_grass_at(x: float, z: float) -> bool:
+	var amount: float = _grid_sample(_grid_grass, x, z)
+	if amount >= 0.999:
+		return true
+	var roll: float = float(hash(Vector2i(roundi(x * 100.0), roundi(z * 100.0))) & 0xFFFF) / 65535.0
+	return amount > lerpf(0.1, 0.9, roll)
+
+
+## Para `GrassField`: lo metido que está el punto en su explanada (0 a 1), para los claros de tierra.
+func get_flat_at(x: float, z: float) -> float:
+	return _grid_sample(_grid_flat, x, z)
+
+
+## Para `GrassField`: lo que es pared en el punto (`IslandLayout.wall_amount`, lo mismo que lleva el terreno en UV.y).
+func get_wall_at(x: float, z: float) -> float:
+	return _grid_sample(_grid_wall, x, z)
+
+
+## Para `GrassField`: lo llano que es el suelo (componente vertical de la normal, 1 = llano), para poner más matas en
+## las cuestas.
+func get_up_at(x: float, z: float) -> float:
+	return _grid_sample(_grid_up, x, z) if _grid_count != Vector2i.ZERO else 1.0
+
+
+func _grid_sample(values: PackedFloat32Array, x: float, z: float) -> float:
+	if _grid_count == Vector2i.ZERO:
+		return 0.0
+	var local: Vector3 = to_local(Vector3(x, 0.0, z))
+	var gx: float = clampf(local.x / _grid_step, 0.0, _grid_count.x - 1.001)
+	var gz: float = clampf(local.z / _grid_step, 0.0, _grid_count.y - 1.001)
+	var a: int = floori(gx)
+	var b: int = floori(gz)
+	var fx: float = gx - a
+	var fz: float = gz - b
+	var row: int = _grid_count.x
+	var top: float = lerpf(values[b * row + a], values[b * row + a + 1], fx)
+	var bottom: float = lerpf(values[(b + 1) * row + a], values[(b + 1) * row + a + 1], fx)
+	return lerpf(top, bottom, fz)
 
 
 ## Rocas caídas al pie de las paredes (C5.4c): decorado con las rocas de `nature.glb`, del color de los estratos, en

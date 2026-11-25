@@ -73,6 +73,13 @@ func find_repair_site(id: StringName) -> RepairSiteData:
 	return _repair_sites_by_id.get(id, null)
 
 
+## Registra una estructura por reparar hecha al poner un plano (las barandillas, `FenceBuilder`, C5.6b), para que el
+## guardado la encuentre por su id. Sustituye a la que ya tuviera ese id (se rehacen al cargar cada isla).
+func register_repair_site(site: RepairSiteData) -> void:
+	if site != null and site.id != &"":
+		_repair_sites_by_id[site.id] = site
+
+
 ## Añade `resource` a `index` con su id. Avisa (y lo salta) si el id está vacío o repetido.
 func _register(index: Dictionary, resource: Resource, id: StringName, kind: String) -> void:
 	if resource == null:

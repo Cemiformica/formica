@@ -1,6 +1,7 @@
 // Suelo de las islas con plano (C5.4a). La malla trae en cada esquina lo que la rodea (ver
 // `TerrainView._build_layout_ground()`): COLOR.r arena, COLOR.g mojado, COLOR.b sendero, COLOR.a altura (0 abajo,
-// 1 arriba); UV2.x superficie del agua cercana (m), UV2.y explanada. La roca sale de la pendiente. Las manchas, de un ruido
+// 1 arriba); UV2.x superficie del agua cercana (m), UV2.y explanada; UV.x borde de hierba de las paredes y UV.y lo que
+// es pared. La roca sale de la pendiente, antes en las paredes. Las manchas, de un ruido
 // en coordenadas del mundo (sin texturas). Dónde tocar: los colores y los umbrales de abajo.
 shader_type spatial;
 render_mode cull_disabled;
@@ -35,6 +36,11 @@ uniform float rock_to = 0.75;
 // Ancho del paso de hierba a roca: corto, para que sea una cosa u otra con el borde roto por el ruido (con un paso
 // largo, las cuestas medianas salían a medias, mezcladas y a triángulos: captura de César).
 uniform float rock_edge = 0.03;
+// Pendiente desde la que es roca en el terreno con plano (C5.6, César: las cuestas fuertes, peladas y claras, mejor de
+// roca que de hierba): en las lomas y cuestas, `slope_rock_up` (unos 42°); en las paredes del plano (UV.y), antes,
+// `wall_rock_up` (unos 37°). Los modelos del terreno (refugio) siguen con rock_from y rock_to.
+uniform float slope_rock_up = 0.74;
+uniform float wall_rock_up = 0.8;
 // Cuánto manchan los ruidos (en las explanadas, la mitad: ahí se construye y se tiene que leer bien).
 uniform float patch_strength = 1.0;
 // Claros de tierra pisada sueltos por las explanadas, como en Solarpunk (0 = ninguno) y cuánta explanada cubren
@@ -86,6 +92,8 @@ void fragment() {
 	// La cara del triángulo solo cuenta donde es mucho más empinada que la normal suave (las paredes).
 	float steepness = min(world_normal.y, abs(face_normal.y) + 0.2);
 	float rock_mid = (rock_from + rock_to) * 0.5;
+	float wall_zone = smoothstep(0.12, 0.25, UV.y + (mid - 0.5) * 0.15);
+	rock_mid = object_mode ? rock_mid : mix(slope_rock_up, wall_rock_up, wall_zone);
 	float cliff = 1.0 - smoothstep(rock_mid - rock_edge, rock_mid + rock_edge,
 			steepness + (mid - 0.5) * 0.22 + (fine - 0.5) * 0.05);
 
@@ -134,6 +142,10 @@ void fragment() {
 	rock_color *= 0.92 + 0.12 * fine + 0.08 * (in_layer - 0.5);
 	// Borde de hierba que asoma por lo alto de la pared, con el borde roto (lip_from lo trae de `IslandLayout.wall_lip()`).
 	float lip = smoothstep(0.25, 0.6, lip_from + (mid - 0.5) * 0.5 + (fine - 0.5) * 0.25);
+	// Solo bajo la hierba: bajo el sendero, el rellano o la arena el borde enseñaba su color y colgaban triángulos de
+	// tierra y arena por la pared (C5.6, captura de César junto a la futura barandilla). Ahí, roca hasta el filo.
+	// (Sin la pendiente: `path` y `beach` ya valen 0 en la pared.)
+	lip *= 1.0 - max(smoothstep(0.25, 0.5, worn), smoothstep(0.3, 0.6, ground.r + (mid - 0.5) * 0.35));
 	color = mix(color, rock_color, cliff * (1.0 - lip));
 
 	// Bajo el agua: arena mojada en la orilla y cada vez más oscuro con la hondura.

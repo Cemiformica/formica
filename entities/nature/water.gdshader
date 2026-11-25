@@ -9,7 +9,9 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_never, cull_disabled, specular_schlick_ggx;
 
-uniform sampler2D depth_texture : hint_depth_texture, filter_linear_mipmap;
+// Sin suavizar (C5.6, César: salía un reborde blanco alrededor de la hierba y de todo lo que se ve contra el agua):
+// suavizada, en el borde de lo que hay delante del agua mezclaba su profundidad con la del fondo y pintaba espuma.
+uniform sampler2D depth_texture : hint_depth_texture, filter_nearest;
 
 uniform vec3 shallow_color : source_color = vec3(0.42, 0.88, 0.86);
 uniform vec3 deep_color : source_color = vec3(0.07, 0.38, 0.62);
@@ -102,6 +104,11 @@ void fragment() {
 	scene_view.xyz /= scene_view.w;
 	vec3 scene_world = (INV_VIEW_MATRIX * vec4(scene_view.xyz, 1.0)).xyz;
 	float thickness = max(world_pos.y - scene_world.y, 0.0);
+	// Si lo que hay «detrás» está en realidad delante del agua (el borde de algo que la tapa: una brizna, el filo de la
+	// hierba, una roca), no es una orilla: sin espuma (C5.6).
+	if (-scene_view.z < -VERTEX.z - 0.05) {
+		thickness = foam_width * 3.0;
+	}
 	float deep = smoothstep(0.0, deep_distance, thickness);
 	if (COLOR.g > 0.5 && thickness > shore_max_depth) {
 		discard;

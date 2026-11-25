@@ -37,6 +37,16 @@ var _vein_views: Dictionary[Vector2i, VeinView] = {}
 var _repair_views: Dictionary[Vector2i, RepairSiteView] = {}
 ## Suelo de la isla con su agua: una sola vista (D-094).
 var _terrain_view: TerrainView = null
+## Ya hay una reconstrucción del suelo pedida para el final del fotograma: al cargar la isla llegaban varias seguidas y
+## el terreno se construía tres veces (C5.6).
+var _terrain_pending: bool = false
+## Césped 3D (C5.6): máscara con un píxel por casilla de la isla, blanco donde hay una construcción o una estructura por
+## reparar. El shader del césped (`grass.gdshader`, `block_mask`) quita ahí las matas, sin regenerarlas. Variable y no
+## constante: GDScript no deja modificar una constante.
+var _grass_material: ShaderMaterial = preload("res://assets/materials/grass.tres")
+var _grass_mask: Image = null
+var _grass_mask_texture: ImageTexture = null
+var _grass_mask_pending: bool = false
 ## Líneas de los cables dibujados.
 var _cable_meshes: Array[MeshInstance3D] = []
 var _cable_material: StandardMaterial3D
@@ -120,6 +130,7 @@ func _rebuild() -> void:
 		_on_building_placed(placed)
 	_rebuilding = false
 	_refresh_connections()
+	_queue_grass_mask()
 	_redraw_cables()
 	for cell: Vector2i in _island.nature:
 		_on_nature_changed(cell)
@@ -132,6 +143,7 @@ func _on_building_placed(placed: PlacedBuilding) -> void:
 	_views[placed.id] = view
 	if not _rebuilding:
 		_refresh_connections()
+		_queue_grass_mask()
 		if _island.is_dropping():
 			view.play_drop_effect() # soltar tras moverla (C2b): cae y rebota, sin crecer
 		else:
@@ -143,6 +155,7 @@ func _on_building_removed(placed: PlacedBuilding) -> void:
 		_views[placed.id].queue_free()
 		_views.erase(placed.id)
 	_refresh_connections()
+	_queue_grass_mask()
 
 
 ## Hay una veta nueva: crea su vista.
@@ -163,6 +176,7 @@ func _on_repair_site_added(site_origin: Vector2i) -> void:
 	view.setup(_island.repair_sites[site_origin], _island)
 	add_child(view)
 	_repair_views[site_origin] = view
+	_queue_grass_mask()
 
 
 ## Se entregó algo a una pieza: la vista la pone al día (y la hace crecer si se completó).
@@ -193,10 +207,44 @@ func _on_water_changed() -> void:
 	if _terrain_view == null:
 		_terrain_view = TerrainView.new()
 		add_child(_terrain_view)
+	if _terrain_pending:
+		return
+	_terrain_pending = true
 	_refresh_terrain.call_deferred()
 
 
+## Pide rehacer la máscara del césped al final del fotograma (varias construcciones seguidas = una sola vez).
+func _queue_grass_mask() -> void:
+	if _grass_mask_pending:
+		return
+	_grass_mask_pending = true
+	_refresh_grass_mask.call_deferred()
+
+
+func _refresh_grass_mask() -> void:
+	_grass_mask_pending = false
+	if _island == null or not _island.bounds.has_area():
+		return
+	var bounds: Rect2i = _island.bounds
+	if _grass_mask == null or _grass_mask.get_size() != bounds.size:
+		_grass_mask = Image.create(bounds.size.x, bounds.size.y, false, Image.FORMAT_R8)
+		_grass_mask_texture = null
+	_grass_mask.fill(Color.BLACK)
+	for cell: Vector2i in _island.grass_blocked_cells():
+		var pixel: Vector2i = cell - bounds.position
+		if pixel.x >= 0 and pixel.y >= 0 and pixel.x < bounds.size.x and pixel.y < bounds.size.y:
+			_grass_mask.set_pixelv(pixel, Color.WHITE)
+	if _grass_mask_texture == null:
+		_grass_mask_texture = ImageTexture.create_from_image(_grass_mask)
+	else:
+		_grass_mask_texture.update(_grass_mask)
+	_grass_material.set_shader_parameter(&"block_mask", _grass_mask_texture)
+	_grass_material.set_shader_parameter(&"block_rect",
+			Vector4(bounds.position.x, bounds.position.y, bounds.size.x, bounds.size.y))
+
+
 func _refresh_terrain() -> void:
+	_terrain_pending = false
 	if _terrain_view != null and _island != null:
 		_terrain_view.rebuild(_island)
 

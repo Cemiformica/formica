@@ -158,6 +158,8 @@ REPAIR_PIECE_PROPS,Puntales,Puntals,Props
 REPAIR_PIECE_FLOOR,Suelo,Paviment,Floor
 REPAIR_PIECE_AWNING,Toldo,Tendal,Awning
 REPAIR_PIECE_HATCH,Trampilla,Trapa,Hatch
+REPAIR_FENCE,Barandilla,Barana,Railing
+REPAIR_PIECE_FENCE,Tramo de barandilla,Tram de barana,Railing section
 HINT_REST,Descansar,Descansar,Rest
 REST_DONE,Punto de reaparición establecido. Partida guardada,Punt de reaparició establert. Partida desada,Respawn point set. Game saved
 BUILD_NOT_BUILDABLE,Solo se construye en las explanadas,Només es construeix a les esplanades,You can only build on the flat clearings

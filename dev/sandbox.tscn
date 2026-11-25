@@ -4,6 +4,8 @@
 [ext_resource type="PackedScene" path="res://entities/player/player.tscn" id="2_player"]
 [ext_resource type="Script" uid="uid://cc0vt62h30fot" path="res://entities/interactable.gd" id="3_interactable"]
 [ext_resource type="Script" uid="uid://doxb55pwda30a" path="res://world/island_view.gd" id="4_islandview"]
+[ext_resource type="Script" path="res://entities/nature/grass_field.gd" id="5_grassfield"]
+[ext_resource type="ShaderMaterial" path="res://assets/materials/grass.tres" id="6_grassmat"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
 sky_top_color = Color(0.26, 0.5, 0.85, 1)
@@ -50,6 +52,14 @@ shape = SubResource("BoxShape3D_box")
 
 [node name="IslandView" type="Node3D" parent="." unique_id=231217754]
 script = ExtResource("4_islandview")
+
+[node name="GrassField" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 12)
+script = ExtResource("5_grassfield")
+area_size = Vector2(12, 12)
+chunk_size = 12.0
+height_source = 2
+material = ExtResource("6_grassmat")
 
 [node name="Player" parent="." unique_id=40694821 instance=ExtResource("2_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 4)

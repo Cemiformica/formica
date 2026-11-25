@@ -765,6 +765,12 @@ func _is_free_ground(cell: Vector2i) -> bool:
 			and not _repair_cells.has(cell)
 
 
+## Suelo para un tramo de barandilla: tierra libre, aunque sea empinada o el pie de una pared.
+func _is_fence_ground(cell: Vector2i) -> bool:
+	return (layout == null or layout.is_land(cell)) and not nature.has(cell) and grid.get_occupant(cell) == 0 \
+			and not _vein_cells.has(cell) and not water.has(cell) and not _repair_cells.has(cell)
+
+
 ## ¿Puede aparecer aquí una roca o unos palos? Suelo libre y, con plano, donde el plano lo permite (no en el
 ## rellano mirador, C5.3).
 ## Intentos al azar para encontrar sitio a una roca o unos palos en una isla con plano.
@@ -896,6 +902,16 @@ static func vein_cells(origin: Vector2i) -> Array[Vector2i]:
 	return cells
 
 
+## Casillas en las que no crece el césped 3D (C5.6): las de las construcciones y las de las estructuras por reparar,
+## menos las barandillas (van sobre la hierba, César).
+func grass_blocked_cells() -> Array[Vector2i]:
+	var cells: Array[Vector2i] = grid.occupied_cells()
+	for cell: Vector2i in _repair_cells:
+		if repair_sites[_repair_cells[cell]].data.purpose != FenceBuilder.PURPOSE:
+			cells.append(cell)
+	return cells
+
+
 # --- Estructuras por reparar (C4, D-115) ---
 
 ## Pone una estructura por reparar, sin nada entregado. Devuelve la estructura, o null si alguna de sus
@@ -911,8 +927,11 @@ func _add_repair_site(site: RepairSite) -> bool:
 	if repair_sites.has(site.origin):
 		return false
 	var cells: Array[Vector2i] = site.cells()
+	# La barandilla va justo en el filo, en casillas que cuentan como empinadas (tocan el acantilado): basta con que
+	# sean tierra y estén libres (C5.6b).
+	var fence: bool = site.data.purpose == FenceBuilder.PURPOSE
 	for cell: Vector2i in cells:
-		if not _is_free_ground(cell):
+		if not (_is_fence_ground(cell) if fence else _is_free_ground(cell)):
 			return false
 	repair_sites[site.origin] = site
 	for cell: Vector2i in cells:
@@ -979,13 +998,20 @@ func switch_repair_light(cell: Vector2i, light_index: int, from: Inventory = nul
 
 # --- Plano de la isla (C5.3, D-155) ---
 
+## Barandillas del plano por poner ({"data", "origin"}, `FenceBuilder.build`).
+var _layout_fences: Array[Dictionary] = []
+
 ## Pone el plano de la isla: sus límites pasan a ser los del plano y su agua (ríos, lago, remanso, pozas) se
 ## añade a la cuadrícula. La naturaleza, las vetas y lo demás del plano se ponen aparte (C5.3c).
 func apply_layout(p_layout: IslandLayout) -> void:
 	layout = p_layout
+	_layout_fences.clear()
 	if layout == null:
 		return
 	bounds = Rect2i(Vector2i.ZERO, layout.size)
+	# Las barandillas del plano (C5.6b): se hacen ya, para que el guardado las encuentre; se ponen en
+	# `populate_from_layout` (partida nueva) o llegan con la partida guardada.
+	_layout_fences = FenceBuilder.build(self)
 	var added: bool = false
 	for y: int in layout.size.y:
 		for x: int in layout.size.x:
@@ -1037,6 +1063,9 @@ func populate_from_layout() -> int:
 	for shelter_origin: Vector2i in _block_origins(layout.cells_of("R")):
 		if add_repair_site(shelter, shelter_origin) == null:
 			push_warning("IslandState: el refugio del plano en %s no cabe" % shelter_origin)
+	for fence: Dictionary in _layout_fences:
+		if add_repair_site(fence["data"], fence["origin"]) == null:
+			push_warning("IslandState: la barandilla %s del plano no cabe" % fence["data"].id)
 	var trees: int = 0
 	for ch: String in ["T", "t"]:
 		for cell: Vector2i in layout.cells_of(ch):
