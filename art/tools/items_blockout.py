@@ -394,69 +394,66 @@ def twisted(where, base, strand, period=3):
 
 
 def fiber(root, mat, rng):
-    # Fibra de esparto (C5.5, César): un manojo de hojas finas y secas, tumbado en X, apretado por el medio, donde lo
-    # rodea una atadura de cuerda de dos vueltas, y abierto hacia las puntas; cada hoja se curva un poco a su manera.
-    half = 0.115
-    pinch = 0.011            # radio del manojo en la atadura
-    flare = 0.03             # radio en las puntas
-    for n in range(16):
-        a0 = 2.0 * math.pi * n / 16 + rng.uniform(-0.25, 0.25)
-        depth = rng.uniform(0.35, 1.0)                     # unas hojas por dentro y otras por fuera del manojo
-        bend = rng.uniform(-0.25, 0.25)
-        length = half * rng.uniform(0.85, 1.05)
-        pts = []
-        for k in range(9):
-            x = -length + 2.0 * length * k / 8
-            u = abs(x) / half
-            r = (pinch + (flare - pinch) * u ** 1.6) * depth
-            a = a0 + bend * (x / half) + rng.uniform(-0.04, 0.04)
-            pts.append(Vector((x, r * math.cos(a), r * math.sin(a))))
-        bm, where = tube(pts, 0.0034, 4, lambda k: 0.0038 * (1.0 - 0.5 * abs(k - 4) / 4))
-        finish_colored("fiber_blade_%d" % n, bm, [rng.choice((STRAW, STRAW, STRAW_LIGHT))] * len(bm.faces), root, mat)
-    # Atadura: dos vueltas apretadas de cuerda alrededor de la parte estrecha.
+    # Fibra de esparto (C5.5; sesión 23, César: con la forma de lazo de la madeja): tres lazos alargados en abanico,
+    # cada uno de tres hebras finas de esparto seco algo sueltas, apretados por el medio con una atadura. Sustituye al
+    # manojo de hojas atado, que no convencía.
+    half_len, half_w = 0.105, 0.05
+    pinch = 0.3
+    steps = 16
+    for n, (tilt, fan) in enumerate(((-16.0, -9.0), (2.0, 0.0), (18.0, 9.0))):
+        turn = Matrix.Rotation(math.radians(fan), 3, "Z") @ Matrix.Rotation(math.radians(tilt), 3, "X")
+        for strand in range(3):
+            spread = (strand - 1) * 0.006          # las hebras de un lazo, un poco separadas
+            wobble = rng.uniform(0.0, 6.28)
+            length = half_len * rng.uniform(0.92, 1.0)
+            pts = []
+            for k in range(steps):
+                a = 2.0 * math.pi * k / steps
+                x = length * math.cos(a)
+                u = abs(x) / half_len
+                w = half_w * (pinch + (1.0 - pinch) * u ** 0.8) + spread * u
+                lift = 0.003 * math.sin(3.0 * a + wobble)
+                pts.append(turn @ Vector((x, w * math.sin(a), lift + spread * 0.3)))
+            pts.append(pts[0])
+            bm, where = tube(pts, 0.0045, 4)
+            color = (STRAW, STRAW_LIGHT, STRAW_DARK)[(n + strand) % 3]
+            finish_colored("fiber_loop_%d_%d" % (n, strand), bm, [color] * len(bm.faces), root, mat)
+    # Atadura: dos vueltas de cuerda alrededor del medio.
+    bind_r = half_w * pinch + 0.012
     pts = []
-    turns, steps = 2, 28
-    for k in range(steps + 1):
-        a = 2.0 * math.pi * turns * k / steps
-        x = -0.007 + 0.014 * k / steps
-        pts.append(Vector((x, (pinch + 0.004) * math.cos(a), (pinch + 0.004) * math.sin(a))))
-    bm, where = tube(pts, 0.0035, 5)
+    turns, per_turn = 2, 10
+    for k in range(turns * per_turn + 1):
+        a = 2.0 * math.pi * k / per_turn
+        x = -0.011 + 0.022 * k / (turns * per_turn)
+        pts.append(Vector((x, bind_r * math.cos(a), bind_r * math.sin(a))))
+    bm, where = tube(pts, 0.0045, 5)
     finish_colored("fiber_tie", bm, twisted(where, STRAW_DARK, ROPE_STRAND, 2), root, mat)
 
 
 def rope(root, mat, rng):
-    # Cuerda (C5.5, César: componente del banco, 3 fibras → 1): una madeja, como se recoge y se guarda una cuerda. Tres
-    # lazos alargados en abanico, lisos y en dos tonos de paja, apretados por el medio con una atadura de varias vueltas
-    # más oscura. Sin cabos sueltos (se leían raros). Antes fue un rollo de vueltas apiladas: de cerca bien, pero en el
-    # inventario parecía un nudo (César).
-    half_len, half_w = 0.11, 0.055
-    rope_r = 0.0085
-    pinch = 0.26                # ancho de cada lazo en la atadura, respecto al de los extremos
-    steps = 28
-    # Tumbados (poca inclinación) y algo abiertos en abanico sobre el plano: así se ve el hueco de cada lazo.
-    for n, (tilt, fan) in enumerate(((-16.0, -9.0), (2.0, 0.0), (18.0, 9.0))):
-        turn = Matrix.Rotation(math.radians(fan), 3, "Z") @ Matrix.Rotation(math.radians(tilt), 3, "X")
-        length = half_len * (1.0 - 0.06 * (n % 2))
-        pts = []
-        for k in range(steps):
-            a = 2.0 * math.pi * k / steps
-            x = length * math.cos(a)
-            u = abs(x) / half_len
-            w = half_w * (pinch + (1.0 - pinch) * u ** 0.8)
-            pts.append(turn @ Vector((x, w * math.sin(a), 0.0)))
-        pts.append(pts[0])
-        bm, where = tube(pts, rope_r, 6)
-        finish_colored("rope_loop_%d" % n, bm, [(STRAW, STRAW_LIGHT)[n % 2]] * len(bm.faces), root, mat)
-    # Atadura: vueltas apretadas alrededor del medio de la madeja.
-    bind_r = half_w * pinch + rope_r * 1.6
+    # Cuerda (C5.5, César: componente del banco, 3 fibras → 1). Sesión 23, cuarta versión: un **rollo plano en espiral**,
+    # como una cuerda enrollada en el suelo, con las franjas del trenzado en diagonal y la punta suelta saliendo por
+    # fuera, sin cabos deshilachados (se veían raros). Antes: vueltas apiladas (parecían un nudo) y una madeja (pasó a
+    # ser la fibra).
+    rope_r = 0.0078
+    inner, outer = 0.016, 0.07
+    turns = 3.4
+    steps = 72
     pts = []
-    turns, per_turn = 3, 12
-    for k in range(turns * per_turn + 1):
-        a = 2.0 * math.pi * k / per_turn
-        x = -0.018 + 0.036 * k / (turns * per_turn)
-        pts.append(Vector((x, bind_r * math.cos(a), bind_r * math.sin(a))))
-    bm, where = tube(pts, rope_r * 0.85, 5)
-    finish_colored("rope_bind", bm, [STRAW_DARK] * len(bm.faces), root, mat)
+    for k in range(steps + 1):
+        t = k / steps
+        a = 2.0 * math.pi * turns * t
+        r = inner + (outer - inner) * t
+        pts.append(Vector((r * math.cos(a), r * math.sin(a), rope_r + 0.002 * math.sin(a * 2.0))))
+    # La punta: sigue hacia fuera un poco y cae al suelo.
+    end = pts[-1]
+    tangent = (pts[-1] - pts[-2]).normalized()
+    for k in range(1, 6):
+        p = end + tangent * (0.012 * k)
+        pts.append(Vector((p.x, p.y, rope_r * (1.0 - 0.12 * k))))
+    bm, where = tube(pts, rope_r, 6)
+    # Trenzado en bandas diagonales de dos caras de ancho (con franjas de una cara salía a cuadritos).
+    finish_colored("rope_coil", bm, [STRAW_DARK if (k + j) % 6 in (0, 1) else STRAW for k, j in where], root, mat)
 
 
 def esparto_seed(root, mat, rng):

@@ -15,8 +15,9 @@
 #     Godot dibuja entre ellos el haz de luz cuando la trampilla está abierta.
 # Detalles (no se reparan):
 #   - lantern: candil colgado de un soporte en la pared suroeste; su llama «lantern_flame» va aparte y el vacío
-#     «lantern_light» es donde Godot pone la luz. Se enciende al completar el refugio.
-# Los demás detalles (fogón, emblema, columnas…) llegan después.
+#     «lantern_light» es donde Godot pone la luz. Se enciende al completar el refugio y luego con E.
+#   - hearth: fogón en la alcoba del este, con llamas «hearth_flame_N», brasas «hearth_embers» y «hearth_light».
+#   - ruins: aros de la boca y cacharros (`build_ruins`).
 #
 # Planta (`Refugio.md` §3): 8 × 7 casillas con el origen en el centro de la huella, a ras de suelo. En Blender el
 # norte es +Y (en Godot, -Z) y la boca mira al sur (-Y). Una casilla = 1 m. Regla: las paredes pueden pasar por
@@ -535,7 +536,7 @@ GROUT_TOP = 0.012
 TILE_COLORS = ((1, 4), (1, 4), (1, 3), (1, 2), (1, 6))
 TILE_MIN_AREA = 0.015     # trocitos de borde más pequeños que esto se dejan en lechada
 BED_ALCOVE = ((-2.72, 0.5, 0.35), (0.72, 1.2, 1.05))      # centro y radios (los de `build()`)
-HEARTH_ALCOVE = ((2.8, 0.0, 0.25), (0.62, 0.62, 0.9))
+HEARTH_ALCOVE = ((-BED_ALCOVE[0][0], BED_ALCOVE[0][1], BED_ALCOVE[0][2]), BED_ALCOVE[1])   # el espejo exacto de la de la cama (César)
 
 
 def clip_polygon(poly: list, clip: list) -> list:
@@ -754,6 +755,24 @@ def rope(name, points, parent, mat):
         finish("%s_%d" % (name, k), bm, BARK_DARK, parent, mat)
 
 
+_shell_tree = None
+
+
+def shell_surface_z(x, y, from_z):
+    # Altura de la superficie de fuera del montículo bajo (x, y), mirando desde `from_z` hacia abajo; None si no hay.
+    global _shell_tree
+    if _shell_tree is None:
+        from mathutils.bvhtree import BVHTree
+        shell = bpy.data.objects["shelter_shell"]
+        bm = bmesh.new()
+        bm.from_object(shell, bpy.context.evaluated_depsgraph_get())
+        bm.transform(shell.matrix_world)
+        _shell_tree = BVHTree.FromBMesh(bm)
+        bm.free()
+    hit = _shell_tree.ray_cast(Vector((x, y, from_z)), Vector((0.0, 0.0, -1.0)), 20.0)
+    return hit[0].z if hit[0] is not None else None
+
+
 def build_hatch(root, mat):
     top = crater_top()
     center = crater_center()
@@ -786,7 +805,11 @@ def build_hatch(root, mat):
     # «rope_a_0», en la tapa, y «rope_b_0», en la polea: se acorta al abrir).
     apex = Vector((0.0, center.y + 1.75, top + 2.0))
     for side in (-1, 1):
-        foot = Vector((side * 0.62, center.y + 1.15, top - 0.12))
+        # Cada pata baja hasta la superficie del montículo y se clava en ella (César: quedaban en el aire, porque por
+        # detrás del cráter el montículo baja).
+        foot_xy = (side * 0.62, center.y + 1.15)
+        ground = shell_surface_z(foot_xy[0], foot_xy[1], top + 1.0)
+        foot = Vector((foot_xy[0], foot_xy[1], (ground if ground is not None else top - 0.12) - 0.08))
         top_end = apex + Vector((-side * 0.12, 0.05, 0.12))
         finish("piece_hatch_trestle_%d" % int(side > 0), beam(foot - origin, top_end - origin, 0.08), PLANK, pivot, mat, 0.01)
     finish("piece_hatch_trestle_tie", beam(apex - origin + Vector((-0.12, 0.0, -0.06)), apex - origin + Vector((0.12, 0.0, -0.06)), 0.1),
@@ -915,6 +938,203 @@ def build_lantern(root, mat):
     print("refugio: candil %d triángulos, a %.2f m del suelo" % (n, base_z))
 
 
+# Fogón de los nómadas (detalle, no se repara; D-191): en la alcoba del este, un anillo de piedras sobre la ceniza, tres
+# troncos cruzados con sus brasas, cuatro llamas y un trébede con una olla negra (donde se cocinará cuando haya hambre
+# y agricultura). Las llamas («hearth_flame_N») y las brasas («hearth_embers») van aparte: Godot las hace brillar, las
+# llamas bailan desde su base (su origen) y se esconden al apagarlo. «hearth_light» es donde Godot pone la luz.
+HEARTH_CENTER = (2.75, 0.5)       # centrado en su alcoba, a la misma altura que la cama (filas 2 y 3)
+HEARTH_SCALE = 1.35               # todo el fogón, más grande (César): se escala su vacío
+POT_WALL = 0.014                  # grosor de la olla, que es hueca
+POT_SCALE = 1.3                   # la olla, más grande que el resto del fogón
+POT_IRON = (5, 7)                 # olla negra (César), del gris más oscuro del Nexo: brilla un poco, como hierro colado
+HEARTH_RING_R = 0.3
+TRIVET_Z = 0.34
+
+
+def merged(parts):
+    # Une varias bmesh en una sola.
+    bm = bmesh.new()
+    for part in parts:
+        mesh = bpy.data.meshes.new("_tmp")
+        part.to_mesh(mesh)
+        part.free()
+        bm.from_mesh(mesh)
+        bpy.data.meshes.remove(mesh)
+    return bm
+
+
+def lathe(profile, sides, bottom=True):
+    # Sólido de revolución: `profile` es una lista de (radio, altura) de abajo arriba.
+    bm = bmesh.new()
+    rings = []
+    for r, z in profile:
+        rings.append([bm.verts.new((r * math.cos(2 * math.pi * k / sides), r * math.sin(2 * math.pi * k / sides), z)) for k in range(sides)])
+    if bottom:
+        bm.faces.new(list(reversed(rings[0])))
+    for a, b in zip(rings, rings[1:]):
+        for k in range(sides):
+            j = (k + 1) % sides
+            bm.faces.new((a[k], a[j], b[j], b[k]))
+    bm.faces.new(rings[-1])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return bm
+
+
+def pot_shell(profile, sides, wall):
+    # Olla hueca: la pared de fuera (de abajo arriba), el borde y la de dentro (de arriba abajo) hasta su fondo. Cerrada,
+    # así que las normales salen bien.
+    bm = bmesh.new()
+    inner = [(max(r - wall, 0.01), z) for r, z in profile[1:]]
+    inner[-1] = (inner[-1][0], profile[-1][1])
+    inner_bottom = profile[0][1] + wall * 1.5
+    inner = [(inner[0][0] * 0.85, inner_bottom)] + inner[1:]
+    path = profile + list(reversed(inner))
+    rings = [[bm.verts.new((r * math.cos(2 * math.pi * k / sides), r * math.sin(2 * math.pi * k / sides), z)) for k in range(sides)]
+             for r, z in path]
+    bm.faces.new(list(reversed(rings[0])))
+    for a, b in zip(rings, rings[1:]):
+        for k in range(sides):
+            j = (k + 1) % sides
+            bm.faces.new((a[k], a[j], b[j], b[k]))
+    bm.faces.new(rings[-1])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return bm
+
+
+def build_hearth(root, mat):
+    rng = random.Random(41)
+    base = FLOOR_Z + TILE_THICK
+    pivot = empty("hearth", root, (HEARTH_CENTER[0], HEARTH_CENTER[1], base))
+    pivot.scale = (HEARTH_SCALE, HEARTH_SCALE, HEARTH_SCALE)
+    # Ceniza y anillo de piedras, cada una con su tamaño, su giro y su tono.
+    finish("hearth_ash", prism(10, 0.25, 0.23, 0.0, 0.018), STONE_DARK, pivot, mat)
+    stone_colors = (STONE, STONE_LIGHT, STONE_DARK, STONE)
+    # 16 piedras que se tocan y cierran el círculo (César: con 10 quedaban huecos), unas grandes y otras pequeñas,
+    # alargadas a lo largo del anillo.
+    count = 16
+    sizes = [0.085 if k % 3 == 0 else (0.06 if k % 3 == 1 else 0.07) for k in range(count)]
+    for k in range(count):
+        a = 2 * math.pi * k / count + rng.uniform(-0.05, 0.05)
+        r = sizes[k] * rng.uniform(0.92, 1.08)
+        h = r * rng.uniform(1.0, 1.35)
+        stone = prism(6, r, r * 0.72, 0.0, h, rng.uniform(0, math.pi))
+        bmesh.ops.scale(stone, vec=(rng.uniform(0.75, 0.9), rng.uniform(1.05, 1.25), 1.0), verts=stone.verts)
+        place(stone, (math.cos(a) * HEARTH_RING_R, math.sin(a) * HEARTH_RING_R, -0.01), Matrix.Rotation(a, 4, "Z"))
+        finish("hearth_stone_%d" % k, stone, stone_colors[k % 4], pivot, mat, 0.008)
+    # Tres troncos que se cruzan en el centro, con las puntas quemadas hacia dentro.
+    for k in range(3):
+        a = 2 * math.pi * k / 3 + 0.4
+        out = Vector((math.cos(a) * 0.27, math.sin(a) * 0.27, 0.03))
+        inner = Vector((math.cos(a) * 0.03, math.sin(a) * 0.03, 0.1))
+        finish("hearth_log_%d" % k, beam(out, inner.lerp(out, 0.35), 0.055), PLANK, pivot, mat, 0.01)
+        finish("hearth_log_end_%d" % k, beam(inner.lerp(out, 0.35), inner, 0.05), BARK_DARK, pivot, mat, 0.008)
+    # Brasas: trocitos chatos sobre la ceniza, en una sola malla.
+    parts = []
+    for k in range(9):
+        a = rng.uniform(0, 2 * math.pi)
+        d = rng.uniform(0.02, 0.15)
+        r = rng.uniform(0.025, 0.04)
+        parts.append(place(prism(5, r, r * 0.6, 0.0, rng.uniform(0.015, 0.03), rng.uniform(0, 3)), (math.cos(a) * d, math.sin(a) * d, 0.012)))
+    finish("hearth_embers", merged(parts), BARK_DARK, pivot, mat)
+    # Llamas: gotas de seis lados, la más alta en el centro. Cada una con su origen en su base.
+    for k, (dx, dy, r, h) in enumerate(((0.0, 0.0, 0.055, 0.26), (0.06, 0.035, 0.045, 0.19), (-0.05, 0.04, 0.042, 0.17),
+                                       (0.01, -0.06, 0.04, 0.15))):
+        flame = prism(6, r, 0.0, 0.0, h, k * 0.5)
+        bmesh.ops.remove_doubles(flame, verts=flame.verts, dist=0.0005)
+        obj = finish("hearth_flame_%d" % k, flame, FLAME, pivot, mat)
+        obj.location = (dx, dy, 0.07)
+    # Trébede: aro de hierro de seis tramos y tres patas abiertas.
+    ring = [Vector((math.cos(2 * math.pi * k / 6) * 0.17, math.sin(2 * math.pi * k / 6) * 0.17, TRIVET_Z)) for k in range(6)]
+    for k in range(6):
+        a, b = ring[k], ring[(k + 1) % 6]
+        d = (b - a).normalized()
+        finish("hearth_trivet_ring_%d" % k, beam(a - d * 0.012, b + d * 0.012, 0.022), BARK_DARK, pivot, mat)
+    for k in range(3):
+        a = 2 * math.pi * k / 3 + math.pi / 6
+        top = Vector((math.cos(a) * 0.17, math.sin(a) * 0.17, TRIVET_Z))
+        foot = Vector((math.cos(a) * 0.26, math.sin(a) * 0.26, 0.0))
+        finish("hearth_trivet_leg_%d" % k, beam(foot, top, 0.022), BARK_DARK, pivot, mat)
+    # Olla de barro sobre el trébede, con el borde vuelto y el fondo oscuro por dentro.
+    k = POT_SCALE   # olla más grande (César); su barriga sigue apoyada en el aro del trébede
+    pot = pot_shell([(0.07 * k, TRIVET_Z - 0.04 * k), (0.12 * k, TRIVET_Z), (0.15 * k, TRIVET_Z + 0.08 * k),
+                     (0.14 * k, TRIVET_Z + 0.16 * k), (0.11 * k, TRIVET_Z + 0.21 * k), (0.125 * k, TRIVET_Z + 0.235 * k)],
+                    12, POT_WALL)
+    finish("hearth_pot", pot, POT_IRON, pivot, mat)
+    empty("hearth_light", pivot, (0.0, 0.0, 0.22))
+    n = sum(sum(len(p.vertices) - 2 for p in c.data.polygons) for c in pivot.children_recursive if c.type == "MESH")
+    print("refugio: fogón %d triángulos" % n)
+
+
+# Detalles de fuera y cacharros de los nómadas (no se reparan; `Refugio.md` §5, D-192):
+#   - dos aros de tierra en relieve alrededor de la boca, siguiendo el arco (los «anillos de la galería»: dentro ya no
+#     caben, porque la sala de 16 casillas llega casi hasta la boca);
+#   - tres cacharros de barro: una tinaja en la alcoba de la cama, un cántaro junto al fogón y una vasija rota bajo el
+#     candil.
+# El emblema gastado y las columnas de la colonia antigua se probaron aquí y se quitaron (César): los restos de la
+# colonia irán sueltos por la isla (`H` en el plano).
+MOUTH_RINGS = (0.22, 0.46)                                         # lo que se separa cada aro del borde de la boca
+MOUTH_RING_R = 0.055
+POTS = {
+    "jar": ((-2.75, 1.45), [(0.05, 0.0), (0.1, 0.04), (0.13, 0.14), (0.11, 0.26), (0.06, 0.32), (0.075, 0.36)], (4, 2)),
+    "jug": ((2.98, -0.38), [(0.045, 0.0), (0.085, 0.05), (0.095, 0.12), (0.06, 0.2), (0.045, 0.25), (0.055, 0.28)], (4, 1)),
+}
+BROKEN_POT_AT = (-1.12, -1.72)
+
+
+def surface_hit(tree, x, z, depth=-7.0):
+    # Punto y normal de la cara de fuera del montículo en (x, z), mirando desde el sur.
+    hit = tree.ray_cast(Vector((x, depth, z)), Vector((0.0, 1.0, 0.0)), 12.0)
+    return hit[0], hit[1]
+
+
+def build_ruins(root, shell):
+    mat = get_material()
+    outside = get_outside_material()
+    from mathutils.bvhtree import BVHTree
+    dg = bpy.context.evaluated_depsgraph_get()
+    bm = bmesh.new()
+    bm.from_object(shell, dg)
+    bm.transform(shell.matrix_world)
+    tree = BVHTree.FromBMesh(bm)
+    bm.free()
+    pivot = empty("ruins", root, (0.0, 0.0, 0.0))
+    # Aros alrededor de la boca: siguen el arco a la distancia dada, pegados a la fachada.
+    for k, off in enumerate(MOUTH_RINGS):
+        pts = []
+        for i in range(17):
+            t = math.pi * i / 16
+            x = (GALLERY_HALF + off) * math.cos(t)
+            z = (GALLERY_HEIGHT + off) * math.sin(t)
+            hit, nrm = surface_hit(tree, x, max(z, 0.05))
+            if hit is not None:
+                pts.append(hit - Vector(nrm) * MOUTH_RING_R * 0.35)
+        for i in range(len(pts) - 1):
+            a, b = pts[i], pts[i + 1]
+            d = (b - a).normalized()
+            seg = prism(6, MOUTH_RING_R, MOUTH_RING_R, 0.0, (b - a).length + 0.03)
+            place(seg, a - d * 0.015, d.to_track_quat("Z", "Y").to_matrix().to_4x4())
+            finish("ruins_ring_%d_%d" % (k, i), seg, EARTH_WALL, pivot, outside)
+    # Cacharros de barro (huecos, como la olla).
+    base = FLOOR_Z + TILE_THICK
+    for name, ((px, py), profile, color) in POTS.items():
+        pot = pot_shell(profile, 10, 0.012)
+        place(pot, (px, py, base))
+        finish("ruins_%s" % name, pot, color, pivot, mat)
+    # Vasija rota bajo el candil: la mitad de abajo y tres cascos por el suelo.
+    half = pot_shell([(0.05, 0.0), (0.1, 0.04), (0.12, 0.12), (0.115, 0.16)], 10, 0.012)
+    place(half, (BROKEN_POT_AT[0], BROKEN_POT_AT[1], base), Matrix.Rotation(math.radians(14), 4, "X"))
+    finish("ruins_broken_pot", half, (4, 2), pivot, mat)
+    rng = random.Random(7)
+    for k in range(3):
+        a = rng.uniform(0, 2 * math.pi)
+        shard = prism(3, 0.06, 0.05, 0.0, 0.012, rng.uniform(0, 3))
+        place(shard, (BROKEN_POT_AT[0] + math.cos(a) * 0.22, BROKEN_POT_AT[1] + math.sin(a) * 0.22, base),
+              Matrix.Rotation(rng.uniform(-0.3, 0.3), 4, "X"))
+        finish("ruins_shard_%d" % k, shard, (4, 2), pivot, mat)
+    n = sum(sum(len(p.vertices) - 2 for p in c.data.polygons) for c in pivot.children_recursive if c.type == "MESH")
+    print("refugio: restos y cacharros %d triángulos" % n)
+
+
 def build_pieces(root):
     mat = get_material()
     rng = random.Random(23)
@@ -923,7 +1143,8 @@ def build_pieces(root):
     build_awning(root, mat)
     build_bed(root, mat)
     build_hatch(root, mat)
-    build_lantern(root, mat)   # detalle: no es una pieza
+    build_lantern(root, mat)   # detalles: no son piezas
+    build_hearth(root, mat)
     # Donde reaparece Mira al descansar: en la sala, delante de la cama, mirando al este (hacia la sala). Sin girar, en
     # Godot mira a −Z (+Y de Blender); −90° en Z la pone mirando a +X.
     empty("spawn_point", root, (BED_CENTER[0] + 1.05, BED_CENTER[1], 0.0), math.radians(-90.0))
@@ -998,7 +1219,10 @@ def build():
 
     tris = sum(len(p.vertices) - 2 for p in shell.data.polygons)
     print("refugio: cascarón", tris, "triángulos")
+    global _shell_tree
+    _shell_tree = None   # el cascarón es nuevo: se vuelve a medir
     build_pieces(root)
+    build_ruins(root, shell)
     for name in ("piece_props", "piece_floor", "piece_awning", "piece_bed", "piece_hatch"):
         pivot = bpy.data.objects[name]
         n = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in pivot.children_recursive if o.type == "MESH")

@@ -21,6 +21,8 @@ extends Resource
 @export var exact_collision: bool = false
 ## Piezas que faltan, en el orden en que se enseñan.
 @export var pieces: Array[RepairPieceData] = []
+## Luces que se encienden y apagan con E una vez completa (C5.5, D-191): el candil y el fogón del refugio.
+@export var lights: Array[RepairLightData] = []
 ## Para qué sirve al completarse (&"shelter", &"threshold", &"stabilizer"…). Lo usa quien escucha
 ## `IslandState.repair_completed`; aquí es solo una etiqueta.
 @export var purpose: StringName = &""

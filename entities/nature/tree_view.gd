@@ -53,6 +53,7 @@ const TOOL_UPROOT: StringName = &"hand_drill"  # barrena
 const TOOL_FX_MS: int = 180
 ## Madera mordida, en bucle mientras la mordedora trabaja (C3).
 const SAW_SOUND: AudioStreamWAV = preload("res://assets/audio/wood_saw_loop.wav")
+const SAW_MAX_DB: float = 8.0   # la madera cortada, más alta porque el motor de la mordedora la pisaba (César, sesión 24)
 
 ## Tono de cada árbol (César, sesión 23): la madera y las hojas varían un poco por casilla (como la variante, el giro
 ## y el tamaño: al rebrotar sale el mismo tono). Los árboles jóvenes, más claros y verdosos; oscurecen al madurar.
@@ -202,7 +203,7 @@ func use(_by: Node) -> void:
 			# La mordedora va mordiendo: virutas seguidas donde muerde, el árbol tiembla y cruje (C3).
 			_tremble = 1.0
 			if _saw_sound == null:
-				_saw_sound = LoopSound.create(self, SAW_SOUND)
+				_saw_sound = LoopSound.create(self, SAW_SOUND, SAW_MAX_DB)
 			_saw_sound.global_position = at
 			_saw_sound.keep()
 			if now - _fx_ms >= TOOL_FX_MS:

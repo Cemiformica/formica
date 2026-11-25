@@ -162,3 +162,7 @@ HINT_REST,Descansar,Descansar,Rest
 REST_DONE,Punto de reaparición establecido. Partida guardada,Punt de reaparició establert. Partida desada,Respawn point set. Game saved
 BUILD_NOT_BUILDABLE,Solo se construye en las explanadas,Només es construeix a les esplanades,You can only build on the flat clearings
 BUILD_TWO_LEVELS,Tiene que caber entera en una sola altura,Ha de cabre sencera en una sola alçada,It must fit entirely on one level
+HINT_LIGHT_ON,Encender,Encendre,Light
+HINT_LIGHT_OFF,Apagar,Apagar,Put out
+REPAIR_LIGHT_LANTERN,Candil,Gresol,Oil lamp
+REPAIR_LIGHT_HEARTH,Fogón,Fogó,Hearth

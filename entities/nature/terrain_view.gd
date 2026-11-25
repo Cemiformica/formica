@@ -45,6 +45,14 @@ const FLAT_FADE_CELLS: float = 4.0
 const GROUND_SUBDIVISIONS: int = 2
 ## Superficie del agua para las esquinas que no tocan agua: tan abajo que nada queda bajo ella.
 const NO_WATER_SURFACE: float = -100.0
+## Hasta cuántas esquinas tierra adentro llega la marca de «mojado» desde el mar (sesión 23, César: la arena mojada no
+## se veía, porque las esquinas que tocan el mar ya están bajo el agua). El shader la limita a `wet_height` sobre el
+## agua, así que en la playa sale una franja natural. Solo desde el mar: en el río y el lago sigue pegada al agua.
+const SEA_WET_SPREAD: int = 3
+## Desembocadura (sesión 23, César: el río acababa cortado sobre el mar, que está 23 cm más abajo): en las últimas
+## MOUTH_CELLS casillas antes del mar, la superficie del río baja poco a poco hasta el nivel del mar.
+const MOUTH_CELLS: int = 4
+const MOUTH_ABOVE_SEA: float = 0.01   # un pelo por encima del mar, para que las dos láminas no parpadeen
 ## Hasta cuántas esquinas de distancia se lleva la superficie del agua tierra adentro.
 const WATER_SURFACE_SPREAD: int = 3
 
@@ -176,6 +184,17 @@ func _build_water(island: IslandState) -> void:
 	var surfaces: Dictionary[Vector2i, float] = {}
 	for cell: Vector2i in island.water:
 		surfaces[cell] = island.ground_height(cell) + offset
+	var mouth: Dictionary[Vector2i, int] = _mouth_distances(island)
+	for cell: Vector2i in mouth:
+		var sea_level: float = SEA_Y + MOUTH_ABOVE_SEA
+		surfaces[cell] = lerpf(sea_level, surfaces[cell], float(mouth[cell]) / float(MOUTH_CELLS))
+	# Las de la desembocadura y sus vecinas se dibujan con la altura por esquinas (sin escalón donde empieza la bajada).
+	var smooth: Dictionary[Vector2i, bool] = {}
+	for cell: Vector2i in mouth:
+		for dx: int in [-1, 0, 1]:
+			for dz: int in [-1, 0, 1]:
+				if surfaces.has(cell + Vector2i(dx, dz)):
+					smooth[cell + Vector2i(dx, dz)] = true
 	var shore: Dictionary[Vector2i, float] = {}
 	# Corriente en cada esquina: la media de las casillas de agua que la tocan (velocidad en m/s, con su rapidez),
 	# para que pase suave de una casilla a otra.
@@ -200,13 +219,58 @@ func _build_water(island: IslandState) -> void:
 			for index: int in [0, 1, 2, 0, 2, 3]:
 				var corner: Vector2i = corners[index]
 				var velocity: Vector2 = corner_flow.get(corner, Vector2.ZERO) / float(maxi(corner_count.get(corner, 1), 1))
+				# En la desembocadura, cada esquina a la altura media de lo que toca (así la bajada al mar es continua).
+				var corner_y: float = _mouth_corner_height(island, surfaces, mouth, cell, corner) if smooth.has(cell) else y
 				tool.set_normal(Vector3.UP)
 				tool.set_color(Color(1.0, on_shore, 0.0))
 				tool.set_uv(velocity)
-				tool.add_vertex(Vector3(corner.x, y, corner.y))
+				tool.add_vertex(Vector3(corner.x, corner_y, corner.y))
 	var mesh: ArrayMesh = tool.commit()
 	mesh.surface_set_material(0, _water_material)
 	_water.mesh = mesh
+
+
+## Casillas de agua a menos de MOUTH_CELLS pasos de una casilla de mar (0 = la que lo toca), por el agua.
+func _mouth_distances(island: IslandState) -> Dictionary[Vector2i, int]:
+	var result: Dictionary[Vector2i, int] = {}
+	if island.layout == null:
+		return result
+	var queue: Array[Vector2i] = []
+	for cell: Vector2i in island.water:
+		for side: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			if island.layout.ground(cell + side) == IslandLayout.Ground.SEA:
+				result[cell] = 0
+				queue.append(cell)
+				break
+	var head: int = 0
+	while head < queue.size():
+		var cell: Vector2i = queue[head]
+		head += 1
+		if result[cell] + 1 >= MOUTH_CELLS:
+			continue
+		for side: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			var other: Vector2i = cell + side
+			if island.water.has(other) and not result.has(other) \
+					and is_equal_approx(island.ground_height(other), island.ground_height(cell)):
+				result[other] = result[cell] + 1
+				queue.append(other)
+	return result
+
+
+## Altura de una esquina de la lámina en la desembocadura: la media de las casillas de agua de la misma altura que la
+## tocan y, si toca el mar, también la del mar.
+func _mouth_corner_height(island: IslandState, surfaces: Dictionary[Vector2i, float], mouth: Dictionary[Vector2i, int],
+		cell: Vector2i, corner: Vector2i) -> float:
+	var sum: float = 0.0
+	var count: int = 0
+	for other: Vector2i in [corner + Vector2i(-1, -1), corner + Vector2i(0, -1), corner + Vector2i(-1, 0), corner]:
+		if surfaces.has(other) and (mouth.has(other) or is_equal_approx(island.ground_height(other), island.ground_height(cell))):
+			sum += surfaces[other]
+			count += 1
+		elif island.layout.ground(other) == IslandLayout.Ground.SEA:
+			sum += SEA_Y + MOUTH_ABOVE_SEA
+			count += 1
+	return sum / float(count) if count > 0 else surfaces[cell]
 
 
 ## Ancho del río en esta casilla: casillas de agua seguidas de lado a lado de la corriente (hasta unas pocas).
@@ -248,6 +312,37 @@ func _spread_water_surface(surface: PackedFloat32Array, row: int, rows: int) -> 
 			if steps[other_index] == -1:
 				steps[other_index] = steps[index] + 1
 				surface[other_index] = surface[index]
+				queue.append(other)
+
+
+## Marca como mojadas las esquinas a menos de SEA_WET_SPREAD pasos de una esquina que toca el mar.
+func _spread_sea_wet(layout: IslandLayout, wet: PackedFloat32Array, row: int, rows: int) -> void:
+	var queue: Array[Vector2i] = []
+	var steps := PackedInt32Array()
+	steps.resize(wet.size())
+	steps.fill(-1)
+	for j: int in rows:
+		for i: int in row:
+			for cell: Vector2i in [Vector2i(i - 1, j - 1), Vector2i(i, j - 1), Vector2i(i - 1, j), Vector2i(i, j)]:
+				if layout.ground(cell) == IslandLayout.Ground.SEA:
+					steps[j * row + i] = 0
+					queue.append(Vector2i(i, j))
+					break
+	var head: int = 0
+	while head < queue.size():
+		var corner: Vector2i = queue[head]
+		head += 1
+		var index: int = corner.y * row + corner.x
+		if steps[index] >= SEA_WET_SPREAD:
+			continue
+		for offset: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			var other: Vector2i = corner + offset
+			if other.x < 0 or other.y < 0 or other.x >= row or other.y >= rows:
+				continue
+			var other_index: int = other.y * row + other.x
+			if steps[other_index] == -1:
+				steps[other_index] = steps[index] + 1
+				wet[other_index] = 1.0
 				queue.append(other)
 
 
@@ -314,6 +409,7 @@ func _build_layout_ground(island: IslandState) -> void:
 			# esquinas pintaba de fondo medio acantilado (captura de César).
 			depth_at[index] = water_surface if water_surface > -INF else NO_WATER_SURFACE
 	_spread_water_surface(depth_at, row, h + 1)
+	_spread_sea_wet(layout, wet_at, row, h + 1)
 	# Después, un punto cada medio metro (C5.4b: para que las lomas se vean redondas), con la altura del terreno
 	# (`IslandLayout.terrain_height()`, la misma que usan los árboles y las rocas) y lo de las esquinas interpolado.
 	var step: float = 1.0 / GROUND_SUBDIVISIONS

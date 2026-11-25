@@ -8,6 +8,7 @@
 [ext_resource type="Resource" path="res://content/items/stone_tile.tres" id="6_tile"]
 [ext_resource type="Resource" path="res://content/items/wood.tres" id="7_wood"]
 [ext_resource type="Resource" path="res://content/items/rope.tres" id="8_rope"]
+[ext_resource type="Script" path="res://core/content/repair_light_data.gd" id="9_light"]
 
 [sub_resource type="Resource" id="Resource_props"]
 script = ExtResource("2_piece")
@@ -64,6 +65,25 @@ aim_size = Vector3(0.6, 0.75, 0.6)
 toggle_nodes = Array[StringName]([&"hatch_hinge", &"hatch_lever"])
 toggle_rotations = Array[Vector3]([Vector3(-115, 0, 0), Vector3(-70, 0, 0)])
 
+[sub_resource type="Resource" id="Resource_light_lantern"]
+script = ExtResource("9_light")
+id = &"lantern"
+name_key = "REPAIR_LIGHT_LANTERN"
+light_node = &"lantern_light"
+aim_size = Vector3(0.45, 0.6, 0.45)
+flame_prefix = "lantern_flame"
+lit_on_complete = true
+
+[sub_resource type="Resource" id="Resource_light_hearth"]
+script = ExtResource("9_light")
+id = &"hearth"
+name_key = "REPAIR_LIGHT_HEARTH"
+light_node = &"hearth_light"
+aim_size = Vector3(1.2, 1.0, 1.2)
+flame_prefix = "hearth_flame"
+ember_node = &"hearth_embers"
+fire = true
+
 [resource]
 script = ExtResource("1_site")
 id = &"shelter"
@@ -73,4 +93,5 @@ size = Vector2i(8, 7)
 blocked_cells = Array[Vector2i]([Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0), Vector2i(4, 0), Vector2i(5, 0), Vector2i(6, 0), Vector2i(7, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(6, 1), Vector2i(7, 1), Vector2i(0, 2), Vector2i(1, 2), Vector2i(6, 2), Vector2i(7, 2), Vector2i(0, 3), Vector2i(1, 3), Vector2i(6, 3), Vector2i(7, 3), Vector2i(0, 4), Vector2i(1, 4), Vector2i(6, 4), Vector2i(7, 4), Vector2i(0, 5), Vector2i(1, 5), Vector2i(2, 5), Vector2i(3, 5), Vector2i(4, 5), Vector2i(5, 5), Vector2i(6, 5), Vector2i(7, 5), Vector2i(0, 6), Vector2i(1, 6), Vector2i(6, 6), Vector2i(7, 6)])
 exact_collision = true
 pieces = Array[ExtResource("2_piece")]([SubResource("Resource_props"), SubResource("Resource_floor"), SubResource("Resource_awning"), SubResource("Resource_bed"), SubResource("Resource_hatch")])
+lights = Array[ExtResource("9_light")]([SubResource("Resource_light_lantern"), SubResource("Resource_light_hearth")])
 purpose = &"shelter"

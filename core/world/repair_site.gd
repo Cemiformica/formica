@@ -12,6 +12,8 @@ var rotation: int = 0
 var delivered: Array[Dictionary] = []
 ## Piezas abiertas (las que se abren y cierran, `RepairPieceData.action` &"toggle"), en el mismo orden.
 var opened: Array[bool] = []
+## Luces encendidas, en el mismo orden que `data.lights` (C5.5, D-191).
+var lit: Array[bool] = []
 
 
 func _init(p_data: RepairSiteData, p_origin: Vector2i, p_rotation: int = 0) -> void:
@@ -21,6 +23,8 @@ func _init(p_data: RepairSiteData, p_origin: Vector2i, p_rotation: int = 0) -> v
 	for i: int in data.pieces.size():
 		delivered.append({})
 		opened.append(false)
+	for i: int in data.lights.size():
+		lit.append(false)
 
 
 ## Casillas que ocupa (con su giro): las de `data.blocked_cells` o, si no hay, todo el rectángulo.
@@ -113,6 +117,23 @@ func can_toggle(index: int) -> bool:
 	return index >= 0 and index < data.pieces.size() and data.pieces[index].action == &"toggle" and is_piece_done(index)
 
 
+## ¿Está encendida la luz `index`?
+func is_lit(index: int) -> bool:
+	return index >= 0 and index < lit.size() and lit[index]
+
+
+## ¿Se puede encender o apagar la luz `index`? Con la estructura completa.
+func can_switch_light(index: int) -> bool:
+	return index >= 0 and index < data.lights.size() and is_complete()
+
+
+## Al completarse: enciende las luces que se encienden solas (el candil).
+func light_on_complete() -> void:
+	for i: int in data.lights.size():
+		if data.lights[i] != null and data.lights[i].lit_on_complete:
+			lit[i] = true
+
+
 ## Estado → datos para el guardado.
 func to_data() -> Dictionary:
 	var progress: Array = []
@@ -125,7 +146,11 @@ func to_data() -> Dictionary:
 	for i: int in opened.size():
 		if opened[i]:
 			open_list.append(i)
-	return {"id": String(data.id), "x": origin.x, "y": origin.y, "r": rotation, "d": progress, "o": open_list}
+	var lit_list: Array = []
+	for i: int in lit.size():
+		if lit[i]:
+			lit_list.append(i)
+	return {"id": String(data.id), "x": origin.x, "y": origin.y, "r": rotation, "d": progress, "o": open_list, "l": lit_list}
 
 
 ## Datos del guardado → estructura, o null si su tipo no existe. Lo entregado de más o de ítems que la
@@ -140,6 +165,11 @@ static func from_data(entry: Dictionary) -> RepairSite:
 		for value: Variant in open_list:
 			if (value is int or value is float) and int(value) >= 0 and int(value) < site.opened.size():
 				site.opened[int(value)] = true
+	var lit_list: Variant = entry.get("l", [])   # las partidas de antes no lo tienen: todo apagado
+	if lit_list is Array:
+		for value: Variant in lit_list:
+			if (value is int or value is float) and int(value) >= 0 and int(value) < site.lit.size():
+				site.lit[int(value)] = true
 	var progress: Variant = entry.get("d", [])
 	if not progress is Array:
 		return site

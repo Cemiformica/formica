@@ -33,7 +33,7 @@ const TOOL_FX_MS: int = 140
 ## Roca perforada, en bucle mientras la barrena trabaja, y el «tin» al soltar un mineral (C3).
 const GRIND_SOUND: AudioStreamWAV = preload("res://assets/audio/vein_grind_loop.wav")
 const YIELD_SOUND: AudioStream = preload("res://assets/audio/vein_yield.wav")
-const GRIND_MAX_DB: float = -19.0   # bajo: no debe tapar el motor de la barrena ni la roca que se parte (César)
+const GRIND_MAX_DB: float = -6.0   # el rumor de las piedras: más alto que antes porque el motor de la barrena lo pisaba (César, sesión 24)
 const YIELD_DB: float = 7.0   # el trozo que se parte, más fuerte que el rumor de la barrena (César)   # más bajo, para que se note el «tin» del mineral (César)
 var _grind_sound: LoopSound = null
 

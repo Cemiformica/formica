@@ -84,6 +84,7 @@ func _rebuild() -> void:
 		_island.repair_changed.disconnect(_on_repair_changed)
 		_island.repair_completed.disconnect(_on_repair_completed)
 		_island.repair_toggled.disconnect(_on_repair_toggled)
+		_island.repair_light_switched.disconnect(_on_repair_light_switched)
 	for view: BuildingView in _views.values():
 		view.queue_free()
 	_views.clear()
@@ -108,6 +109,7 @@ func _rebuild() -> void:
 	_island.repair_changed.connect(_on_repair_changed)
 	_island.repair_completed.connect(_on_repair_completed)
 	_island.repair_toggled.connect(_on_repair_toggled)
+	_island.repair_light_switched.connect(_on_repair_light_switched)
 	_on_water_changed()
 	for vein_origin: Vector2i in _island.veins:
 		_on_vein_added(vein_origin)
@@ -177,6 +179,11 @@ func _on_repair_completed(site_origin: Vector2i) -> void:
 func _on_repair_toggled(site_origin: Vector2i, piece_index: int) -> void:
 	if _repair_views.has(site_origin):
 		_repair_views[site_origin].on_piece_toggled(piece_index)
+
+
+func _on_repair_light_switched(site_origin: Vector2i, light_index: int) -> void:
+	if _repair_views.has(site_origin):
+		_repair_views[site_origin].on_light_switched(light_index)
 
 
 ## El agua cambió: el suelo y el agua se rehacen enteros (pasa al empezar o al cargar, no en cada

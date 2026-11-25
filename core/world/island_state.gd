@@ -22,6 +22,8 @@ signal repair_changed(origin: Vector2i, piece_index: int)
 signal repair_completed(origin: Vector2i)
 ## Se abrió o se cerró una pieza de una estructura (la trampilla del refugio, C5.5).
 signal repair_toggled(origin: Vector2i, piece_index: int)
+## Se encendió o apagó una luz de una estructura (el candil, el fogón; C5.5, D-191).
+signal repair_light_switched(origin: Vector2i, light_index: int)
 
 ## Qué casilla ocupa cada construcción. Se reconstruye al cargar a partir de las construcciones.
 var grid: OccupancyGrid = OccupancyGrid.new()
@@ -937,6 +939,7 @@ func deliver_repair(cell: Vector2i, piece_index: int, from: Inventory) -> int:
 	if given > 0:
 		repair_changed.emit(site.origin, piece_index)
 		if site.is_complete():
+			site.light_on_complete()   # el candil se enciende solo la primera vez (D-188)
 			repair_completed.emit(site.origin)
 	return given
 
@@ -949,6 +952,28 @@ func toggle_repair_piece(cell: Vector2i, piece_index: int) -> bool:
 		return false
 	site.opened[piece_index] = not site.opened[piece_index]
 	repair_toggled.emit(site.origin, piece_index)
+	return true
+
+
+## Enciende o apaga la luz `light_index` de la estructura que ocupa `cell` (solo con la estructura completa). Al
+## encender, si la luz gasta combustible (`RepairLightData.fuel`), lo saca de `from` y, si no lo hay, no se enciende.
+## Avisa con `repair_light_switched`. Devuelve false si no se pudo.
+func switch_repair_light(cell: Vector2i, light_index: int, from: Inventory = null) -> bool:
+	var site: RepairSite = repair_site_at(cell)
+	if site == null or not site.can_switch_light(light_index):
+		return false
+	var turning_on: bool = not site.lit[light_index]
+	var fuel: Dictionary[ItemData, int] = site.data.lights[light_index].fuel
+	if turning_on and not fuel.is_empty():
+		if from == null:
+			return false
+		for item: ItemData in fuel:
+			if from.get_total(item) < fuel[item]:
+				return false
+		for item: ItemData in fuel:
+			from.remove_item(item, fuel[item])
+	site.lit[light_index] = turning_on
+	repair_light_switched.emit(site.origin, light_index)
 	return true
 
 

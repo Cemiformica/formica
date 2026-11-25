@@ -181,6 +181,20 @@ func _ready() -> void:
 				if alba.wear(Vector2i(x, y)) >= 1.0 and not alba.is_path(Vector2i(x, y)):
 					worn += 1
 		_check("Isla Alba: la capa de tierra pisada se lee", worn > 300)
+		# Sin charcos de una casilla en la arena (sesión 23, César: se veían como hoyos hundidos con agua).
+		var puddles: int = 0
+		for y: int in alba.size.y:
+			for x: int in alba.size.x:
+				var cell := Vector2i(x, y)
+				if alba.ground(cell) != IslandLayout.Ground.WATER:
+					continue
+				var alone: bool = true
+				for side: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+					if alba.ground(cell + side) == IslandLayout.Ground.WATER:
+						alone = false
+				if alone:
+					puddles += 1
+		_check("Isla Alba: no hay charcos sueltos de una casilla", puddles == 0)
 		# Rocas caídas al pie de las paredes (C5.4c): hay bastantes, nunca en el agua, y donde hay una no se construye.
 		var debris_ok: bool = alba.debris.size() > 60
 		for item: Dictionary in alba.debris:

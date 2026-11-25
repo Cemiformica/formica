@@ -30,9 +30,10 @@ const PLACE_SOUND: AudioStream = preload("res://assets/audio/build_place.wav")
 const DELIVER_SOUND: AudioStream = preload("res://assets/audio/link_pneumatic.wav")
 ## Lado mínimo de la caja de choque de una pieza (m), para poder apuntarle aunque sea fina.
 const MIN_BOX: float = 0.25
-## Abrir y cerrar (la trampilla, C5.5): lo que tarda en girar y los sonidos (provisionales: los de mover).
+## Abrir y cerrar (la trampilla, C5.5): lo que tarda en girar y los sonidos. Cerrar usa el de soltar; abrir,
+## el mismo un 20 % más agudo y rápido, para que se parezcan sin ser iguales (César, sesión 24).
 const TOGGLE_TIME: float = 0.7
-const OPEN_SOUND: AudioStream = preload("res://assets/audio/move_lift.wav")
+const OPEN_SOUND: AudioStream = preload("res://assets/audio/hatch_open.wav")
 const CLOSE_SOUND: AudioStream = preload("res://assets/audio/move_drop.wav")
 
 var site: RepairSite
@@ -61,10 +62,10 @@ const ROPE_COLOR: Color = Color(0.36, 0.25, 0.15)
 ## los contiene (la trampilla) esté abierta.
 var _shaft: LightShaft = null
 var _shaft_piece: int = -1
-## Candil (C5.5, D-180): si el modelo trae «lantern_light» (y su llama «lantern_flame»), se enciende al completar la
-## estructura. Lo que cuelga de «lantern» no choca: es un detalle pequeño junto a la pared.
-var _lantern: LanternGlow = null
-var _lantern_pending: bool = false   # ya se pidió encenderlo (prende tras el rebote de la última pieza)
+## Luces que se encienden y apagan con E (C5.5, D-191): el candil y el fogón. Una por `RepairLightData`, en el mismo
+## orden (null si el modelo no trae su vacío). Lo que cuelga de «lantern» y las llamas y brasas no chocan.
+var _glows: Array[LanternGlow] = []
+var _light_targets: Array[RepairLightTarget] = []
 
 
 ## Prepara la vista. Se llama ANTES de añadirla al árbol.
@@ -130,7 +131,7 @@ func setup(p_site: RepairSite, p_island: IslandState) -> void:
 		_apply(i)
 	_find_ropes()
 	_add_light_shaft()
-	_add_lantern()
+	_add_lights()
 
 
 ## Se entregó algo a la pieza `index` (lo llama `IslandView`).
@@ -143,8 +144,6 @@ func on_piece_changed(index: int) -> void:
 	_apply(index)
 	if now_done and not was_done:
 		_play_complete(index)
-		if site.is_complete():
-			_light_lantern()   # además de `on_completed`, por si esa señal no llegara
 	else:
 		_play_flash(index)
 
@@ -240,16 +239,22 @@ static func _toggle_angle(piece_data: RepairPieceData, k: int) -> Vector3:
 ## aterriza la última pieza.
 func on_completed() -> void:
 	get_tree().create_timer(GROW_TIME).timeout.connect(_dust_ring)
-	_light_lantern()
+	for target: RepairLightTarget in _light_targets:
+		target.refresh()
+	# Las luces que se encienden solas (el candil) prenden cuando la última pieza se asienta.
+	get_tree().create_timer(GROW_TIME + POP_TIME).timeout.connect(_show_lights)
 
 
-## Enciende el candil (una vez) cuando la última pieza se asienta.
-func _light_lantern() -> void:
-	if _lantern == null or _lantern.is_lit() or _lantern_pending:
-		return
-	_lantern_pending = true
-	print("%s completo: se enciende el candil" % site.data.id)
-	get_tree().create_timer(GROW_TIME + POP_TIME).timeout.connect(_lantern.set_lit.bind(true))
+func _show_lights() -> void:
+	for i: int in _glows.size():
+		if _glows[i] != null and site.is_lit(i) != _glows[i].is_lit():
+			_glows[i].set_lit(site.is_lit(i))
+
+
+## Se encendió o apagó la luz `index` (lo llama `IslandView`).
+func on_light_switched(index: int) -> void:
+	if index >= 0 and index < _glows.size() and _glows[index] != null:
+		_glows[index].set_lit(site.is_lit(index))
 
 
 ## Haz de luz entre «light_shaft_top» y «light_shaft_bottom», encendido si su pieza ya está abierta.
@@ -269,18 +274,33 @@ func _add_light_shaft() -> void:
 	_shaft.set_on(_shaft_piece >= 0 and site.is_open(_shaft_piece), false)
 
 
-## Candil en «lantern_light», encendido si la estructura ya está completa.
-func _add_lantern() -> void:
-	if _model == null:
-		return
-	var anchor := _model.find_child("lantern_light", true, false) as Node3D
-	if anchor == null:
-		return
-	_lantern = LanternGlow.new()
-	_lantern.setup(_model.find_child("lantern_flame", true, false) as MeshInstance3D)
-	anchor.add_child(_lantern)
-	_lantern.set_lit(site.is_complete(), false)
-	print("%s: candil %s" % [site.data.id, "encendido" if site.is_complete() else "apagado (falta completar)"])
+## Una luz por `RepairLightData`: su llama (candil u hoguera) en su vacío y su objetivo para la E, encendida o
+## apagada según la partida.
+func _add_lights() -> void:
+	for i: int in site.data.lights.size():
+		var light: RepairLightData = site.data.lights[i]
+		var anchor: Node3D = _model.find_child(String(light.light_node), true, false) as Node3D \
+				if _model != null and light != null else null
+		if anchor == null:
+			push_warning("RepairSiteView: el modelo de %s no tiene la luz %s" % [site.data.id, light.light_node if light != null else &"?"])
+			_glows.append(null)
+			continue
+		var flames: Array[MeshInstance3D] = []
+		if light.flame_prefix != "":
+			for node: Node in _model.find_children(light.flame_prefix + "*", "MeshInstance3D", true, false):
+				flames.append(node as MeshInstance3D)
+		var embers: MeshInstance3D = _model.find_child(String(light.ember_node), true, false) as MeshInstance3D \
+				if light.ember_node != &"" else null
+		var glow := LanternGlow.new()
+		glow.setup(flames, light.fire, embers)
+		anchor.add_child(glow)
+		glow.set_lit(site.is_lit(i), false)
+		_glows.append(glow)
+		var target := RepairLightTarget.new()
+		var center: Vector3 = _relative_transform(anchor).origin
+		target.setup(self, i, AABB(center - light.aim_size * 0.5, light.aim_size))
+		add_child(target)
+		_light_targets.append(target)
 
 
 ## Pieza `index`: fantasma (con su opacidad según lo entregado) o sólida, y su objetivo al día.
@@ -427,13 +447,15 @@ func _add_base_collision(piece_nodes: Array[Node]) -> void:
 	add_child(body)
 
 
-## Choque con la forma de cada malla de la base (C5.5): se entra por la boca y se anda por dentro. El candil no choca.
+## Choque con la forma de cada malla de la base (C5.5): se entra por la boca y se anda por dentro. El candil, las
+## llamas y las brasas no chocan.
 func _add_exact_collision(piece_nodes: Array[Node]) -> void:
 	var body := StaticBody3D.new()
 	body.name = "BaseCollision"
 	var lantern: Node = _model.find_child("lantern", true, false)
 	for mesh: MeshInstance3D in _meshes_of(_model):
-		var inside_piece: bool = lantern != null and (lantern == mesh or lantern.is_ancestor_of(mesh))
+		var inside_piece: bool = lantern != null and (lantern == mesh or lantern.is_ancestor_of(mesh)) \
+				or "flame" in String(mesh.name) or "ember" in String(mesh.name)
 		for piece: Node in piece_nodes:
 			if piece.is_ancestor_of(mesh):
 				inside_piece = true

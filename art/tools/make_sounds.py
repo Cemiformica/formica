@@ -912,6 +912,108 @@ def write_tool_sounds(assets_folder):
     return sorted(sounds)
 
 
+# --- Fuego (C5.5, D-191): el fogón y el candil del refugio ---
+
+def _crackle(rng, gain=0.5, low=900.0, high=2600.0):
+    """Chasquido de leña: un clic de ruido muy corto con una resonancia al azar entre `low` y `high` Hz."""
+    n = int(RATE * 0.035)
+    freq = rng.uniform(low, high)
+    out = []
+    for i in range(n):
+        t = i / RATE
+        out.append((rng.uniform(-1.0, 1.0) * math.exp(-t * 1100.0) * 0.6 + math.sin(2 * math.pi * freq * t) * math.exp(-t * 180.0)) * gain)
+    return out
+
+
+def _snap(rng, gain=0.3, bright=0.7):
+    """Chasquido seco de leña, solo ruido y sin tono (con tono sonaban a burbujas de agua hirviendo, César): un golpe
+    de ruido de unos milisegundos, más o menos brillante."""
+    n = int(RATE * rng.uniform(0.004, 0.012))
+    out = []
+    low = 0.0
+    for i in range(n):
+        t = i / RATE
+        low += bright * (rng.uniform(-1.0, 1.0) - low)
+        out.append(low * math.exp(-t * 500.0) * gain)
+    return out
+
+
+def _flutter(rng, n, gain):
+    """Rumor de llama: ruido muy grave (sin siseo) que sube y baja despacio, como una llama que respira."""
+    out = []
+    low = low2 = 0.0
+    wobble = rng.uniform(0, 6.28)
+    for i in range(n):
+        t = i / RATE
+        low += 0.006 * (rng.uniform(-1.0, 1.0) - low)
+        low2 += 0.03 * (low - low2)
+        breath = 0.6 + 0.4 * math.sin(2 * math.pi * 0.7 * t + wobble) * math.sin(2 * math.pi * 0.23 * t)
+        out.append(low2 * breath * gain)
+    return out
+
+
+def fire_light():
+    """Prender (sesión 23, más suave: César lo oía como un soplete): un «fup» grave y corto de la llama que prende y
+    unos chasquidos de la leña. 0,8 s."""
+    rng = random.Random(311)
+    n = int(RATE * 0.8)
+    out = [0.0] * n
+    air = _flutter(rng, n, 9.0)
+    for i in range(n):
+        t = i / RATE
+        env = min(1.0, t / 0.05) * math.exp(-max(0.0, t - 0.05) * 6.0)
+        thump = math.sin(2 * math.pi * (55.0 + 40.0 * math.exp(-t * 18.0)) * t) * math.exp(-t * 12.0) * 0.35
+        out[i] = air[i] * env + thump
+    for k in range(7):
+        _add(out, int(RATE * rng.uniform(0.12, 0.7)), _snap(rng, rng.uniform(0.2, 0.45), rng.uniform(0.4, 0.9)))
+    return out
+
+
+def fire_out():
+    """Apagar: un soplo corto y un siseo que se va, como brasas tapadas, con algún chasquido suelto. 1 s."""
+    rng = random.Random(312)
+    n = int(RATE * 1.0)
+    out = [0.0] * n
+    hiss = _noise_band(rng, n, 0.6, 0.08)
+    puff = _noise_band(rng, n, 0.12, 0.01)
+    for i in range(n):
+        t = i / RATE
+        out[i] = hiss[i] * min(1.0, t / 0.03) * math.exp(-t * 3.2) * 0.5 + puff[i] * math.exp(-t * 18.0) * 1.2
+    for k in range(3):
+        _add(out, int(RATE * rng.uniform(0.15, 0.6)), _snap(rng, rng.uniform(0.1, 0.25), rng.uniform(0.4, 0.9)))
+    return out
+
+
+def fire_crackle_loop():
+    """Fuego encendido, 4 s en bucle (sesión 23: sin siseo, César lo oía como un soplete): chasquidos secos de leña (sin tono:
+    con tono sonaban a agua hirviendo) repartidos al azar, de muy suaves a algo más fuertes, sobre un rumor grave y bajito que respira. Lo que pasa del final vuelve
+    al principio, así que el bucle no se nota."""
+    rng = random.Random(313)
+    n = int(RATE * 4.0)
+    out = [0.0] * n
+    rumble = _flutter(rng, n + RATE // 2, 1.8)
+    fade = RATE // 2   # el principio y el final del rumor se funden para cerrar el bucle
+    for i in range(n):
+        v = rumble[i]
+        if i < fade:
+            v = v * (i / fade) + rumble[n + i] * (1.0 - i / fade)
+        out[i] = v
+    # Pocos y espaciados (César: con 50 en 4 s sonaba muy rápido): unos 4 por segundo, suaves y más apagados.
+    for k in range(14):
+        _add(out, rng.randrange(n), _snap(rng, rng.uniform(0.06, 0.18), rng.uniform(0.2, 0.55)))
+    for k in range(3):   # algún chasquido algo más fuerte y sordo (un nudo que revienta)
+        _add(out, rng.randrange(n), _snap(rng, rng.uniform(0.3, 0.45), 0.2))
+    return out
+
+
+def write_fire_sounds(assets_folder):
+    """Escribe los sonidos del fuego en assets/audio (C5.5)."""
+    sounds = {"fire_light": fire_light, "fire_out": fire_out, "fire_crackle_loop": fire_crackle_loop}
+    for name, make in sounds.items():
+        write_wav(os.path.join(assets_folder, name + ".wav"), make())
+    return sorted(sounds)
+
+
 if __name__ == "__main__":
     folder = sys.argv[1] if len(sys.argv) > 1 else "."
     os.makedirs(folder, exist_ok=True)

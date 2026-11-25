@@ -489,8 +489,10 @@ func _compute_drawn_corners() -> void:
 			for j: int in range(maxi(y - SHORE_FLOOR_REACH, 0), mini(y + SHORE_FLOOR_REACH + 1, size.y) + 1):
 				for i: int in range(maxi(x - SHORE_FLOOR_REACH, 0), mini(x + SHORE_FLOOR_REACH + 1, size.x) + 1):
 					var index: int = j * row + i
-					# Ni las explanadas (planas a su altura hasta el agua, por la rueda) ni lo de debajo de un salto.
-					if _touches_buildable(i, j) or _drawn[index] < water_level - 1.0 - SHORE_FLOOR_REACH * SHORE_FLOOR_SLOPE:
+					# Ni las explanadas (planas a su altura hasta el agua, por la rueda) ni lo de debajo de un salto, ni el
+					# mar (sesión 23: en la desembocadura levantaba una barra de arena entre el río y el mar, César).
+					if _touches_buildable(i, j) or _touches_sea(i, j) \
+							or _drawn[index] < water_level - 1.0 - SHORE_FLOOR_REACH * SHORE_FLOOR_SLOPE:
 						continue
 					# Junto al agua, justo por encima; al alejarse, baja en rampa (si acababa de golpe, levantaba un
 					# rellano con un escalón recto alrededor del lago, César).
@@ -510,6 +512,14 @@ func _compute_drawn_corners() -> void:
 					maxf(absf(_drawn[index - row] - here), absf(_drawn[index + row] - here)))
 			_cliffness[index] = smoothstep(CLIFF_DROP * 0.5, CLIFF_DROP, drop)
 	_cliffness = _smooth_corners(_cliffness, fixed, 1)
+
+
+## ¿Toca la esquina (i, j) alguna casilla de mar?
+func _touches_sea(i: int, j: int) -> bool:
+	for cell: Vector2i in [Vector2i(i - 1, j - 1), Vector2i(i, j - 1), Vector2i(i - 1, j), Vector2i(i, j)]:
+		if ground(cell) == Ground.SEA:
+			return true
+	return false
 
 
 ## Distancia (en casillas, con diagonales de 1,41) de cada casilla a la más cercana que valga 0, en dos pasadas.

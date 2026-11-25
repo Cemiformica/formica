@@ -54,9 +54,12 @@ func _ready() -> void:
 		var lights_ok: bool = hatch_node != null and shaft_top != null and hatch_node.is_ancestor_of(shaft_top) \
 				and model.find_child("light_shaft_bottom", true, false) != null \
 				and model.find_child("lantern_light", true, false) != null \
-				and model.find_child("lantern_flame", true, false) is MeshInstance3D
+				and model.find_child("lantern_flame", true, false) is MeshInstance3D \
+				and model.find_child("hearth_light", true, false) != null \
+				and model.find_child("hearth_flame_0", true, false) is MeshInstance3D \
+				and model.find_child("hearth_embers", true, false) is MeshInstance3D
 		model.free()
-		_check("el modelo trae el haz de luz (en la trampilla) y el candil con su llama", lights_ok)
+		_check("el modelo trae el haz de luz (en la trampilla), el candil y el fogón con sus llamas", lights_ok)
 		_check("el modelo del refugio tiene un nodo por pieza (con el tirador, la bisagra, la palanca y las cuerdas) y su spawn_point", all_nodes)
 	# La trampilla: no se abre hasta estar completa; después se abre y se cierra, y abierta se guarda.
 	if shelter != null:
@@ -78,6 +81,25 @@ func _ready() -> void:
 				and not hatch_restored.is_open(0))
 		_check("y se vuelve a cerrar", hatch_island.toggle_repair_piece(Vector2i(40, 40), hatch) and not hatch_site.is_open(hatch))
 		_check("la cama no se abre", not hatch_island.toggle_repair_piece(Vector2i(40, 40), shelter.find_piece(&"bed")))
+		# Luces (D-191): el candil y el fogón solo se encienden con el refugio completo; el candil, solo la primera vez.
+		_check("el refugio tiene el candil (se enciende solo) y el fogón (hoguera)", shelter.lights.size() == 2
+				and shelter.lights[0].id == &"lantern" and shelter.lights[0].lit_on_complete
+				and shelter.lights[1].id == &"hearth" and shelter.lights[1].fire and not shelter.lights[1].lit_on_complete)
+		_check("sin completar el refugio, el fogón no se enciende", not hatch_island.switch_repair_light(Vector2i(40, 40), 1))
+		var everything := Inventory.new(10)
+		for item_id: StringName in [&"timber", &"stone_tile", &"rope", &"wood"]:
+			everything.add_item(Content.find_item(item_id), 20)
+		for i: int in shelter.pieces.size():
+			hatch_island.deliver_repair(Vector2i(40, 40), i, everything)
+		_check("al completarlo, el candil se enciende solo y el fogón no", hatch_site.is_complete()
+				and hatch_site.is_lit(0) and not hatch_site.is_lit(1))
+		var switched: Array[int] = []
+		hatch_island.repair_light_switched.connect(func(_o: Vector2i, index: int) -> void: switched.append(index))
+		_check("el fogón se enciende con E (y avisa)", hatch_island.switch_repair_light(Vector2i(40, 40), 1)
+				and hatch_site.is_lit(1) and switched == [1])
+		_check("y el candil se apaga", hatch_island.switch_repair_light(Vector2i(40, 40), 0) and not hatch_site.is_lit(0))
+		var lit_restored: RepairSite = RepairSite.from_data(JSON.parse_string(JSON.stringify(hatch_site.to_data())))
+		_check("las luces se guardan como estaban", lit_restored != null and not lit_restored.is_lit(0) and lit_restored.is_lit(1))
 
 	Simulation.running = false
 	WorldState.reset()

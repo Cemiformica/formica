@@ -1,11 +1,11 @@
 class_name CatalogWindow
 extends CanvasLayer
-## Catálogo de construcciones (C2.3, D-067): Q lo abre y lo cierra. Pestañas por categoría a la izquierda y
+## Catálogo de construcciones (C2.3, D-067): Q lo abre y lo cierra, solo en el modo construcción (D-193). Pestañas por categoría a la izquierda y
 ## las construcciones en tarjetas (icono y nombre; el icono sale apagado si no te llega para pagarla). A la
 ## derecha, el detalle de la tarjeta que miras: icono grande, nombre, tamaño y el coste línea a línea, con lo
 ## que tienes y lo que hace falta en verde o en rojo, como en el banco (C4). Lo bloqueado (la caja logística, D-115) sale con
 ## candado y no se puede coger. Queda por encima de la barra, que mientras está abierto enseña la barra de
-## construcción en uso (con «<» y «>», o Mayús + rueda, para cambiar de barra).
+## construcción en uso (con «<» y «>», o Ctrl + rueda, para cambiar de barra).
 ## - Clic en una tarjeta: la coge para colocarla (como el cuentagotas) y entra en el modo construcción.
 ## - Arrastrar una tarjeta a una casilla de la barra: la fija ahí. Clic derecho en una casilla: la vacía.
 ## - Con el ratón encima, 1–0: la fija en esa casilla.
@@ -113,7 +113,7 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_catalog"):
 		if WindowManager.is_showing(_panel):
 			WindowManager.close()
-		elif not WindowManager.is_open():
+		elif not WindowManager.is_open() and _builder != null and _builder.active:   # solo en el modo construcción (César)
 			_refresh_bar_labels()
 			_refresh_costs()
 			WindowManager.open(_panel)

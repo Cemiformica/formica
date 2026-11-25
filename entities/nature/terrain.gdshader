@@ -14,6 +14,11 @@ uniform vec3 sand : source_color = vec3(0.88, 0.81, 0.64);
 uniform vec3 wet_sand : source_color = vec3(0.60, 0.50, 0.37);
 // Hasta cuántos metros sobre el agua llega la arena mojada.
 uniform float wet_height = 0.45;
+// Arena mojada que va y viene (sesión 23, César): solo sobre la arena, oscurece su color. Cada `swash_period` segundos
+// el agua sube por la orilla hasta `wet_height` (deprisa) y baja (despacio); lo de abajo se queda húmedo y lo de arriba
+// se va secando. Cada tramo de playa va a su ritmo.
+uniform float swash_period = 7.0;
+uniform float wet_darken = 0.68;   // lo oscura que queda la arena empapada (1 = nada)
 uniform vec3 dirt : source_color = vec3(0.71, 0.62, 0.49);
 uniform vec3 rock : source_color = vec3(0.66, 0.44, 0.32);
 // Estratos de la roca (C5.4c): tonos de las capas, alto de cada una (m) y la línea oscura entre ellas.
@@ -111,8 +116,13 @@ void fragment() {
 	// La marca la altura sobre el agua (antes caía casi toda bajo el mar y no se veía). Solo donde hay agua cerca.
 	// Y solo en la casilla pegada al agua (si no, en las explanadas a ras del río se mojaba una franja ancha).
 	float near_water = step(-50.0, ground_uv2.x) * smoothstep(0.05, 0.4, ground.g);
-	float wet = (1.0 - smoothstep(wet_height * 0.3, wet_height, -depth + (fine - 0.5) * 0.12)) * near_water * flat_ground;
-	color = mix(color, wet_sand * (0.96 + 0.08 * fine), wet);
+	float above = -depth + (fine - 0.5) * 0.06;   // altura sobre el agua, con el borde algo irregular
+	float t = fract(TIME / swash_period + mid * 1.7 + big * 0.9);
+	float reach = wet_height * (t < 0.2 ? smoothstep(0.0, 0.2, t) : 1.0 - smoothstep(0.2, 1.0, t));
+	float front = 1.0 - smoothstep(reach - 0.03, reach + 0.02, above);        // donde llega el agua ahora
+	float damp = (1.0 - smoothstep(0.0, wet_height, above)) * 0.55;            // abajo siempre algo húmeda
+	float wet = max(front, damp) * near_water * beach;                         // solo sobre la arena (no en la hierba)
+	color *= mix(1.0, wet_darken, wet);
 
 	// Capas horizontales con el borde ondulado; cada capa toma uno de tres tonos y entre ellas, una línea más oscura.
 	float strata_y = world_pos.y / strata_height + (mid - 0.5) * 0.9 + (big - 0.5) * 0.6;
