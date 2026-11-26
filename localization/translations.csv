@@ -169,6 +169,7 @@ REPAIR_BRIDGE,Pasarela del vado,Passarel·la del gual,Ford footbridge
 REPAIR_PIECE_BRIDGE_TRESTLES,Caballetes,Cavallets,Trestles
 REPAIR_PIECE_BRIDGE_DECK,Tablero,Tauler,Deck
 REPAIR_PIECE_BRIDGE_RAILS,Pasamanos,Passamans,Handrails
+REPAIR_DOCK,Embarcadero en ruinas,Embarcador en ruïnes,Ruined pier
 HINT_CLIMB,Agarrarse,Agafar-se,Climb
 HINT_REST,Descansar,Descansar,Rest
 REST_DONE,Punto de reaparición establecido. Partida guardada,Punt de reaparició establert. Partida desada,Respawn point set. Game saved

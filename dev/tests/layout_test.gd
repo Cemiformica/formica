@@ -320,6 +320,21 @@ func _ready() -> void:
 		_check("Isla Alba: la pasarela cruza el vado (%s)" % ("sin orillas" if bridge_spot.is_empty() else
 				"%.2f m, tablero a %.2f m sobre el agua" % [bridge_spot["length"],
 				float(bridge_spot["deck"]) - float(bridge_spot["surface"])]), bridge_ok)
+		# Embarcadero en ruinas (sesión 29): uno, solo decorado (sin piezas), que sale de la orilla hacia el agua.
+		var docks: int = 0
+		var dock_pieces: int = -1
+		for site_origin: Vector2i in isle.repair_sites:
+			var site: RepairSite = isle.repair_sites[site_origin]
+			if site.data.purpose == DockBuilder.PURPOSE:
+				docks += 1
+				dock_pieces = site.data.pieces.size()
+		_check("Isla Alba: un embarcadero en ruinas, solo decorado", docks == 1 and dock_pieces == 0)
+		var dock_spot: Dictionary = DockBuilder.measure(alba, alba.cells_of(DockBuilder.DOCK_CHAR))
+		var dock_ok: bool = not dock_spot.is_empty() and float(dock_spot["deck"]) - float(dock_spot["surface"]) >= DockBuilder.WATER_CLEAR - 0.001 \
+				and float(dock_spot["deck"]) - float(dock_spot["surface"]) < 1.2
+		_check("Isla Alba: el embarcadero entra en el agua (%s)" % ("sin agua" if dock_spot.is_empty() else
+				"%.2f m, tablero a %.2f m sobre el agua" % [dock_spot["length"],
+				float(dock_spot["deck"]) - float(dock_spot["surface"])]), dock_ok)
 
 	WorldState.reset()
 	Simulation.running = true

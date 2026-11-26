@@ -340,6 +340,23 @@ if _portal:
             assert grid[y][x] == '=', 'el portal no cae en explanada baja en %d, %d' % (x, y)
             grid[y][x] = 'P'
 
+# 12b) El embarcadero en ruinas, en la playa oeste, al pie del sendero (César, sesión 29): sale de la playa hacia el mar
+# (en la desembocadura salía hacia el río y no quedaba bien). Donde estaba se escribe el suelo deducido, como en el
+# paso 11. Ocupa 3 × 2 casillas de playa; el muelle lo genera el juego (`DockBuilder`) hacia el lado del mar.
+DOCK_AT = (6, 60)          # esquina noroeste de sus 3 × 2 casillas: el mar empieza justo al oeste (x 5)
+DOCK_SIZE = (3, 2)
+_dock = [(x, y) for y in range(H) for x in range(W) if grid[y][x] == 'E']
+if _dock:
+    _fill = {(x, y): _inferred(x, y) for x, y in _dock}
+    for (x, y), c in _fill.items():
+        grid[y][x] = c
+    dx0, dy0 = DOCK_AT
+    for y in range(dy0, dy0 + DOCK_SIZE[1]):
+        for x in range(dx0, dx0 + DOCK_SIZE[0]):
+            assert grid[y][x] == ',', 'el embarcadero no cae en la playa en %d, %d' % (x, y)
+            grid[y][x] = 'E'
+        assert grid[y][dx0 - 1] == '~', 'al oeste del embarcadero no hay mar en la fila %d' % y
+
 # 13) La pintura de César (`paint_alba.png`, sesión 26): tierra pisada, árboles salvajes, arboledas, barandilla, césped
 # (hierba aunque haya sendero o rellano) y escala, pintados en Paint sobre el plano (8 píxeles por casilla; los colores,
 # en la columna de la derecha; el amarillo y el azul, los de Paint que eligió César). Si la imagen no existe, se crea con
