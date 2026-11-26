@@ -160,6 +160,11 @@ REPAIR_PIECE_AWNING,Toldo,Tendal,Awning
 REPAIR_PIECE_HATCH,Trampilla,Trapa,Hatch
 REPAIR_FENCE,Barandilla,Barana,Railing
 REPAIR_PIECE_FENCE,Tramo de barandilla,Tram de barana,Railing section
+REPAIR_LADDER,Escala de cuerda,Escala de corda,Rope ladder
+REPAIR_PIECE_LADDER_STAKES,Estacas,Estaques,Stakes
+REPAIR_PIECE_LADDER_ROPES,Cuerdas de la escala,Cordes de l'escala,Ladder ropes
+REPAIR_PIECE_LADDER_RUNGS,Peldaños,Graons,Rungs
+HINT_CLIMB,Agarrarse,Agafar-se,Climb
 HINT_REST,Descansar,Descansar,Rest
 REST_DONE,Punto de reaparición establecido. Partida guardada,Punt de reaparició establert. Partida desada,Respawn point set. Game saved
 BUILD_NOT_BUILDABLE,Solo se construye en las explanadas,Només es construeix a les esplanades,You can only build on the flat clearings

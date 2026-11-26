@@ -28,6 +28,10 @@ const GRASS_PLAYER_PARAM: StringName = &"player_position"
 @export var coyote_time: float = 0.1 ## Segundos tras salir de un borde en los que aún se puede saltar.
 @export var jump_buffer_time: float = 0.12 ## Segundos que se recuerda el salto pulsado justo antes de tocar el suelo.
 @export var step_height: float = 0.3 ## Bordes que sube solo al caminar, sin saltar (cintas, losas bajas) (B3.7).
+@export var climb_speed: float = 1.6 ## Velocidad por una escala (m/s a lo largo de ella; C5.6b).
+@export var climb_top_entry: float = 0.8 ## Al agarrarse arriba, se empieza esto por debajo del final (m; César: si no, salía).
+@export var climb_turn_time: float = 0.25 ## Al agarrarse, lo que tarda en girarse hacia la escala (s; César).
+@export var climb_exit_time: float = 0.45 ## Lo que tarda en subir al borde al salir por arriba (s; César: daba un salto).
 
 @export_group("Cámara")
 @export var mouse_sensitivity: float = 0.002 ## Radianes girados por cada píxel de ratón.
@@ -74,6 +78,19 @@ var _last_fall_speed: float = 0.0
 var _landing_dip: float = 0.0
 var _head_height: float = 1.6
 var _base_fov: float = 75.0
+## Escala (C5.6b): por dónde se sube (puntos del mundo a la altura de los pies, de abajo arriba; vacío = no se está en
+## ninguna), dónde se sale arriba, cuánto mide y por dónde se va.
+var _climb_path: PackedVector3Array = PackedVector3Array()
+var _climb_exit: Vector3 = Vector3.ZERO
+var _climb_length: float = 0.0
+var _climb_s: float = 0.0
+## Al agarrarse, hacia dónde se gira (hacia la escala) y cuánto le queda de giro; al salir por arriba, de dónde a dónde
+## sube al borde y cuánto lleva (0–1; -1 = no está saliendo).
+var _climb_yaw: float = 0.0
+var _climb_turn: float = 0.0
+var _exit_from: Vector3 = Vector3.ZERO
+var _exit_to: Vector3 = Vector3.ZERO
+var _exit_t: float = -1.0
 
 
 func _ready() -> void:
@@ -116,6 +133,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton and event.pressed:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
+	# En una escala, E suelta (C5.6b, opción B de César): no interactúa con nada más.
+	if is_climbing() and event.is_action_pressed("interact"):
+		stop_climb()
+		return
 	# E interactúa con lo que miramos, salvo en el modo construcción: construir es un modo aparte (C1.6, César).
 	if event.is_action_pressed("interact") and is_instance_valid(focused_interactable) and not in_tool_mode():
 		focused_interactable.interact(self)
@@ -156,6 +177,14 @@ func _process(delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _exit_t >= 0.0:
+		_exit_step(delta)
+		_update_focus()
+		return
+	if is_climbing():
+		_climb_step(delta)
+		_update_focus()
+		return
 	var playing: bool = not WindowManager.is_open()
 	# Gravedad (sesión 25, César: caía lento): normal al subir, más fuerte al caer, con un tope.
 	if is_on_floor():
@@ -355,9 +384,111 @@ func _update_focus() -> void:
 		focus_changed.emit(focused_interactable)
 
 
+## Agarrarse a una escala (C5.6b, D-187; opción B de César: E se agarra y E se suelta). Se sube con W y se baja con S
+## por `path` (puntos del mundo a la altura de los pies, de abajo arriba), sin gravedad y mirando a donde se quiera.
+## Arriba se sale a `top_exit`; abajo, al llegar al suelo, se suelta sola. Empieza en el punto más cercano.
+func start_climb(path: PackedVector3Array, top_exit: Vector3) -> void:
+	if path.size() < 2:
+		return
+	_climb_path = path
+	_climb_exit = top_exit
+	_climb_length = 0.0
+	for i: int in path.size() - 1:
+		_climb_length += path[i].distance_to(path[i + 1])
+	# Agarrándose desde arriba, el punto más cercano es el final: se empieza un poco más abajo (César: te volvía a sacar).
+	_climb_s = minf(_closest_on_climb(global_position), maxf(0.0, _climb_length - climb_top_entry))
+	# Mirando a la escala (César: que no se baje de espaldas; así W siempre sube y S siempre baja): la escala sube hacia
+	# la pared, así que su primer punto y el último dicen hacia dónde queda.
+	var facing: Vector3 = path[path.size() - 1] - path[0]
+	facing.y = 0.0
+	_climb_yaw = atan2(-facing.x, -facing.z) if facing.length_squared() > 0.0001 else rotation.y
+	_climb_turn = climb_turn_time
+	velocity = Vector3.ZERO
+	_crouching = false
+	_sprinting = false
+	global_position = _climb_point(_climb_s)
+
+
+## Suelta la escala (con E, al salir por arriba o al llegar abajo). Si es en el aire, cae.
+func stop_climb() -> void:
+	_climb_path = PackedVector3Array()
+	velocity = Vector3.ZERO
+
+
+func is_climbing() -> bool:
+	return not _climb_path.is_empty()
+
+
+## Un paso en la escala: W sube y S baja a `climb_speed`. Al principio, se gira hacia la escala.
+func _climb_step(delta: float) -> void:
+	if _climb_turn > 0.0:
+		_climb_turn -= delta
+		rotation.y = _climb_yaw if _climb_turn <= 0.0 else lerp_angle(rotation.y, _climb_yaw, 1.0 - exp(-14.0 * delta))
+	var climb_input: float = 0.0
+	if not WindowManager.is_open():
+		climb_input = Input.get_axis("move_back", "move_forward")
+	_climb_s += climb_input * climb_speed * delta
+	if _climb_s >= _climb_length and climb_input > 0.0:
+		# Arriba, solo subiendo: sube al borde, pasadas las estacas (sin saltar de golpe, César).
+		_exit_from = global_position
+		_exit_to = _climb_exit
+		_exit_t = 0.0
+		stop_climb()
+		return
+	_climb_s = minf(_climb_s, _climb_length)
+	if _climb_s <= 0.0 and climb_input < 0.0:
+		global_position = _climb_point(0.0)   # abajo: ya en el suelo
+		stop_climb()
+		return
+	_climb_s = maxf(_climb_s, 0.0)
+	global_position = _climb_point(_climb_s)
+
+
+## Subir al borde al salir por arriba: primero sube y luego avanza, con un pequeño arco, en `climb_exit_time`.
+func _exit_step(delta: float) -> void:
+	_exit_t = minf(_exit_t + delta / climb_exit_time, 1.0)
+	var spot: Vector3 = _exit_from.lerp(_exit_to, smoothstep(0.0, 1.0, _exit_t))
+	spot.y = lerpf(_exit_from.y, _exit_to.y, sqrt(_exit_t)) + sin(PI * _exit_t) * 0.25
+	global_position = spot
+	if _exit_t >= 1.0:
+		_exit_t = -1.0
+		velocity = Vector3.ZERO
+
+
+## El punto de la escala a `along` metros de su principio.
+func _climb_point(along: float) -> Vector3:
+	var walked: float = 0.0
+	for i: int in _climb_path.size() - 1:
+		var length: float = _climb_path[i].distance_to(_climb_path[i + 1])
+		if along <= walked + length and length > 0.0:
+			return _climb_path[i].lerp(_climb_path[i + 1], (along - walked) / length)
+		walked += length
+	return _climb_path[_climb_path.size() - 1]
+
+
+## Cuántos metros de escala hay hasta su punto más cercano a `point`.
+func _closest_on_climb(point: Vector3) -> float:
+	var best_along: float = 0.0
+	var best_distance: float = INF
+	var walked: float = 0.0
+	for i: int in _climb_path.size() - 1:
+		var a: Vector3 = _climb_path[i]
+		var b: Vector3 = _climb_path[i + 1]
+		var length: float = a.distance_to(b)
+		var t: float = clampf((point - a).dot(b - a) / maxf(length * length, 0.0001), 0.0, 1.0)
+		var distance: float = point.distance_to(a.lerp(b, t))
+		if distance < best_distance:
+			best_distance = distance
+			best_along = walked + t * length
+		walked += length
+	return best_along
+
+
 ## Vuelve al punto de reaparición: la cama del refugio si se ha descansado en ella en esta isla (C4) o, si
 ## no, el sitio donde empezó la escena.
 func respawn() -> void:
+	stop_climb()
+	_exit_t = -1.0
 	if WorldState.has_respawn(build_controller.island_id):
 		global_position = WorldState.respawn_position
 		rotation.y = WorldState.respawn_rotation_y

@@ -59,7 +59,7 @@ func _place_player_at_portal(layout: IslandLayout) -> void:
 func _give_dev_kit() -> void:
 	var inventory: Inventory = WorldState.player_inventory
 	for entry: Array in [[&"wood", 100], [&"stone", 100], [&"iron_ingot", 14], [&"solar_cell", 14],
-			[&"copper_ingot", 10], [&"copper_coil", 10], [&"timber", 10], [&"stone_tile", 10],
-			[&"fiber", 45]]:   # fibra de esparto para hacer cuerda en el banco (C5.5), hasta que haya esparto en C5.6;
-			# 45 = 15 cuerdas: el refugio y los tramos de la barandilla del mirador (C5.6b)
+			[&"copper_ingot", 10], [&"copper_coil", 10], [&"timber", 13], [&"stone_tile", 10],
+			[&"fiber", 57]]:   # fibra de esparto para hacer cuerda en el banco (C5.5), hasta que haya esparto en C5.6;
+			# 57 = 19 cuerdas: el refugio, los tramos de la barandilla del mirador y las 4 de la escala (C5.6b)
 		inventory.add_item(Content.find_item(entry[0]), entry[1])

@@ -23,6 +23,10 @@ extends Resource
 @export var pieces: Array[RepairPieceData] = []
 ## Luces que se encienden y apagan con E una vez completa (C5.5, D-191): el candil y el fogón del refugio.
 @export var lights: Array[RepairLightData] = []
+## Escalas (C5.6b): por dónde sube Mira al agarrarse (puntos del mundo a la altura de sus pies, de abajo arriba) y dónde
+## queda al salir por arriba. Lo rellena `LadderBuilder`; vacío en lo que no se sube.
+@export var climb_path: PackedVector3Array = PackedVector3Array()
+@export var climb_exit: Vector3 = Vector3.ZERO
 ## Para qué sirve al completarse (&"shelter", &"threshold", &"stabilizer"…). Lo usa quien escucha
 ## `IslandState.repair_completed`; aquí es solo una etiqueta.
 @export var purpose: StringName = &""

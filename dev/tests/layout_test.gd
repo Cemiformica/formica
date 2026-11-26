@@ -290,6 +290,20 @@ func _ready() -> void:
 					if alba.ground(cell) != IslandLayout.Ground.SLOPE or alba.can_spawn(cell):
 						path_ok = false
 		_check("Isla Alba: hay sendero en la ladera y está despejado", path_cells > 50 and path_ok)
+		# Escala de cuerda de la cascada (C5.6b, sesión 27): una, en tres piezas por reparar, que sube la pared.
+		var ladders: int = 0
+		var ladder_pieces: int = 0
+		for site_origin: Vector2i in isle.repair_sites:
+			var site: RepairSite = isle.repair_sites[site_origin]
+			if site.data.purpose == LadderBuilder.PURPOSE:
+				ladders += 1
+				ladder_pieces = site.data.pieces.size()
+		_check("Isla Alba: una escala de cuerda reparable, en tres piezas", ladders == 1 and ladder_pieces == 3)
+		var ladder_spot: Dictionary = LadderBuilder.measure(alba, alba.ladder_cells)
+		var ladder_reaches: bool = not ladder_spot.is_empty() and absf(float(ladder_spot["modules"]) - float(ladder_spot["rise"])) <= 0.5 \
+				and absf(float(ladder_spot["rise"]) - IslandLayout.LEVEL_HEIGHT) < 1.0
+		_check("Isla Alba: la escala llega al borde de la pared (%s)" % ("sin pared" if ladder_spot.is_empty() else
+				"%d módulos, %.2f m" % [ladder_spot["modules"], ladder_spot["rise"]]), ladder_reaches)
 
 	WorldState.reset()
 	Simulation.running = true

@@ -36,8 +36,6 @@ const MAX_SPAN: float = 1.45
 const POST_SINK: float = 0.03
 ## Desnivel más grande entre dos postes que aún se salva enterrando el más alto (m); más, y el tramo se inclina.
 const MAX_STEP: float = 0.35
-## PROVISIONAL (sesión 26): escribe en la Salida la búsqueda del borde de cada poste. Quitar al acabar la barandilla.
-const DEBUG_RIM: bool = false
 ## Ajustes a mano de César (sesión 26): cuánto más hacia dentro (m, del mar hacia el camino) va el poste de una casilla.
 ## El poste 1 del sendero quedaba demasiado cerca del filo.
 const POST_NUDGES: Dictionary[Vector2i, float] = {Vector2i(21, 46): 0.45}
@@ -57,8 +55,8 @@ const POST_PROFILE: Array[Vector2] = [
 	Vector2(0.40, 0.07), Vector2(0.47, 0.09), Vector2(0.58, 0.095), Vector2(0.66, 0.078), Vector2(0.71, 0.062),
 	Vector2(0.77, 0.085), Vector2(0.85, 0.09), Vector2(0.91, 0.07)]
 const ROPE_MINOR: float = 0.012
-const ROPE_GAP: float = 0.004
-## Cruz de esparto alrededor del poste (opción de César: cruz más las vueltas del tronco): dos lazos que dibujan una X
+## Cruz de esparto alrededor del poste (César, sesión 27: solo la cruz, como en la escala, sin las vueltas de cada
+## tronco): dos lazos que dibujan una X
 ## delante y otra detrás, de CROSS_REACH por encima a CROSS_REACH por debajo del tronco, entre ±CROSS_ANGLE, y rodean los
 ## costados por encima y por debajo de él. Dos troncos a menos de CROSS_SAME de altura llevan una.
 const CROSS_REACH: float = 0.085
@@ -237,24 +235,16 @@ static func _rim_spot(layout: IslandLayout, center: Vector2, outward: Vector2) -
 	var inward: Vector2 = -outward
 	var start: Vector2 = center + outward * SEARCH_OUT
 	var seen_wall: bool = false
-	var trace: PackedStringArray = []   # PROVISIONAL (DEBUG_RIM)
 	for k: int in int((SEARCH_OUT + SEARCH_IN) / SEARCH_STEP) + 1:
 		var spot: Vector2 = start + inward * (k * SEARCH_STEP)
 		var here: float = layout.terrain_height(spot.x, spot.y)
 		var up: float = _up(layout, spot)
-		if DEBUG_RIM:
-			trace.append("%.2f/%.2f" % [here, up])
 		if here <= WATER_CLEARANCE:
 			continue
 		if up < RIM_UP:
 			seen_wall = true
 		elif seen_wall:
-			if DEBUG_RIM:
-				print("FenceBuilder: casilla %s, borde a %.1f m del centro (hacia fuera): %s" % [center,
-						(spot - center).dot(outward), " ".join(trace)])
 			return spot + inward * INSET
-	if DEBUG_RIM:
-		print("FenceBuilder: casilla %s, SIN BORDE: %s" % [center, " ".join(trace)])
 	# Sin borde: dentro de la casilla, salvo que ahí ya esté el agua (la casilla está dibujada sobre el mar).
 	var fallback: Vector2 = center + inward * INSET
 	if layout.terrain_height(fallback.x, fallback.y) > WATER_CLEARANCE:
@@ -323,7 +313,6 @@ static func _model(points: PackedVector3Array, center: Vector3, post_template: N
 		if rails is MeshInstance3D:
 			(rails as MeshInstance3D).mesh = _stretched((rails as MeshInstance3D).mesh, length)
 		piece.add_child(rails)
-		_add_lashings(piece, rails.transform, length, bases[i + 1] - bases[i])
 		pieces.append(piece)
 		rail_transforms.append(rails.transform)
 		rail_lengths.append(length)
@@ -367,31 +356,6 @@ static func _model(points: PackedVector3Array, center: Vector3, post_template: N
 	return scene
 
 
-## Las ataduras de un tramo: en cada tronco y en cada extremo, dos vueltas de esparto pegadas al poste, a la medida de
-## la parte del poste a la que llega el tronco (también en los tramos escalonados o inclinados). `rails` es la
-## transformación de los troncos en la pieza (el eje de cada uno pasa por (x, altura, 0)); `rise`, lo que sube el pie del
-## poste del final respecto al de salida.
-static func _add_lashings(piece: Node3D, rails: Transform3D, length: float, rise: float) -> void:
-	for rail_height: float in RAIL_HEIGHTS:
-		for end: int in 2:
-			var start: Vector3 = rails * Vector3(0.0 if end == 0 else length, rail_height, 0.0)
-			# Lo más ancho del poste a la altura del tronco (no en toda la altura de la vuelta: así se pega a la junta y a
-			# los lazos de la cruz, César; si roza el abdomen, queda metida en él como una cuerda apretada).
-			var height: float = start.y - (0.0 if end == 0 else rise)
-			var reach: float = RAIL_RADIUS
-			var post_radius: float = 0.0
-			for k: int in 9:
-				post_radius = maxf(post_radius, _post_radius(height - reach + reach * 2.0 * k / 8.0))
-			for turn: int in 2:
-				var along: float = post_radius + ROPE_MINOR + ROPE_GAP + turn * (ROPE_MINOR * 2.0 + ROPE_GAP)
-				var ring := MeshInstance3D.new()
-				ring.name = "fence_lashing"
-				ring.mesh = _rope_ring(turn)
-				ring.transform = Transform3D(rails.basis,
-						rails * Vector3(along if end == 0 else length - along, rail_height, 0.0))
-				piece.add_child(ring)
-
-
 ## Radio del poste (en sus esquinas) a una altura sobre su pie, del perfil POST_PROFILE.
 static func _post_radius(height: float) -> float:
 	for k: int in POST_PROFILE.size() - 1:
@@ -402,7 +366,6 @@ static func _post_radius(height: float) -> float:
 	return POST_PROFILE[POST_PROFILE.size() - 1].y
 
 
-static var _rope_rings: Array[ArrayMesh] = []
 static var _crosses: Dictionary[int, ArrayMesh] = {}
 static var _rope_material: Material = null
 
@@ -484,49 +447,6 @@ static func _add_tube(tool: SurfaceTool, path: Array[Vector3], half: float, uv: 
 		for v: Vector3 in [cap[0], cap[1], cap[2], cap[0], cap[2], cap[3]]:
 			tool.set_uv(uv)
 			tool.add_vertex(v)
-
-
-## Radio de la vuelta de cuerda (a su centro): su hueco, algo mayor que las esquinas del tronco hexagonal.
-static func _rope_major() -> float:
-	return RAIL_RADIUS / cos(PI / 8.0) + ROPE_MINOR + 0.002
-
-
-## Vuelta de cuerda alrededor de un tronco (eje X): un toro low-poly de 8 × 4 caras, del color de esparto `turn`. Su
-## hueco es algo mayor que el tronco (hexagonal), para no cortarse con sus esquinas. Una malla compartida por color.
-static func _rope_ring(turn: int) -> ArrayMesh:
-	if _rope_rings.size() == ROPE_SWATCHES.size():
-		return _rope_rings[turn]
-	_rope_rings.clear()
-	var segments: int = 8
-	var sides: int = 4
-	var major: float = _rope_major()
-	for swatch: Vector2i in ROPE_SWATCHES:
-		var uv := Vector2((swatch.y * 8 + 4) / 64.0, (swatch.x * 8 + 4) / 64.0)
-		var tool := SurfaceTool.new()
-		tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-		tool.set_smooth_group(0)
-		var points: Array[Vector3] = []
-		for i: int in segments:
-			var a: float = TAU * i / segments
-			var out := Vector3(0.0, cos(a), sin(a))
-			for k: int in sides:
-				var b: float = TAU * k / sides
-				points.append(out * (major + ROPE_MINOR * cos(b)) + Vector3(ROPE_MINOR * sin(b), 0.0, 0.0))
-		for i: int in segments:
-			for k: int in sides:
-				var p00: Vector3 = points[i * sides + k]
-				var p01: Vector3 = points[i * sides + (k + 1) % sides]
-				var p10: Vector3 = points[((i + 1) % segments) * sides + k]
-				var p11: Vector3 = points[((i + 1) % segments) * sides + (k + 1) % sides]
-				# Godot toma como cara de delante la que se ve en sentido horario: hacia fuera del toro.
-				for v: Vector3 in [p00, p11, p10, p00, p01, p11]:
-					tool.set_uv(uv)
-					tool.add_vertex(v)
-		tool.generate_normals()
-		var mesh: ArrayMesh = tool.commit()
-		mesh.surface_set_material(0, _rope_mat())
-		_rope_rings.append(mesh)
-	return _rope_rings[turn]
 
 
 ## Copia de `mesh` estirada en X (los troncos miden 1 m a lo largo de +X).

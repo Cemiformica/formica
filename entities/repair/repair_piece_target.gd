@@ -48,13 +48,18 @@ func set_done(done: bool) -> void:
 		# envolvía el toldo, que va detrás, y no dejaba entregarle nada (César).
 		exact_body.collision_layer = 1 if done else 0
 		collision_layer = 0
-		_area.collision_layer = VeinView.WORK_AREA_LAYER if not done or _action() != &"" else 0
+		# La escala (C5.6b): su zona para agarrarse, solo con la escala entera. Si no, las cuerdas ya reparadas tapaban la
+		# zona de los peldaños que faltaban y costaba entregárselos (César).
+		var live_action: bool = _action() != &"" and (_action() != &"climb" or _view.site.is_complete())
+		_area.collision_layer = VeinView.WORK_AREA_LAYER if not done or live_action else 0
 	else:
 		collision_layer = 1 if done else 0
 		_area.collision_layer = 0 if done else VeinView.WORK_AREA_LAYER
 	# Completa, se llama como la estructura («Ruina de prueba»), no como la pieza; la cama sigue siendo la cama y la
 	# trampilla, la trampilla.
-	display_name_key = _view.site.data.name_key if done and _action() == &"" else _view.site.data.pieces[_index].name_key
+	# La escala se llama escala (no «Peldaños») y se agarra por cualquiera de sus piezas (C5.6b).
+	var named_as_site: bool = _action() == &"" or _action() == &"climb"
+	display_name_key = _view.site.data.name_key if done and named_as_site else _view.site.data.pieces[_index].name_key
 
 
 ## E: entrega a la pieza lo que le falte y lleves. Si no llevas nada de lo que pide, no pasa nada (el
@@ -65,6 +70,8 @@ func interact(by: Node) -> void:
 			by.rest_at(_view.spawn_transform())
 		elif _action() == &"toggle":
 			_view.island.toggle_repair_piece(_view.site.origin, _index)
+		elif _action() == &"climb" and _view.site.is_complete() and by.has_method("start_climb"):
+			by.start_climb(_view.site.data.climb_path, _view.site.data.climb_exit)   # la escala (C5.6b)
 		return
 	_view.island.deliver_repair(_view.site.origin, _index, WorldState.player_inventory)
 
@@ -73,6 +80,8 @@ func get_interact_hint_key() -> String:
 	if _done:
 		if _action() == &"toggle":
 			return "HINT_CLOSE" if _view.site.is_open(_index) else "HINT_OPEN"
+		if _action() == &"climb":
+			return "HINT_CLIMB" if _view.site.is_complete() else ""
 		return "HINT_REST" if _is_bed() else ""
 	return "HINT_DELIVER" if _carries_something() else ""
 

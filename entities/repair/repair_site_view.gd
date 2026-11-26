@@ -132,6 +132,8 @@ func setup(p_site: RepairSite, p_island: IslandState) -> void:
 	_find_ropes()
 	_add_light_shaft()
 	_add_lights()
+	if site.is_complete():
+		_hide_broken()
 
 
 ## Se entregó algo a la pieza `index` (lo llama `IslandView`).
@@ -239,6 +241,10 @@ static func _toggle_angle(piece_data: RepairPieceData, k: int) -> Vector3:
 ## aterriza la última pieza.
 func on_completed() -> void:
 	get_tree().create_timer(GROW_TIME).timeout.connect(_dust_ring)
+	get_tree().create_timer(GROW_TIME).timeout.connect(_hide_broken)
+	# Las piezas que hacen algo con la estructura entera (agarrarse a la escala, C5.6b) se activan ahora.
+	for i: int in _targets.size():
+		_targets[i].set_done(_done[i])
 	for target: RepairLightTarget in _light_targets:
 		target.refresh()
 	# Las luces que se encienden solas (el candil) prenden cuando la última pieza se asienta.
@@ -455,7 +461,7 @@ func _add_exact_collision(piece_nodes: Array[Node]) -> void:
 	var lantern: Node = _model.find_child("lantern", true, false)
 	for mesh: MeshInstance3D in _meshes_of(_model):
 		var inside_piece: bool = lantern != null and (lantern == mesh or lantern.is_ancestor_of(mesh)) \
-				or "flame" in String(mesh.name) or "ember" in String(mesh.name)
+				or "flame" in String(mesh.name) or "ember" in String(mesh.name) or _is_broken(mesh)
 		for piece: Node in piece_nodes:
 			if piece.is_ancestor_of(mesh):
 				inside_piece = true
@@ -467,6 +473,26 @@ func _add_exact_collision(piece_nodes: Array[Node]) -> void:
 		collision.transform = _relative_transform(mesh)
 		body.add_child(collision)
 	add_child(body)
+
+
+## Lo que solo está mientras la estructura no esté completa (C5.6b, sesión 27): los nodos «broken_…» del modelo, como
+## la escala vieja caída al pie. No chocan (no se tropieza con ellos) y se quitan al completarla.
+func _broken_nodes() -> Array[Node]:
+	if _model == null:
+		return []
+	return _model.find_children("broken_*", "Node3D", true, false)
+
+
+func _is_broken(node: Node) -> bool:
+	for broken: Node in _broken_nodes():
+		if broken == node or broken.is_ancestor_of(node):
+			return true
+	return false
+
+
+func _hide_broken() -> void:
+	for broken: Node in _broken_nodes():
+		(broken as Node3D).visible = false
 
 
 ## Choque con la forma real de una pieza (C5.5): un cuerpo con una forma por malla, apagado hasta completarla

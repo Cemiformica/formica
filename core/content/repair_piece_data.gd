@@ -13,7 +13,8 @@ extends Resource
 @export var cost: Dictionary[ItemData, int] = {}
 ## Qué hace la pieza cuando ya está completa (C4). Vacío = nada. &"bed": la cama del refugio; con E se
 ## descansa: marca ahí el punto de reaparición y guarda la partida (César). &"toggle": con E se abre o se
-## cierra, girando `toggle_nodes` (la trampilla del refugio y su palanca, C5.5, César).
+## cierra, girando `toggle_nodes` (la trampilla del refugio y su palanca, C5.5, César). &"climb": con la estructura
+## entera completa, con E se agarra uno a ella y sube por `RepairSiteData.climb_path` (la escala de cuerda, C5.6b).
 @export var action: StringName = &""
 ## Nodo del modelo donde se apunta para entregarle cosas y accionarla. Vacío = el de la propia pieza. Sirve para
 ## piezas que quedan fuera de alcance, como la trampilla del cráter, que se acciona desde un tirador abajo.

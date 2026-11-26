@@ -87,6 +87,8 @@ const FEATURE_CHARS: String = "RPMSTtXAGHQE"
 const SOLID_FEATURES: String = "XAGHQE"
 ## Casillas alrededor del refugio en las que el terreno no se deforma (ver `_near_shelter()`).
 const SHELTER_CLEARANCE: int = 2
+## Casillas alrededor de la escala reparable en las que no caen rocas al pie de la pared (C5.6b, sesión 27).
+const LADDER_CLEAR: int = 2
 
 ## Tamaño del plano en casillas (el ancho es el de la fila más larga; las cortas se rellenan con mar).
 var size: Vector2i = Vector2i.ZERO
@@ -798,6 +800,8 @@ func _compute_wall_feet(drops: PackedFloat32Array) -> void:
 			var g: Ground = ground(cell)
 			if g == Ground.RAMP or g == Ground.LANDING or is_path(cell) or _worn[y * size.x + x] == 1:
 				continue
+			if _near_ladder(cell):
+				continue   # la escala de cuerda baja hasta el suelo (César: una cuerda se metía en una roca caída)
 			# También en la explanada pegada a la pared (César: se veían pocas); esa casilla deja de servir para construir.
 			var r: float = _cell_random(cell, 1)
 			if r > (DEBRIS_CHANCE_ON_FLAT if is_buildable(cell) else DEBRIS_CHANCE):
@@ -843,6 +847,14 @@ func flat_depth(cell: Vector2i) -> float:
 
 
 var _flat_depth: PackedFloat32Array = PackedFloat32Array()
+
+
+## ¿Está a LADDER_CLEAR casillas o menos de la escala (`ladder_cells`)? Ahí no caen rocas al pie de la pared (C5.6b).
+func _near_ladder(cell: Vector2i) -> bool:
+	for ladder_cell: Vector2i in ladder_cells:
+		if maxi(absi(cell.x - ladder_cell.x), absi(cell.y - ladder_cell.y)) <= LADDER_CLEAR:
+			return true
+	return false
 
 
 ## ¿Hay una roca caída en esta casilla? (ahí no se planta ni aparece nada)
