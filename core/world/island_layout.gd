@@ -114,6 +114,10 @@ const NO_SHORE_FLOOR: float = -1000.0
 ## Hasta cuántas casillas del agua llega ese suelo mínimo y cuánto baja por casilla al alejarse (m).
 const SHORE_FLOOR_REACH: int = 4
 const SHORE_FLOOR_SLOPE: float = 0.6
+## Casillas desde el agua en las que ese suelo mínimo no baja (sesión 28, César: junto al lago de arriba, hoyos del relieve
+## a 2 o 3 casillas quedaban por debajo del agua y el terreno los pintaba como fondo, sin césped). Las mismas que mira el
+## terreno para saber dónde está el agua (`TerrainView.WATER_SURFACE_SPREAD`); después, la rampa.
+const SHORE_FLOOR_FLAT: int = 3
 ## Cuánto es pared cada esquina (0 a 1), por el desnivel con sus vecinas en lo que se dibuja.
 var _cliffness: PackedFloat32Array = PackedFloat32Array()
 ## Pasadas de suavizado, cuánto se desplazan los bordes (m) y su tamaño (frecuencia por metro).
@@ -566,7 +570,7 @@ func _compute_drawn_corners() -> void:
 					# Junto al agua, justo por encima; al alejarse, baja en rampa (si acababa de golpe, levantaba un
 					# rellano con un escalón recto alrededor del lago, César).
 					var away: int = maxi(maxi(x - i, i - (x + 1)), maxi(maxi(y - j, j - (y + 1)), 0))
-					var floor_y: float = water_level + SHORE_ABOVE_WATER - SHORE_FLOOR_SLOPE * away
+					var floor_y: float = water_level + SHORE_ABOVE_WATER - SHORE_FLOOR_SLOPE * maxi(away - SHORE_FLOOR_FLAT, 0)
 					_shore_floor[index] = maxf(_shore_floor[index], floor_y)
 	# Lo que es pared: el mayor desnivel con las cuatro vecinas (sin tocar las esquinas fijas), suavizado.
 	_cliffness.resize(row * (size.y + 1))
@@ -749,6 +753,9 @@ const DEBRIS_SCALE_MIN: float = 1.4
 const DEBRIS_SCALE_MAX: float = 2.8
 ## Tierra al pie de las paredes (lo que se desprende): cuánta, de 0 a 1.
 const WALL_FOOT_WEAR: float = 0.5
+## Sin esa tierra a menos de estas casillas del agua de la isla (sesión 28, César: junto al lago de arriba salía una
+## mancha de tierra en escalones al pie de las lomas con corte; alrededor del agua, césped).
+const WALL_FOOT_WATER_CLEAR: int = 6
 ## Borde de hierba que asoma por lo alto de una pared: hasta cuántos metros por debajo del borde baja.
 const LIP_DEPTH: float = 0.45
 
@@ -1218,10 +1225,11 @@ func _compute_wear() -> void:
 	_wear.resize(size.x * size.y)
 	_wear.fill(0.0)
 	var low_ends: Array[Vector2i] = []
+	var near_water: PackedByteArray = _cells_near_water(WALL_FOOT_WATER_CLEAR)
 	for y: int in size.y:
 		for x: int in size.x:
 			var cell := Vector2i(x, y)
-			if _wall_foot.has(cell) and not is_buildable(cell):
+			if _wall_foot.has(cell) and not is_buildable(cell) and near_water[y * size.x + x] == 0:
 				# Lo que se desprende de la pared; en las explanadas no (no se deforman y salía una mancha a casillas).
 				_wear[y * size.x + x] = maxf(_wear[y * size.x + x], WALL_FOOT_WEAR)
 			var on_hill: bool = ground(cell) == Ground.HILL or ground(cell) == Ground.HIGH_HILL
@@ -1269,6 +1277,24 @@ func _compute_wear() -> void:
 		for x: int in size.x:
 			if is_forced_grass(Vector2i(x, y)):
 				_wear[y * size.x + x] = 0.0
+
+## Casillas a `radius` casillas o menos (en diagonal también cuenta 1) de agua de la isla (lago, río, remanso): 1; las
+## demás, 0.
+func _cells_near_water(radius: int) -> PackedByteArray:
+	var near := PackedByteArray()
+	near.resize(size.x * size.y)
+	near.fill(0)
+	for y: int in size.y:
+		for x: int in size.x:
+			if ground(Vector2i(x, y)) != Ground.WATER:
+				continue
+			for dy: int in range(-radius, radius + 1):
+				for dx: int in range(-radius, radius + 1):
+					var other := Vector2i(x + dx, y + dy)
+					if has_cell(other):
+						near[other.y * size.x + other.x] = 1
+	return near
+
 
 func _average(cells: Array[Vector2i]) -> Vector2:
 	var sum := Vector2.ZERO

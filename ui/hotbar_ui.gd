@@ -6,12 +6,14 @@ extends CanvasLayer
 ## es lo que Mira llevará en la mano (C1.6). Con una ventana abierta, sus casillas se manejan con clics.
 ## En el modo construcción, encima de la barra, una línea de ayuda con las teclas útiles según lo que se
 ## lleva (C1.8): "[Clic] Colocar · [R] Girar · [F] Reflejar · [B] Salir"…
+## En el modo desmontar la barra se desvanece y solo queda la ayuda de teclas (sesión 28, César).
 
 ## Se emite al elegir otra casilla de la barra normal.
 signal selection_changed(index: int)
 
 const COLOR_CELL: Color = Color(0.08, 0.08, 0.08, 0.55)
 const COLOR_SELECTED: Color = Color(1.0, 0.72, 0.23)
+const HIDE_FADE_TIME: float = 0.15   # fundido de la barra al entrar o salir del modo desmontar
 
 ## Casilla elegida de la barra normal.
 var selected_slot: int = 0
@@ -28,6 +30,10 @@ var show_build_bar: bool = false
 var _bar_label: Label
 var _bar_buttons: Array[Button] = []
 var _hint_label: Label
+## Fila de casillas (se desvanece en el modo desmontar) y si estaba oculta.
+var _row: HBoxContainer
+var _row_hidden: bool = false
+var _row_tween: Tween
 
 ## La barra en pantalla, para que el icono de lo recogido (`ItemPop`) sepa adónde volar.
 static var _instance: HotbarUI = null
@@ -102,6 +108,7 @@ func _ready() -> void:
 	_hint_label.visible = false
 	column.add_child(_hint_label)
 	var row := HBoxContainer.new()
+	_row = row
 	row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	row.add_theme_constant_override("separation", 4)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -211,6 +218,8 @@ func set_builder(builder: BuildController) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if WindowManager.is_open() or (_builder != null and _builder.active):
 		return # en el modo construcción, las teclas son de su barra (BuildController)
+	if _dismantler != null and _dismantler.active:
+		return # en el modo desmontar la barra no se ve: no se cambia de casilla a ciegas
 	for i: int in WorldState.HOTBAR_SLOTS:
 		if event.is_action_pressed("hotbar_%d" % (i + 1)):
 			_select(i)
@@ -226,6 +235,7 @@ func _process(_delta: float) -> void:
 	var building: bool = _builder != null and _builder.active and not WindowManager.is_open()
 	var dismantling: bool = _dismantler != null and _dismantler.active and not WindowManager.is_open()
 	_hint_label.visible = building or dismantling
+	_set_row_hidden(_dismantler != null and _dismantler.active)
 	if building:
 		_hint_label.text = _build_hint()
 	elif dismantling:
@@ -299,6 +309,21 @@ func _select(index: int) -> void:
 	selected_slot = index
 	_refresh()
 	selection_changed.emit(index)
+
+
+## Desvanece o vuelve a enseñar la fila de casillas. Se oculta sin quitarla del sitio (con transparencia),
+## para que la ayuda de teclas de encima no se mueva.
+func _set_row_hidden(hidden: bool) -> void:
+	if hidden == _row_hidden:
+		return
+	_row_hidden = hidden
+	if _row_tween != null:
+		_row_tween.kill()
+	_row_tween = create_tween()
+	_row_tween.tween_property(_row, "modulate:a", 0.0 if hidden else 1.0, HIDE_FADE_TIME)
+	# Sin clics ni arrastres sobre una barra invisible.
+	for cell: PanelContainer in _cells:
+		cell.mouse_filter = Control.MOUSE_FILTER_IGNORE if hidden else Control.MOUSE_FILTER_STOP
 
 
 ## Enseña la barra normal o la de construcción y resalta la casilla elegida.

@@ -12,6 +12,10 @@ signal changed
 var accepted_items: Array[ItemData] = []
 ## Si es false, solo se puede sacar (p. ej., la salida de una máquina).
 var allow_insert: bool = true
+## Casillas reservadas (sesión 28, César): si no está vacío, la casilla i solo admite `slot_items[i]`. Lo usa la
+## entrada de las máquinas, una casilla por ingrediente: así un ingrediente que llega en abundancia no ocupa la casilla
+## del otro y la máquina no se atasca.
+var slot_items: Array[ItemData] = []
 ## Casillas: null = vacía; ItemStack = ocupada.
 var slots: Array[ItemStack] = []
 
@@ -45,7 +49,7 @@ func add_item(item: ItemData, amount: int) -> int:
 	for i: int in slots.size():
 		if remaining == 0:
 			break
-		if slots[i] == null:
+		if slots[i] == null and _slot_allows(i, item):
 			var moved: int = mini(remaining, item.max_stack)
 			slots[i] = ItemStack.new(item, moved)
 			remaining -= moved
@@ -105,7 +109,7 @@ func can_add_all(items: Dictionary[ItemData, int]) -> bool:
 		for i: int in sim.size():
 			if remaining == 0:
 				break
-			if sim[i] == null:
+			if sim[i] == null and _slot_allows(i, item):
 				var moved: int = mini(remaining, item.max_stack)
 				sim[i] = [item, moved]
 				remaining -= moved
@@ -118,7 +122,14 @@ func can_add_all(items: Dictionary[ItemData, int]) -> bool:
 func can_insert(index: int, item: ItemData) -> bool:
 	if not allow_insert or index < 0 or index >= slots.size():
 		return false
+	if not _slot_allows(index, item):
+		return false
 	return accepted_items.is_empty() or item in accepted_items
+
+
+## ¿Admite la casilla `index` este ítem según `slot_items`? (sin reservas, cualquiera)
+func _slot_allows(index: int, item: ItemData) -> bool:
+	return slot_items.is_empty() or index >= slot_items.size() or slot_items[index] == item
 
 
 ## Mueve la pila de la casilla `from_index` a la casilla `to_index` de `target` (puede ser este mismo

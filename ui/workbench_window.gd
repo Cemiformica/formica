@@ -10,6 +10,8 @@ extends CanvasLayer
 ## Se fabrica **al instante** con lo del inventario del jugador, y mientras está abierta el banco se anima (D-095).
 ## E, Esc o el botón de cerrar la cierran. Las recetas son las de `BuildingData.crafting_recipes` del banco.
 ## Herramienta = el producto se coge en puño (`ItemData.HeldGrip.FIST`); lo demás, componente.
+## Cada pulsación de Fabricar suena una vez (sesión 28, César): un golpe corto que se puede solapar si se pulsa
+## muy deprisa, con un poco de variación de tono para que no canse.
 
 const CARD_SIZE: Vector2 = Vector2(132, 124)
 const CARD_ICON: float = 64.0
@@ -19,6 +21,9 @@ const VISIBLE_ROWS: int = 3
 const DETAIL_WIDTH: float = 290.0
 const DETAIL_ICON: Vector2 = Vector2(88, 88)
 const MAX_AMOUNT: int = 99
+const CRAFT_SOUND: AudioStream = preload("res://assets/audio/craft_bench.wav")
+const CRAFT_SOUND_DB: float = -4.0
+const CRAFT_PITCH_JITTER: float = 0.06   # ± variación de tono en cada golpe
 ## Pestañas: todo, componentes y herramientas.
 enum Tab { ALL, COMPONENTS, TOOLS }
 
@@ -41,6 +46,7 @@ var _recipes: Array[RecipeData] = []
 var _shown: Array[RecipeData] = []
 var _selected: RecipeData = null
 var _amount: int = 1
+var _craft_player: AudioStreamPlayer
 
 
 func _ready() -> void:
@@ -60,6 +66,12 @@ func _ready() -> void:
 	row.add_child(VSeparator.new())
 	row.add_child(PlayerInventoryPanel.new(true))
 	_window.visible = false
+	_craft_player = AudioStreamPlayer.new()
+	_craft_player.stream = CRAFT_SOUND
+	_craft_player.bus = &"SFX"
+	_craft_player.volume_db = CRAFT_SOUND_DB
+	_craft_player.max_polyphony = 4   # pulsando muy deprisa, cada golpe suena entero
+	add_child(_craft_player)
 	WindowManager.window_closed.connect(_on_window_closed)
 	WorldState.player_inventory.changed.connect(_refresh)
 
@@ -308,6 +320,8 @@ func _on_craft() -> void:
 		var left: int = inventory.add_item(item, recipe.outputs[item] * _amount)
 		if left > 0:
 			push_warning("WorkbenchWindow: no cabían %d de %s" % [left, item.id])
+	_craft_player.pitch_scale = randf_range(1.0 - CRAFT_PITCH_JITTER, 1.0 + CRAFT_PITCH_JITTER)
+	_craft_player.play()
 	_refresh()
 
 

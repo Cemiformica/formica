@@ -64,6 +64,8 @@ var held_slot: int = 0
 var planter: PlantController
 ## Modo desmontar con X (C2.2).
 var dismantler: DismantleController
+## Pisadas (sesión 28): pasos según lo que se pisa, golpe al aterrizar y crujido de cuerda al trepar.
+var footsteps: Footsteps
 ## El clic izquierdo de trabajar (talar, picar…) empezó con el ratón ya capturado. Así, el clic que solo
 ## recaptura el ratón no da un golpe.
 var _using: bool = false
@@ -119,6 +121,12 @@ func _ready() -> void:
 	dismantler = DismantleController.new()
 	dismantler.player = self
 	add_child(dismantler)
+	footsteps = Footsteps.new()
+	footsteps.player = self
+	add_child(footsteps)
+	# El plano da un golpecito al colocar o desmontar algo (D-223).
+	build_controller.placed.connect(func(_building: PlacedBuilding) -> void: arm.plan_tap())
+	dismantler.dismantled.connect(arm.plan_tap)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -182,7 +190,9 @@ func _physics_process(delta: float) -> void:
 		_update_focus()
 		return
 	if is_climbing():
+		var climbed_from: float = _climb_s
 		_climb_step(delta)
+		footsteps.climb(absf(_climb_s - climbed_from))
 		_update_focus()
 		return
 	var playing: bool = not WindowManager.is_open()
@@ -196,9 +206,10 @@ func _physics_process(delta: float) -> void:
 		velocity.y = maxf(velocity.y, -max_fall_speed)
 
 	# Salto con margen: vale pulsarlo un poco antes de tocar el suelo (se recuerda) y un poco después de salir de
-	# un borde. Soltarlo mientras sube lo corta: salto corto o largo según lo que se mantenga.
+	# un borde. Soltarlo mientras sube lo corta: salto corto o largo según lo que se mantenga. Con la tecla
+	# mantenida, vuelve a saltar cada vez que toca el suelo (César, sesión 28).
 	_jump_buffer = maxf(0.0, _jump_buffer - delta)
-	if playing and Input.is_action_just_pressed("jump"):
+	if playing and (Input.is_action_just_pressed("jump") or (Input.is_action_pressed("jump") and is_on_floor())):
 		_jump_buffer = jump_buffer_time
 	if _jump_buffer > 0.0 and _air_time <= coyote_time and velocity.y <= 0.5:
 		velocity.y = jump_velocity
@@ -232,6 +243,8 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	if not was_on_floor and is_on_floor():
 		_land(_last_fall_speed)
+		footsteps.land(_last_fall_speed)
+	footsteps.walk(delta, is_on_floor(), Vector2(velocity.x, velocity.z).length(), _sprinting, _crouching)
 
 	if global_position.y < fall_limit_y:
 		respawn()
@@ -246,8 +259,13 @@ func _physics_process(delta: float) -> void:
 		var workable: bool = focused_interactable.get_required_tool() != &""
 		if can_use_on(focused_interactable) and not (workable and work_distance() > tool_reach):
 			focused_interactable.use(self)
-	# En el modo construcción o desmontar no se ve lo que lleva en la mano (César).
-	arm.suppressed = in_tool_mode()
+	# En el modo construcción o desmontar, Mira saca el plano en lugar de lo que lleva (D-223, César).
+	if dismantler != null and dismantler.active:
+		arm.plan_mode = FirstPersonArm.PlanMode.DISMANTLE
+	elif build_controller.active:
+		arm.plan_mode = FirstPersonArm.PlanMode.BUILD
+	else:
+		arm.plan_mode = FirstPersonArm.PlanMode.NONE
 	# La herramienta se enciende con el clic aunque no haya nada delante; solo da materiales si trabaja algo
 	# (César).
 	arm.set_working(_using and holding_tool())
@@ -392,6 +410,7 @@ func start_climb(path: PackedVector3Array, top_exit: Vector3) -> void:
 		return
 	_climb_path = path
 	_climb_exit = top_exit
+	footsteps.start_climb()
 	_climb_length = 0.0
 	for i: int in path.size() - 1:
 		_climb_length += path[i].distance_to(path[i + 1])

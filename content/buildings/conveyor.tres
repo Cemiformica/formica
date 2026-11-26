@@ -27,5 +27,6 @@ cost = Dictionary[ExtResource("2_itemscript"), int]({
 ExtResource("4_wood"): 1,
 ExtResource("5_stone"): 1
 })
-belt_speed = 0.75
+belt_speed = 0.5
+belt_capacity = 3
 ports = Array[ExtResource("3_portscript")]([SubResource("Resource_in"), SubResource("Resource_out")])

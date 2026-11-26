@@ -42,14 +42,16 @@ func _ready() -> void:
 			b_linked_north = true
 	_check("B (derecha) no sale por delante", not b_linked_north)
 
-	# 2) Entra por detrás, guarda y saca por delante: 5 piedras; la cinta de salida no lleva a ningún
-	#    sitio, así que se llena (2) y el resto (3) se queda guardado en A.
+	# 2) Entra por detrás, guarda y saca por delante: 6 piedras; la cinta de salida no lleva a ningún
+	#    sitio, así que se llena (`belt_capacity`, 3 desde la sesión 28) y el resto se queda guardado en A.
 	for i: int in 5:
 		a.accept(stone)
 	feed.accept(stone)
 	Simulation.advance(10.0)
 	_check("la cinta de entrada se vacía en A", feed.belt_items.is_empty())
-	_check("salen 2 a la cinta y A guarda 4", out_a.belt_items.size() == 2 and a.output.get_total(stone) == 4)
+	var cap: int = conveyor.belt_capacity
+	_check("salen %d a la cinta y A guarda %d" % [cap, 6 - cap], out_a.belt_items.size() == cap
+			and a.output.get_total(stone) == 6 - cap)
 
 	# 3) Salidas giradas: B saca por el este y C por el oeste.
 	b.output.add_item(wood, 1)

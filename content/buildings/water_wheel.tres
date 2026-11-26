@@ -12,6 +12,7 @@
 [resource]
 script = ExtResource("1_building")
 id = &"water_wheel"
+footstep_surface = &"wood"
 name_key = "BUILDING_WATER_WHEEL"
 icon = ExtResource("90_icon")
 category = &"power"

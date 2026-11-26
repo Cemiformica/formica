@@ -25,6 +25,7 @@ item_filter = ExtResource("6_charcoal")
 [resource]
 script = ExtResource("1_building")
 id = &"charcoal_kiln"
+footstep_surface = &"stone"
 name_key = "BUILDING_CHARCOAL_KILN"
 icon = ExtResource("90_icon")
 category = &"production"

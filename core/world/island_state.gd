@@ -441,7 +441,39 @@ func _rebuild_links() -> void:
 			if out_port.kind == PortData.Kind.OUTPUT:
 				_try_link(from, out_port, false)
 	_link_back_to_back()
+	_order_link_targets()
 	_links_dirty = false
+
+
+## Ordena `_link_targets` de abajo arriba (sesión 28): cada destino va antes que los que le dan. Así, en un paso,
+## la cinta de delante suelta su ítem antes de que la de detrás intente pasarle el suyo, y no se pierde un paso en
+## cada unión. Recorrido en profundidad sin recursión (las líneas largas tienen cientos de cintas); los bucles,
+## en cualquier orden.
+func _order_link_targets() -> void:
+	var order: Array[PlacedBuilding] = []
+	var seen: Dictionary[int, bool] = {}
+	for first: PlacedBuilding in _link_targets:
+		if seen.has(first.id):
+			continue
+		seen[first.id] = true
+		var stack: Array[PlacedBuilding] = [first]
+		var next_link: Array[int] = [0]
+		while not stack.is_empty():
+			var node: PlacedBuilding = stack[stack.size() - 1]
+			var k: int = next_link[next_link.size() - 1]
+			if k < node.links_out.size():
+				next_link[next_link.size() - 1] = k + 1
+				var after: PlacedBuilding = node.links_out[k]["to"]
+				if not seen.has(after.id):
+					seen[after.id] = true
+					stack.append(after)
+					next_link.append(0)
+			else:
+				stack.pop_back()
+				next_link.pop_back()
+				if not node.links_in.is_empty():
+					order.append(node)
+	_link_targets = order
 
 
 ## Traseras enfrentadas (C2b, como en Alchemy Factory: da igual hacia dónde mire la cinta de un cruce).

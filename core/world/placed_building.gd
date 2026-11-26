@@ -36,6 +36,11 @@ var belt_overflow: float = 0.0
 ## detrás, EAST u WEST = por un costado). Lo usa la vista para dibujar la curva. No se guarda: al cargar,
 ## todos cuentan como entrados por detrás.
 var belt_entries: Array[int] = []
+## Solo cintas: hasta dónde quería llegar cada ítem en el último paso, sin el tope del de delante. Si el de
+## delante sale en ese mismo paso, los de detrás recuperan lo que les frenó (ver `take_output`).
+var _belt_wanted: Array[float] = []
+## Margen para comparar avances (0,05 × 7 no da exactamente 0,35 con decimales).
+const BELT_EPSILON: float = 0.0001
 ## Solo cintas con varias salidas o varias entradas: a qué conexión le toca (reparto por turnos, D-118).
 ## No se guardan.
 var out_turn: int = 0
@@ -71,6 +76,7 @@ func _init(p_id: int, p_data: BuildingData, p_origin: Vector2i, p_rotation: int 
 		accepted.assign(data.recipe.inputs.keys())
 		var any_item: Array[ItemData] = []
 		input = Inventory.new(maxi(accepted.size(), 1), accepted)
+		input.slot_items = accepted.duplicate()   # cada casilla, para su ingrediente (sesión 28)
 		output = Inventory.new(maxi(data.recipe.outputs.size(), 1), any_item, false)
 	elif is_harvester() or is_extractor():
 		# Talador y extractor solo tienen salida: ahí dejan lo que sacan hasta que la cinta se lo lleva.
@@ -250,7 +256,7 @@ func can_accept(item: ItemData, port: PortData) -> bool:
 	if is_belt():
 		if belt_items.size() >= data.belt_capacity:
 			return false
-		return belt_items.is_empty() or belt_progress[belt_progress.size() - 1] >= _belt_spacing()
+		return belt_items.is_empty() or belt_progress[belt_progress.size() - 1] >= _belt_spacing() - BELT_EPSILON
 	if is_machine():
 		if not input.accepted_items.is_empty() and not input.accepted_items.has(item):
 			return false
@@ -273,6 +279,7 @@ func accept(item: ItemData, start: float = 0.0, entry: int = PortData.PortSide.S
 		belt_items.append(item)
 		belt_progress.append(clampf(start, 0.0, maxf(max_start, 0.0)))
 		belt_entries.append(entry)
+		_belt_wanted.append(belt_progress[belt_progress.size() - 1])
 	elif is_machine():
 		input.add_item(item, 1)
 	elif is_storage():
@@ -283,7 +290,7 @@ func accept(item: ItemData, start: float = 0.0, entry: int = PortData.PortSide.S
 ## Máquina: el primero de la salida que pase el filtro del puerto. Cinta: el de delante, si ha llegado al final.
 func peek_output(port: PortData) -> ItemData:
 	if is_belt():
-		if not belt_items.is_empty() and belt_progress[0] >= 1.0:
+		if not belt_items.is_empty() and belt_progress[0] >= 1.0 - BELT_EPSILON:
 			return belt_items[0]
 		return null
 	if output != null:
@@ -300,6 +307,15 @@ func take_output(item: ItemData) -> void:
 		belt_progress.remove_at(0)
 		belt_entries.remove_at(0)
 		belt_overflow = 0.0
+		# Los de detrás se pararon en este paso detrás del que acaba de salir: avanzan lo que les faltó (sesión 28,
+		# César: con 3 por casilla se perdía un paso en cada salida y la cinta llena no llegaba a 90/min).
+		if _belt_wanted.size() == belt_progress.size() + 1:
+			_belt_wanted.remove_at(0)
+			var limit: float = 1.0
+			for i: int in belt_progress.size():
+				belt_progress[i] = maxf(belt_progress[i], minf(_belt_wanted[i], limit))
+				limit = belt_progress[i] - _belt_spacing()
+		_belt_wanted.clear()
 	elif output != null:
 		output.remove_item(item, 1)
 
@@ -309,8 +325,11 @@ func take_output(item: ItemData) -> void:
 func advance_belt(dt: float) -> void:
 	belt_overflow = 0.0
 	# Solo cuenta si el de delante llega al final en este paso (si ya estaba parado allí, no se pasa).
-	if not belt_progress.is_empty() and belt_progress[0] < 1.0:
+	if not belt_progress.is_empty() and belt_progress[0] < 1.0 - BELT_EPSILON:
 		belt_overflow = maxf(0.0, belt_progress[0] + data.belt_speed * dt - 1.0)
+	_belt_wanted.clear()
+	for value: float in belt_progress:
+		_belt_wanted.append(value + data.belt_speed * dt)
 	belt_progress = predict_belt_progress(dt)
 
 
@@ -369,6 +388,15 @@ func rates_per_minute(island: IslandState = null) -> Dictionary:
 ## Solo cintas: ítems por minuto que caben que pasen (velocidad × ítems por casilla).
 func belt_rate_per_minute() -> float:
 	return data.belt_speed * data.belt_capacity * 60.0
+
+
+## Solo cintas: dónde empieza un ítem que entra y estaba esperando (en la salida de una máquina o al final de otra
+## cinta parada). El hueco se abrió durante el paso, cuando el último pasó de la separación mínima, así que entra
+## lo que habría avanzado desde entonces (como mucho, un paso). Vacía: al principio.
+func belt_entry_slack() -> float:
+	if belt_progress.is_empty():
+		return 0.0
+	return clampf(belt_progress[belt_progress.size() - 1] - _belt_spacing(), 0.0, data.belt_speed * Simulation.TICK)
 
 
 ## Distancia mínima entre dos ítems de la cinta (en fracción de casilla).

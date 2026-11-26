@@ -87,6 +87,7 @@ fire = true
 [resource]
 script = ExtResource("1_site")
 id = &"shelter"
+footstep_surface = &"stone"
 name_key = "REPAIR_SHELTER"
 scene = ExtResource("3_model")
 size = Vector2i(8, 7)

@@ -41,17 +41,19 @@ func _ready() -> void:
 	# 1) Conexiones: A→b1, b1→b2, b2→b3, c→B y D→E (máquinas pegadas). b3 no conecta con nada.
 	_check("5 conexiones", island.get_links().size() == 5)
 
-	# 2) Máquina → cintas: 60 s = 20 ciclos. Caben 6 en las 3 cintas; el resto espera en la salida de A.
+	# 2) Máquina → cintas: 60 s = 20 ciclos. Caben `belt_capacity` por cinta (3 desde la sesión 28) en las 3
+	#    cintas; el resto espera en la salida de A.
+	var full: int = 3 * conveyor.belt_capacity
 	a.input.add_item(stone, 20)
 	Simulation.advance(60.0)
 	var on_belts: int = b1.belt_items.size() + b2.belt_items.size() + b3.belt_items.size()
-	_check("cintas llenas: 6 ítems", on_belts == 6)
-	_check("el resto espera en la salida de A (14)", a.output.get_total(gravel) == 14)
+	_check("cintas llenas: %d ítems" % full, on_belts == full)
+	_check("el resto espera en la salida de A (%d)" % (20 - full), a.output.get_total(gravel) == 20 - full)
 	_check("el de delante está parado al final", is_equal_approx(b3.belt_progress[0], 1.0))
 
-	# 3) Cinta → máquina: piedra puesta en c entra en B (1 casilla a 0,75/s ≈ 1,33 s, con margen).
+	# 3) Cinta → máquina: piedra puesta en c entra en B (1 casilla a 0,5/s = 2 s, con margen).
 	c.accept(stone)
-	Simulation.advance(2.0)
+	Simulation.advance(3.0)
 	_check("la piedra entra en B", b.input.get_total(stone) == 1 and c.belt_items.is_empty())
 
 	# 4) Lo que la máquina no acepta se queda esperando en la cinta.
@@ -91,7 +93,7 @@ func _ready() -> void:
 	var q: PlacedBuilding = island.place(conveyor, Vector2i(1, 12), 0)
 	_check("L: p conecta con q por el costado", _linked(island, p, q))
 	p.accept(stone)
-	Simulation.advance(3.0)
+	Simulation.advance(5.0) # dos casillas a 0,5/s = 4 s, con margen
 	_check("L: el ítem gira y llega al final de q", q.belt_items.size() == 1 and is_equal_approx(q.belt_progress[0], 1.0))
 	_check("L: q sabe que entró por el oeste", q.belt_entries.size() == 1 and q.belt_entries[0] == PortData.PortSide.WEST)
 
@@ -107,7 +109,13 @@ func _ready() -> void:
 	_check("T: t0 tiene dos salidas", island.get_links_from(t0.id).size() == 2 and _linked(island, t0, t1) and _linked(island, t0, t2))
 	_feed(t0, stone, 2, conveyor.ports[0])
 	_check("T: uno a cada lado", t1.belt_items.size() == 1 and t2.belt_items.size() == 1)
-	t1.accept(stone) # t1 llena (2): el siguiente, aunque le toque a t1, va a t2
+	# t1 llena: el siguiente, aunque le toque a t1, va a t2.
+	for _i: int in 200:
+		if t1.belt_items.size() >= conveyor.belt_capacity:
+			break
+		if t1.can_accept(stone, conveyor.ports[0]):
+			t1.accept(stone)
+		Simulation.advance(Simulation.TICK)
 	_feed(t0, stone, 1, conveyor.ports[0])
 	_check("T: con una rama llena, va a la otra", t2.belt_items.size() == 2 and t0.belt_items.is_empty())
 
@@ -133,7 +141,8 @@ func _ready() -> void:
 				stones += 1
 			elif item == gravel:
 				gravels += 1
-	_check("junta: por turnos (3 y 3)", stones == 3 and gravels == 3)
+	# Las tres cintas de después, llenas (3 × belt_capacity), con piedra y grava alternadas: como mucho uno más.
+	_check("junta: por turnos (%d en total, alternados)" % full, stones + gravels == full and absi(stones - gravels) <= 1)
 
 	# 13) Máquina → costado de una cinta, y cinta → máquina por un costado.
 	var k: PlacedBuilding = island.place(crusher, Vector2i(0, 26))
@@ -158,6 +167,24 @@ func _ready() -> void:
 	_feed(l0, stone, 2, conveyor.ports[0])
 	Simulation.advance(3.0)
 	_check("cruce de lado: uno a cada lado", e2.belt_items.size() == 1 and wb.belt_items.size() == 1)
+
+	# 16) Caudal (sesión 28): una línea de 4 cintas siempre alimentada y vaciada al final da belt_speed ×
+	#     belt_capacity ítems por segundo (90/min), sin perder un paso en cada unión. 20 s tras 10 de arranque.
+	var line: Array[PlacedBuilding] = []
+	for x_cell: int in 4:
+		line.append(island.place(conveyor, Vector2i(x_cell, 33), 1))
+	var delivered: int = 0
+	for tick: int in 300:
+		if line[0].can_accept(stone, conveyor.ports[0]):
+			line[0].accept(stone, line[0].belt_entry_slack())
+		Simulation.advance(Simulation.TICK)
+		var last: PlacedBuilding = line[line.size() - 1]
+		if last.peek_output(conveyor.ports[1]) != null:
+			last.take_output(stone)
+			if tick >= 100:
+				delivered += 1
+	var expected_count: int = roundi(conveyor.belt_speed * conveyor.belt_capacity * 20.0)
+	_check("caudal: %d ítems en 20 s (esperados %d)" % [delivered, expected_count], absi(delivered - expected_count) <= 1)
 
 	# 14) Guardar y cargar: las uniones por los costados vuelven.
 	var reloaded := IslandState.new()

@@ -45,6 +45,11 @@ var _terrain_pending: bool = false
 ## constante: GDScript no deja modificar una constante.
 var _grass_material: ShaderMaterial = preload("res://assets/materials/grass.tres")
 var _grass_mask: Image = null
+## Píxeles de la máscara por casilla (sesión 28: antes, 1; un poste de 60 cm quitaba el césped de toda su casilla) y
+## margen (m) alrededor de lo que ocupa cada construcción. El shader estira la máscara sobre `block_rect` a cualquier
+## resolución.
+const GRASS_MASK_RES: int = 4
+const GRASS_MASK_MARGIN: float = 0.0   # sesión 28: con 0,08 aún se notaba el hueco (César)
 var _grass_mask_texture: ImageTexture = null
 var _grass_mask_pending: bool = false
 ## Líneas de los cables dibujados.
@@ -139,6 +144,7 @@ func _rebuild() -> void:
 func _on_building_placed(placed: PlacedBuilding) -> void:
 	var view := BuildingView.new()
 	view.setup(placed, _island)
+	view.measure_ground_rect()
 	add_child(view)
 	_views[placed.id] = view
 	if not _rebuilding:
@@ -226,14 +232,23 @@ func _refresh_grass_mask() -> void:
 	if _island == null or not _island.bounds.has_area():
 		return
 	var bounds: Rect2i = _island.bounds
-	if _grass_mask == null or _grass_mask.get_size() != bounds.size:
-		_grass_mask = Image.create(bounds.size.x, bounds.size.y, false, Image.FORMAT_R8)
+	var mask_size: Vector2i = bounds.size * GRASS_MASK_RES
+	if _grass_mask == null or _grass_mask.get_size() != mask_size:
+		_grass_mask = Image.create(mask_size.x, mask_size.y, false, Image.FORMAT_R8)
 		_grass_mask_texture = null
 	_grass_mask.fill(Color.BLACK)
+	# Casillas enteras: lo que no es una construcción con modelo (estructuras por reparar, piezas sin modelo…).
 	for cell: Vector2i in _island.grass_blocked_cells():
-		var pixel: Vector2i = cell - bounds.position
-		if pixel.x >= 0 and pixel.y >= 0 and pixel.x < bounds.size.x and pixel.y < bounds.size.y:
-			_grass_mask.set_pixelv(pixel, Color.WHITE)
+		var occupant: int = _island.grid.get_occupant(cell)
+		if _views.has(occupant) and _views[occupant].ground_rect.has_area():
+			continue
+		_paint_grass_mask(Rect2(Vector2(cell), Vector2.ONE), bounds)
+	# Construcciones: solo lo que ocupa su modelo, con un poco de margen (sesión 28, César).
+	for view: BuildingView in _views.values():
+		if view.ground_rect.has_area():
+			var rect := Rect2(view.ground_rect.position + Vector2(view.global_position.x, view.global_position.z),
+					view.ground_rect.size)
+			_paint_grass_mask(rect.grow(GRASS_MASK_MARGIN), bounds)
 	if _grass_mask_texture == null:
 		_grass_mask_texture = ImageTexture.create_from_image(_grass_mask)
 	else:
@@ -241,6 +256,17 @@ func _refresh_grass_mask() -> void:
 	_grass_material.set_shader_parameter(&"block_mask", _grass_mask_texture)
 	_grass_material.set_shader_parameter(&"block_rect",
 			Vector4(bounds.position.x, bounds.position.y, bounds.size.x, bounds.size.y))
+
+
+## Pinta de blanco (sin césped) en la máscara el rectángulo `rect` del mundo (X, Z en metros).
+func _paint_grass_mask(rect: Rect2, bounds: Rect2i) -> void:
+	var from := Vector2i(floori((rect.position.x - bounds.position.x) * GRASS_MASK_RES),
+			floori((rect.position.y - bounds.position.y) * GRASS_MASK_RES))
+	var to := Vector2i(ceili((rect.end.x - bounds.position.x) * GRASS_MASK_RES),
+			ceili((rect.end.y - bounds.position.y) * GRASS_MASK_RES))
+	var pixels := Rect2i(from, to - from).intersection(Rect2i(Vector2i.ZERO, _grass_mask.get_size()))
+	if pixels.has_area():
+		_grass_mask.fill_rect(pixels, Color.WHITE)
 
 
 func _refresh_terrain() -> void:

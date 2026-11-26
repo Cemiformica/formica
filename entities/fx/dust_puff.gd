@@ -5,6 +5,10 @@ extends GPUParticles3D
 ## humo del horno (D-082). Uso: `DustPuff.spawn(padre, posición_global)`, o con un color propio
 ## (`DustPuff.spawn(padre, posición, color)`: virutas de madera del talador). Con `soft`, más pequeña,
 ## con menos piedrecitas y medio transparente: la que sale seguida mientras trabaja una herramienta (C3).
+## Las nubes se REUTILIZAN (sesión 28): crear y borrar un sistema de partículas por cada golpe (las máquinas sueltan
+## varias por segundo) acababa agotando los recursos de la tarjeta en D3D12 tras unos 25 minutos («not enough room in
+## the RESOURCES descriptor heap»): primero dejaba de verse el césped y luego llegaban miles de errores. Ahora cada
+## nube terminada vuelve a una reserva y la siguiente la vuelve a lanzar donde haga falta.
 
 const DUST_COLOR: Color = Color(0.62, 0.57, 0.48)
 
@@ -14,21 +18,55 @@ static var _soft_process: ParticleProcessMaterial = null   # igual, con piedreci
 static var _meshes: Dictionary[Color, ArrayMesh] = {}
 static var _soft_meshes: Dictionary[Color, ArrayMesh] = {}
 const SOFT_ALPHA: float = 0.45
+## Nubes terminadas, listas para volver a lanzarse, y cuántas se guardan como mucho (las demás se borran).
+static var _idle: Array[DustPuff] = []
+const POOL_MAX: int = 64
 
 var _color: Color = DUST_COLOR
 var _soft: bool = false
 
 
 ## Crea una nube en `global_pos`, colgada de `parent` (que debe estar en el árbol).
+## Las nubes cuelgan de la escena (no de `parent`): van en coordenadas del mundo y así sobreviven a quien las lanzó.
 static func spawn(parent: Node, global_pos: Vector3, color: Color = DUST_COLOR, soft: bool = false) -> void:
-	var puff := DustPuff.new()
+	var tree: SceneTree = parent.get_tree()
+	var holder: Node = tree.current_scene if tree != null and tree.current_scene != null else parent
+	var puff: DustPuff = null
+	while puff == null and not _idle.is_empty():
+		var candidate: Variant = _idle.pop_back()
+		# Al cambiar de escena (portal), las de la escena anterior ya no existen: se comprueba antes de usarla.
+		if is_instance_valid(candidate) and (candidate as DustPuff).is_inside_tree() \
+				and (candidate as DustPuff).get_parent() == holder:
+			puff = candidate as DustPuff
+	if puff == null:
+		puff = DustPuff.new()
+		puff._color = color
+		puff._soft = soft
+		holder.add_child(puff)
+		puff.global_position = global_pos
+		return
 	puff._color = color
 	puff._soft = soft
-	parent.add_child(puff)
+	puff._setup()
 	puff.global_position = global_pos
+	puff.restart()
 
 
 func _ready() -> void:
+	finished.connect(_on_finished)
+	_setup()
+	emitting = true
+
+
+## Terminada: a la reserva (o fuera, si ya hay bastantes).
+func _on_finished() -> void:
+	if _idle.size() < POOL_MAX:
+		_idle.append(self)
+	else:
+		queue_free()
+
+
+func _setup() -> void:
 	if _process == null:
 		_process = ParticleProcessMaterial.new()
 		_process.direction = Vector3.UP
@@ -75,5 +113,3 @@ func _ready() -> void:
 	local_coords = false
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
-	finished.connect(queue_free)
-	emitting = true

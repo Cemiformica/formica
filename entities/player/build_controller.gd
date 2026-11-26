@@ -1176,7 +1176,8 @@ func _crossing_material(view: BuildingView, turn: int) -> ShaderMaterial:
 	if _cross_shader == null:
 		_cross_shader = Shader.new()
 		_cross_shader.code = CROSS_SHADER_CODE
-	var material: ShaderMaterial = view.get_meta(&"cross_material", null)
+	# get_meta() con null por defecto da error si no existe (Godot lo toma como «sin valor por defecto»).
+	var material: ShaderMaterial = view.get_meta(&"cross_material") if view.has_meta(&"cross_material") else null
 	if material == null:
 		material = ShaderMaterial.new()
 		material.shader = _cross_shader

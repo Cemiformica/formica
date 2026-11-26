@@ -19,6 +19,8 @@ extends Resource
 ## Choque con la forma real del modelo (C5.5): sí para lo que se recorre por dentro, como el refugio (sus paredes,
 ## su galería y su sala); no = una caja que envuelve la base, que basta para una ruina.
 @export var exact_collision: bool = false
+## De qué suenan las pisadas encima (sesión 28): &"wood", &"stone"… (ver `Footsteps.SURFACES`). El refugio, piedra.
+@export var footstep_surface: StringName = &"wood"
 ## Piezas que faltan, en el orden en que se enseñan.
 @export var pieces: Array[RepairPieceData] = []
 ## Luces que se encienden y apagan con E una vez completa (C5.5, D-191): el candil y el fogón del refugio.

@@ -144,7 +144,9 @@ void vertex() {
 	if (block_rect.z > 0.0) {
 		vec2 block_uv = (root.xz - block_rect.xy) / block_rect.zw;
 		if (all(greaterThanEqual(block_uv, vec2(0.0))) && all(lessThanEqual(block_uv, vec2(1.0)))) {
-			shrink *= 1.0 - smoothstep(0.12, 0.3, textureLod(block_mask, block_uv, 0.0).r);
+			// Sesión 28: máscara de 4 píxeles por casilla y fundido más estrecho (antes 0,12 a 0,3, con 1 píxel por
+			// casilla): las matas llegan casi hasta el borde de cada construcción.
+			shrink *= 1.0 - smoothstep(0.35, 0.6, textureLod(block_mask, block_uv, 0.0).r);
 		}
 	}
 	VERTEX = root + (VERTEX - root) * shrink;

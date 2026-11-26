@@ -40,6 +40,12 @@ const FLAT_FADE_CELLS: float = 4.0
 const GROUND_SUBDIVISIONS: int = 2
 ## Superficie del agua para las esquinas que no tocan agua: tan abajo que nada queda bajo ella.
 const NO_WATER_SURFACE: float = -100.0
+## Claros cerca del agua (sesión 28, César: junto al lago salía uno cortado en escalones por la regla de «sin claros
+## junto a la orilla» del shader): se apagan poco a poco entre estas distancias (casillas) al lago, el río y el remanso.
+const CLEARING_WATER_FROM: float = 4.0
+const CLEARING_WATER_TO: float = 10.0
+## Lo mismo que `terrain.gdshader` para pintar los claros (para saber en las pisadas si se pisa tierra).
+const CLEARING_THRESHOLD: float = 0.53
 ## Hasta cuántas esquinas tierra adentro llega la marca de «mojado» desde el mar (sesión 23, César: la arena mojada no
 ## se veía, porque las esquinas que tocan el mar ya están bajo el agua). El shader la limita a `wet_height` sobre el
 ## agua, así que en la playa sale una franja natural. Solo desde el mar: en el río y el lago sigue pegada al agua.
@@ -59,7 +65,9 @@ const GRASS_MATERIAL: ShaderMaterial = preload("res://assets/materials/grass.tre
 ## su shader con la misma cuenta y el mismo ruido que `terrain.gdshader` (le llegan la pendiente y la pared de cada mata,
 ## `get_up_at` y `get_wall_at`). Aquí solo se descarta lo que seguro es roca (pendiente por debajo de *_ROCK_UP, más allá
 ## del ruido del borde), para no generar matas que no se verían.
-const GRASS_ABOVE_WATER: float = 0.03
+## Sesión 28 (César: en la orilla de la explanada baja no crecía): la explanada está a 0 y el río a −0,02; con 0,03 el
+## césped la tomaba por sumergida. Con 0,01 llega hasta el borde del agua y sigue sin crecer bajo ella.
+const GRASS_ABOVE_WATER: float = 0.01
 const GRASS_SLOPE_ROCK_UP: float = 0.58
 const GRASS_WALL_ROCK_UP: float = 0.64
 const GRASS_ROCK_FADE: float = 0.04
@@ -83,6 +91,12 @@ var _water: MeshInstance3D
 var _body: StaticBody3D
 var _sea: MeshInstance3D
 var _collision: CollisionShape3D
+## Plano de la isla (si la isla tiene), para saber dónde hay agua al pisar (`get_footstep_surface`).
+var _layout: IslandLayout = null
+## Pisadas: por debajo de esta pendiente (componente vertical de la normal) el suelo es roca, como lo pinta
+## `terrain.gdshader` (`slope_rock_up`); en las paredes del plano, desde `FOOTSTEP_WALL_UP` (`wall_rock_up`).
+const FOOTSTEP_ROCK_UP: float = 0.74
+const FOOTSTEP_WALL_UP: float = 0.8
 
 
 func _init() -> void:
@@ -103,6 +117,7 @@ func _init() -> void:
 
 ## Rehace el suelo, su colisión y el agua desde los datos de la isla. Sin `bounds`, no hay suelo.
 func rebuild(island: IslandState) -> void:
+	_layout = island.layout
 	var bounds: Rect2i = island.bounds
 	if not bounds.has_area():
 		_ground.mesh = null
@@ -393,6 +408,7 @@ func _build_layout_ground(island: IslandState) -> void:
 	var depth_at := PackedFloat32Array()
 	for values: PackedFloat32Array in [sand_at, wet_at, path_at, flat_at, depth_at]:
 		values.resize(row * (h + 1))
+	var water_distance: PackedFloat32Array = _water_distances(layout)
 	for j: int in h + 1:
 		for i: int in w + 1:
 			var sand: float = 0.0
@@ -422,7 +438,9 @@ func _build_layout_ground(island: IslandState) -> void:
 				path += 0.25 * layout.wear(cell)
 				# Lo metida que está en su explanada, suave: los claros se apagan antes del borde (César: junto al lago
 				# salía uno cortado en seco por las casillas).
-				flat += 0.25 * smoothstep(0.5, FLAT_FADE_CELLS, layout.flat_depth(cell))
+				var near_water: float = water_distance[cell.y * w + cell.x] if layout.has_cell(cell) else CLEARING_WATER_TO
+				flat += 0.25 * smoothstep(0.5, FLAT_FADE_CELLS, layout.flat_depth(cell)) \
+						* smoothstep(CLEARING_WATER_FROM, CLEARING_WATER_TO, near_water)
 			if lawn:
 				sand = 0.0
 				path = 0.0
@@ -485,6 +503,37 @@ func _build_layout_ground(island: IslandState) -> void:
 	_remove_steep_grass()
 
 
+## Distancia (casillas, en diagonal también cuenta 1) de cada casilla al agua de la isla (lago, río, remanso), hasta
+## CLEARING_WATER_TO. Para apagar los claros cerca de la orilla.
+func _water_distances(layout: IslandLayout) -> PackedFloat32Array:
+	var w: int = layout.size.x
+	var h: int = layout.size.y
+	var distances := PackedFloat32Array()
+	distances.resize(w * h)
+	distances.fill(CLEARING_WATER_TO)
+	var frontier: Array[Vector2i] = []
+	for y: int in h:
+		for x: int in w:
+			if layout.ground(Vector2i(x, y)) == IslandLayout.Ground.WATER:
+				distances[y * w + x] = 0.0
+				frontier.append(Vector2i(x, y))
+	var steps: float = 0.0
+	while not frontier.is_empty() and steps < CLEARING_WATER_TO:
+		steps += 1.0
+		var next: Array[Vector2i] = []
+		for cell: Vector2i in frontier:
+			for dy: int in range(-1, 2):
+				for dx: int in range(-1, 2):
+					var other := Vector2i(cell.x + dx, cell.y + dy)
+					if other.x < 0 or other.y < 0 or other.x >= w or other.y >= h:
+						continue
+					if distances[other.y * w + other.x] > steps:
+						distances[other.y * w + other.x] = steps
+						next.append(other)
+		frontier = next
+	return distances
+
+
 ## Cuánta hierba admite un punto del suelo (0 a 1): nada bajo el agua ni en la orilla, en la arena, en el sendero y la
 ## tierra pisada, ni en las casillas de agua, de los objetos del plano (refugio, portal, vetas…) o de las rocas caídas.
 ## En el borde entre dos casillas manda la peor, así el césped no asoma medio metro dentro del refugio.
@@ -539,6 +588,72 @@ func _refresh_grass(layout: IslandLayout) -> void:
 		add_child(_grass)
 	else:
 		_grass.regenerate()
+
+
+## Pisadas (sesión 28, `Footsteps`): de qué es el suelo en un punto del mundo, con las mismas reglas que lo pintan.
+## Agua (río, lago, vado, orilla del mar) → chapoteo; cuesta empinada o pared → roca; donde crece el césped → hierba;
+## lo demás (arena, sendero, tierra pisada, claros) → tierra. Las rocas caídas al pie de las paredes, piedra.
+func get_footstep_surface(at: Vector3, collider: Object) -> StringName:
+	if collider != _body:
+		return &"stone"
+	if _layout != null:
+		var cell_ground: IslandLayout.Ground = _layout.ground(GridMath.world_to_cell(to_local(at)))
+		if cell_ground == IslandLayout.Ground.WATER or cell_ground == IslandLayout.Ground.SEA:
+			return &"water"
+	if _grid_count == Vector2i.ZERO:
+		return &"grass"
+	var up: float = get_up_at(at.x, at.z)
+	if up < FOOTSTEP_ROCK_UP or (get_wall_at(at.x, at.z) > 0.5 and up < FOOTSTEP_WALL_UP):
+		return &"stone"
+	if _grid_sample(_grid_grass, at.x, at.z) > 0.5 and not _is_clearing(at.x, at.z):
+		return &"grass"
+	return &"dirt"
+
+
+## Pisadas: ¿hay un claro de tierra en este punto? Las mismas cuentas que `terrain.gdshader` (con el ruido de
+## `toy_noise.gdshaderinc`), así suena a tierra justo donde se ve tierra.
+func _is_clearing(x: float, z: float) -> bool:
+	var flat: float = get_flat_at(x, z)
+	if flat < 0.01:
+		return false
+	var p := Vector2(0.866 * x - 0.5 * z, 0.5 * x + 0.866 * z)
+	var mid: float = _fbm(p * 0.35 + Vector2(17.0, 17.0))
+	var fine: float = _value_noise(p * 2.3 + Vector2(41.0, 41.0))
+	var warp := Vector2(_fbm(p * 0.05 + Vector2(3.1, 3.1)), _fbm(p * 0.05 + Vector2(9.7, 9.7))) - Vector2(0.5, 0.5)
+	var noise: float = _fbm(p * 0.06 + warp * 0.8 + Vector2(73.0, 73.0)) + (mid - 0.5) * 0.12
+	var clearing: float = smoothstep(CLEARING_THRESHOLD, CLEARING_THRESHOLD + 0.1, noise) * flat
+	return clearing + (fine - 0.5) * 0.15 > 0.45
+
+
+## Copias de `toy_noise.gdshaderinc` para las pisadas.
+static func _hash(p: Vector2) -> float:
+	var p3 := Vector3(p.x, p.y, p.x) * 0.1031
+	p3 = Vector3(p3.x - floorf(p3.x), p3.y - floorf(p3.y), p3.z - floorf(p3.z))
+	p3 += Vector3.ONE * p3.dot(Vector3(p3.y, p3.z, p3.x) + Vector3.ONE * 33.33)
+	var value: float = (p3.x + p3.y) * p3.z
+	return value - floorf(value)
+
+
+static func _value_noise(p: Vector2) -> float:
+	var i := Vector2(floorf(p.x), floorf(p.y))
+	var f: Vector2 = p - i
+	var u: Vector2 = f * f * (Vector2(3.0, 3.0) - 2.0 * f)
+	var a: float = _hash(i)
+	var b: float = _hash(i + Vector2(1.0, 0.0))
+	var c: float = _hash(i + Vector2(0.0, 1.0))
+	var d: float = _hash(i + Vector2(1.0, 1.0))
+	return lerpf(lerpf(a, b, u.x), lerpf(c, d, u.x), u.y)
+
+
+static func _fbm(p: Vector2) -> float:
+	var value: float = 0.0
+	var weight: float = 0.5
+	var q: Vector2 = p
+	for _i: int in 4:
+		value += weight * _value_noise(q)
+		q = Vector2(0.8 * q.x - 0.6 * q.y, 0.6 * q.x + 0.8 * q.y) * 2.03 + Vector2(11.0, 5.0)
+		weight *= 0.5
+	return value / 0.9375
 
 
 ## Para `GrassField` (coordenadas del mundo): altura del suelo, la misma que dibuja la malla (sus triángulos tienen la

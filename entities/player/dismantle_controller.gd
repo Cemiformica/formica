@@ -12,6 +12,8 @@ extends Node3D
 signal mode_changed(active: bool)
 ## Se emite al hacer clic derecho con algo marcado: la interfaz abre la ventana de confirmar.
 signal confirm_requested
+## Se emite tras desmontar lo marcado (el plano de la mano da un golpecito, D-223).
+signal dismantled
 
 ## Lado máximo del recuadro (20 × 20 = 400 casillas, como en el prototipo).
 const MAX_AREA_SIDE: int = 20
@@ -82,6 +84,7 @@ func confirm() -> bool:
 		DustPuff.spawn(get_parent(), at + Vector3(0.0, 0.2, 0.0))
 	if not positions.is_empty():
 		_play_sound(positions[0])
+	dismantled.emit()
 	return true
 
 

@@ -165,7 +165,11 @@ func _transfer(link: Dictionary) -> bool:
 			if preferred != link and (preferred["to"] as PlacedBuilding).can_accept(item, preferred["in"]):
 				return false
 			from.out_turn = (outgoing.find(link) + 1) % outgoing.size()
-	var start: float = from.belt_overflow if from.is_belt() else 0.0
+	# Dónde empieza en la cinta de destino: lo que se pasó del final de la anterior o, si esperaba, lo que habría
+	# avanzado desde que se abrió el hueco (sesión 28: así la separación es exacta y una cinta llena da 90/min).
+	var start: float = 0.0
+	if to.is_belt():
+		start = from.belt_overflow if from.is_belt() and from.belt_overflow > 0.0 else to.belt_entry_slack()
 	from.take_output(item)
 	var in_port: PortData = link["in"]
 	to.accept(item, start, in_port.side)

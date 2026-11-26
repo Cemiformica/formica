@@ -13,6 +13,8 @@ extends Resource
 @export var category: StringName = &""
 ## Bloqueada hasta la progresión (D-115): sale en el catálogo con candado y no se puede coger.
 @export var locked: bool = false
+## De qué suenan las pisadas encima (sesión 28): &"metal", &"wood", &"stone"… (ver `Footsteps.SURFACES`).
+@export var footstep_surface: StringName = &"metal"
 ## Escena que se instancia al construir. Su origen debe estar en el centro de la base.
 @export var scene: PackedScene
 ## Tamaño en casillas de la cuadrícula (X, Z).

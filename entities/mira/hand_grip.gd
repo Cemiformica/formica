@@ -1,6 +1,6 @@
 class_name MiraHandGrip
 extends SkeletonModifier3D
-## Agarre de la mano derecha de Mira (C3, D-146): abierta, «sujetar», «puño» o «herramienta».
+## Agarre de la mano derecha de Mira (C3, D-146): abierta, «sujetar», «puño», «herramienta» o «tablilla».
 ##
 ## Va después de las animaciones y de MiraHoldPose: dobla las dos falanges de cada dedo y del pulgar hacia la
 ## palma, cada una sobre su propio eje. El eje se calcula al arrancar con el reposo del esqueleto (dirección
@@ -10,9 +10,11 @@ extends SkeletonModifier3D
 ## - PUÑO: cerrado sobre un mango de unos 2 cm.
 ## - HERRAMIENTA: el puño, pero con el índice adelantado sobre el gatillo (César): la primera falange casi
 ##   recta y la segunda doblada por delante del gatillo, a unos 2 mm (calculado en Blender con la mordedora).
+## - TABLILLA: el plano de los modos construir y desmontar (D-223, César): los dedos casi abiertos por detrás
+##   de la tablilla y el pulgar que rodea el borde y se apoya delante (calculado en Blender con la tablilla).
 ## Dónde tocar: GRIP_ANGLES (grados por hueso) y BLEND_SPEED.
 
-enum Grip { OPEN, HOLD, FIST, TOOL }
+enum Grip { OPEN, HOLD, FIST, TOOL, PLATE }
 
 const SIDE: String = "Right"
 # Hacia la palma en el espacio del esqueleto: la mano derecha mira hacia +X (su izquierda, hacia el cuerpo).
@@ -23,6 +25,7 @@ const GRIP_ANGLES: Dictionary = {
 	Grip.FIST: {"Proximal": 80.0, "Intermediate": 95.0, "ThumbProximal": 25.0, "ThumbDistal": 45.0},
 	Grip.TOOL: {"Proximal": 80.0, "Intermediate": 95.0, "ThumbProximal": 25.0, "ThumbDistal": 45.0,
 			"IndexProximal": 30.0, "IndexIntermediate": 80.0},
+	Grip.PLATE: {"Proximal": 5.0, "Intermediate": 0.0, "ThumbProximal": 90.0, "ThumbDistal": 20.0},
 }
 const BLEND_SPEED: float = 6.0   # cuánto tarda en cerrarse o abrirse (1 / segundos)
 

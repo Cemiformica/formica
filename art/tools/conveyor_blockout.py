@@ -12,12 +12,13 @@
 # Los números del perfil están también en port_blockout.py (lengüeta): si cambian aquí, cambiarlos allí.
 #
 # Uso: Editor de texto de Blender → abrir → Alt+P. Si ya existe «conveyor», lo borra y lo rehace.
+# Exportar: export_hierarchy("conveyor", "//../../assets/models/buildings/conveyor.glb") de export_glb.py.
 # Dónde tocar: medidas en las constantes; colores de la paleta como (fila, columna).
 
 import bpy
 import bmesh
 import math
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 PALETTE = 64
 SWATCH = 8
@@ -276,6 +277,46 @@ def build_corner(root, pal, band, turn, wall_profiles):
     return pieces
 
 
+def hub_post(sx, sy):
+    # Poste de la esquina (sx, sy) del cruce: lo que comparten la pared que va a lo largo de Y (perfil de medio
+    # hexágono en X) y la que va a lo largo de X (el mismo perfil en Y). Los dos perfiles son convexos, así que
+    # el poste es el casco convexo de los puntos donde se cortan tres de sus planos y que caen dentro de todos.
+    bx, bz = SHELL_BOTTOM
+    floor_z = BAND_TOP - BAND_THICK
+    xo = WALL_TOP_X + LIP
+    profile = [(xo, WALL_TOP_Z), (WALL_TOP_X, WALL_TOP_Z), (BAND_HALF, floor_z), (BAND_HALF, bz), (bx, bz), (xo, OUTER_KNEE_Z)]
+    cx = sum(a for a, _ in profile) / len(profile)
+    cz = sum(b for _, b in profile) / len(profile)
+    lines = []   # (normal hacia fuera en (u, z), d): u * nu + z * nz <= d
+    for i in range(len(profile)):
+        (u0, z0), (u1, z1) = profile[i], profile[(i + 1) % len(profile)]
+        nu, nz = z1 - z0, -(u1 - u0)
+        if nu * (cx - u0) + nz * (cz - z0) > 0.0:
+            nu, nz = -nu, -nz
+        lines.append((nu, nz, nu * u0 + nz * z0))
+    planes = [Vector((sx * nu, 0.0, nz)).to_4d() for nu, nz, _ in lines]
+    planes += [Vector((0.0, sy * nu, nz)).to_4d() for nu, nz, _ in lines]
+    for k, (_, _, d) in enumerate(lines + lines):
+        planes[k].w = d
+    points = []
+    for a in range(len(planes)):
+        for b in range(a + 1, len(planes)):
+            for c in range(b + 1, len(planes)):
+                m = Matrix((planes[a].xyz, planes[b].xyz, planes[c].xyz))
+                if abs(m.determinant()) < 1e-9:
+                    continue
+                p = m.inverted() @ Vector((planes[a].w, planes[b].w, planes[c].w))
+                if all(q.xyz.dot(p) <= q.w + 1e-7 for q in planes) and all((p - o).length > 1e-6 for o in points):
+                    points.append(p)
+    bm = bmesh.new()
+    verts = [bm.verts.new(p) for p in points]
+    hull = bmesh.ops.convex_hull(bm, input=verts)
+    bmesh.ops.delete(bm, geom=[g for g in hull["geom_interior"] + hull["geom_unused"] if isinstance(g, bmesh.types.BMVert)], context="VERTS")
+    bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(1), verts=bm.verts, edges=bm.edges)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return bm
+
+
 # --- Cruce (C2b): la cinta de una T o una X, como en Alchemy Factory ---
 # Estructura del cruce: centro con su base y, en cada lado, una boca abierta o una pared. Las piezas de los
 # lados se modelan solo para el lado NORTE (+Y); Godot las copia y las gira para los otros tres. La banda
@@ -294,18 +335,34 @@ def build_hub(root, pal, band, wall_profiles):
             base.append(make("tmp_hub_foot", hex_rivet((sx * (xo - 0.06), sy * (xo - 0.06), (bz + 0.02) + 0.012), (0, 0, 1), 0.03, 0.025),
                              root, pal, RIVET))
     pieces.append(join_parts("belt_hub", base, root, pal))
+    # Postes de la esquina NORESTE (sesión 28, César): llenan el cuadrado entre los lados norte y este, del borde
+    # de la banda a la cara de fuera. Antes, las paredes de dos brazos abiertos se pisaban ahí (bulto con una V) y
+    # la pared cerrada se montaba sobre la abierta (una cruz). Godot copia y gira las piezas para las otras tres
+    # esquinas y enseña, según qué lados estén abiertos:
+    #   - los dos abiertos: «miter», el perfil de medio hexágono en las dos direcciones (esquina de un marco);
+    #   - norte cerrado: «a», la pared cerrada sigue recta hasta la boca del este (a lo largo de X);
+    #   - este cerrado: «b», lo mismo a lo largo de Y. Con los dos cerrados, las dos a la vez.
+    top = (WALL_TOP_X + xo) / 2
+    miter = [make("tmp_post_miter", hub_post(1, 1), root, pal, FRAME, 0.008),
+             make("tmp_post_rivet", hex_rivet((top, top, WALL_TOP_Z), (0, 0, 1), 0.022, 0.012), root, pal, RIVET)]
+    pieces.append(join_parts("belt_hub_post_miter", miter, root, pal))
+    profile = [(xo, WALL_TOP_Z), (WALL_TOP_X, WALL_TOP_Z), (BAND_HALF, floor_z), (BAND_HALF, bz), (bx, bz), (xo, OUTER_KNEE_Z)]
+    pieces.append(join_parts("belt_hub_post_a", [make("tmp_post_a", prism_y_profile(profile, BAND_HALF, xo), root, pal, FRAME, 0.008)],
+                             root, pal))
+    pieces.append(join_parts("belt_hub_post_b", [make("tmp_post_b", prism_x_profile(profile, BAND_HALF, xo), root, pal, FRAME, 0.008)],
+                             root, pal))
     # Boca abierta al norte: dos paredes (el perfil de la cinta) desde el borde del centro hasta el borde de
     # la casilla, sus largueros donde se ven y el fondo bajo la banda.
     arm = []
     for sx, wall in wall_profiles:
-        arm.append(make("tmp_arm_wall", prism_x_profile(wall, BAND_HALF, 0.5), root, pal, FRAME, 0.008))
+        arm.append(make("tmp_arm_wall", prism_x_profile(wall, xo, 0.5), root, pal, FRAME, 0.008))   # desde el poste
         arm.append(make("tmp_arm_rail", box((0.03, 0.5 - xo, 0.055), (sx * (xo + 0.012), (xo + 0.5) / 2, 0.175)), root, pal, ACCENT, 0.006))
     arm.append(make("tmp_arm_floor", box((2 * BAND_HALF, 0.5 - BAND_HALF, floor_z - bz), (0.0, (BAND_HALF + 0.5) / 2, (floor_z + bz) / 2)),
                     root, pal, FRAME))
     pieces.append(join_parts("belt_hub_arm_open", arm, root, pal))
     # Lado cerrado al norte: pared a lo ancho, con su larguero por fuera.
     profile = [(xo, WALL_TOP_Z), (WALL_TOP_X, WALL_TOP_Z), (BAND_HALF, floor_z), (BAND_HALF, bz), (bx, bz), (xo, OUTER_KNEE_Z)]
-    closed = [make("tmp_closed_wall", prism_y_profile(profile, -xo, xo), root, pal, FRAME, 0.008),
+    closed = [make("tmp_closed_wall", prism_y_profile(profile, -BAND_HALF, BAND_HALF), root, pal, FRAME, 0.008),   # entre los postes
               make("tmp_closed_rail", box((2 * xo, 0.03, 0.055), (0.0, xo + 0.012, 0.175)), root, pal, ACCENT, 0.006)]
     pieces.append(join_parts("belt_hub_arm_closed", closed, root, pal))
     for piece in pieces:
@@ -458,4 +515,5 @@ def build():
     print("piezas:", len(root.children), "triángulos:", tris)
 
 
-build()
+if __name__ == "__main__":   # con Alt+P; desde fuera se puede llamar build() a mano
+    build()

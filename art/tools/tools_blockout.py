@@ -32,6 +32,10 @@ METAL, METAL_LIGHT, METAL_DARK, RUBBER = (5, 3), (5, 2), (5, 5), (5, 6)
 COPPER, COPPER_LIGHT = (3, 2), (3, 1)
 AMBER = (6, 2)
 CELL, CELL_LIGHT = (7, 3), (7, 2)
+PAPER = (7, 4)            # hoja del plano, azul (con el material mate palette_cloth: no brilla como el cristal)
+INK = (6, 1)              # líneas del plano, ámbar claro
+PAINT = (6, 6)            # trazos de pintura roja de la X (modo desmontar)
+PENCIL = (6, 1)           # lápiz, amarillo
 
 HANDLE_R = 0.010          # radio del mango (2 cm de grosor)
 HANDLE_BOTTOM = -0.08
@@ -41,9 +45,9 @@ HEAD_SCALE = 1.3
 HEAD_FROM, HEAD_TO = 0.41, 0.33
 HEAD = Matrix.Translation((0, 0, HEAD_TO)) @ Matrix.Scale(HEAD_SCALE, 4) @ Matrix.Translation((0, 0, -HEAD_FROM))
 
-TOOLS = ["biter", "hand_drill"]
+TOOLS = ["biter", "hand_drill", "blueprint"]
 EXPORT = True   # al terminar, exporta los .glb (export())
-DEVICE_SCALE = 1.35     # tamaño del aparato respecto al primer boceto (la empuñadura no cambia)
+DEVICE_SCALE = 1.6      # tamaño del aparato respecto al primer boceto (la empuñadura no cambia); 1,35 hasta D-225
 DEVICE_BASE = 0.06      # altura de lo alto de la empuñadura, desde donde se agranda
 GRIP_PARTS = ("grip", "grip_pommel", "trigger")
 
@@ -93,6 +97,24 @@ def get_emissive(mat):
     bsdf.inputs["Emission Strength"].default_value = 2.0
     nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
     return glow
+
+
+def get_cloth(mat):
+    # Material mate con la misma paleta (como la ropa de Mira): en Godot, palette_cloth.tres. Para el papel
+    # y la pintura del plano, que con palette brillarían como cristal (fila del agua) o como el fuego.
+    cloth = bpy.data.materials.get("palette_cloth") or bpy.data.materials.new("palette_cloth")
+    cloth.use_nodes = True
+    nt = cloth.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial"); out.location = (300, 0)
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled"); bsdf.location = (0, 0)
+    tex = nt.nodes.new("ShaderNodeTexImage"); tex.location = (-450, 0)
+    tex.image = mat.node_tree.nodes["Image Texture"].image if "Image Texture" in mat.node_tree.nodes else None
+    tex.interpolation = "Closest"
+    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    bsdf.inputs["Roughness"].default_value = 0.85
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    return cloth
 
 
 def finish(name, bm, color, parent, material, bevel: float = 0.0):
@@ -464,6 +486,142 @@ def hand_drill(root, mat):
     tip.parent, tip.matrix_parent_inverse = bit_pivot, inverse
 
 
+# --- Plano de los modos construir y desmontar (D-223, César) ---
+# Tablilla de madera con una hoja azul de plano sujeta por una pinza de cobre, con un lápiz bajo la pinza.
+# Sin mango (César): Mira la sujeta por el borde derecho con el pulgar por delante y los otros dedos
+# abiertos por detrás. El origen está en ese borde, a la altura de la mano; el borde va a lo largo de +Z.
+# La cara con la hoja mira hacia −X (hacia quien la sostiene) y la tablilla se extiende hacia +Y (hacia el
+# centro de la pantalla en primera persona). Dónde va la mano: PLAN_* en first_person_arm.gd (calculado en
+# Blender con el brazo de Mira).
+# En el modo desmontar se ven dos trazos de pintura roja que la tachan: «cross_mark_a» y «cross_mark_b»
+# (KEEP en export_glb.py, para que Godot pueda encenderlos y apagarlos).
+
+BOARD_Y0, BOARD_Y1 = 0.0, 0.180      # de dónde a dónde va la tablilla, desde el borde que coge la mano
+BOARD_Z0, BOARD_Z1 = -0.09, 0.15      # 18 × 24 cm (César: más grande que la primera, de 15 × 20)
+BOARD_T = 0.008                       # grosor de la tablilla
+BOARD_CUT = 0.016                     # esquinas cortadas (como las tarjetas de la interfaz)
+SHEET_INSET = 0.010
+SHEET_TOP = 0.118                     # la hoja acaba bajo la pinza
+LINE_W = 0.0028                       # ancho de las líneas del plano
+
+
+def plate(points_yz, x0, x1):
+    # Pieza plana a partir de un contorno visto de frente (y, z), entre x0 (delante) y x1 (detrás).
+    bm = bmesh.new()
+    front = [bm.verts.new((x0, y, z)) for y, z in points_yz]
+    back = [bm.verts.new((x1, y, z)) for y, z in points_yz]
+    bm.faces.new(front)
+    bm.faces.new(list(reversed(back)))
+    n = len(points_yz)
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((front[i], back[i], back[j], front[j]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return bm
+
+
+def strip(centers, widths, x0, x1):
+    # Trazo plano que sigue una línea de puntos (y, z) con su ancho en cada punto, entre x0 y x1.
+    bm = bmesh.new()
+    left, right = [], []
+    n = len(centers)
+    for i, (y, z) in enumerate(centers):
+        a = Vector(centers[max(i - 1, 0)])
+        b = Vector(centers[min(i + 1, n - 1)])
+        d = (b - a).normalized()
+        side = Vector((-d.y, d.x)) * widths[i] / 2.0
+        left.append(Vector((y, z)) + side)
+        right.append(Vector((y, z)) - side)
+    ring = left + list(reversed(right))
+    bm.free()
+    return plate([(p.x, p.y) for p in ring], x0, x1)
+
+
+def line(root, mat, name, p0, p1, color, x0, x1, width=LINE_W):
+    finish(name, strip([p0, p1], [width, width], x0, x1), color, root, mat)
+
+
+def hex_ring(root, mat, name, center, radius, color, x0, x1):
+    # Hexágono hueco (como una casilla del panal) hecho de seis trazos.
+    corners = [Vector(center) + Vector((math.cos(math.radians(30 + 60 * k)), math.sin(math.radians(30 + 60 * k)))) * radius
+               for k in range(7)]
+    bm = bmesh.new()
+    for k in range(6):
+        part = strip([corners[k], corners[k + 1]], [LINE_W, LINE_W], x0, x1)
+        mesh = bpy.data.meshes.new("_tmp")
+        part.to_mesh(mesh)
+        part.free()
+        bm.from_mesh(mesh)
+        bpy.data.meshes.remove(mesh)
+    finish(name, bm, color, root, mat)
+
+
+def paint_stroke(root, cloth, name, start, end, x0, x1):
+    # Trazo de pintura a mano: un poco ondulado, más grueso en medio y con las puntas finas (pincelada).
+    steps = 10
+    a, b = Vector(start), Vector(end)
+    d = (b - a).normalized()
+    normal = Vector((-d.y, d.x))
+    centers, widths = [], []
+    for k in range(steps + 1):
+        t = k / steps
+        wobble = 0.0025 * math.sin(t * math.pi * 2.3 + len(name))
+        p = a.lerp(b, t) + normal * wobble
+        centers.append((p.x, p.y))
+        widths.append(0.006 + 0.010 * math.sin(math.pi * min(1.0, t * 1.15)) ** 0.5)
+    return finish(name, strip(centers, widths, x0, x1), PAINT, root, cloth)
+
+
+def blueprint(root, mat):
+    cloth = get_cloth(mat)
+    front = -BOARD_T / 2.0           # cara de delante de la tablilla
+    # Tablilla de madera con las cuatro esquinas cortadas.
+    c = BOARD_CUT
+    outline = [(BOARD_Y0 + c, BOARD_Z0), (BOARD_Y1 - c, BOARD_Z0), (BOARD_Y1, BOARD_Z0 + c), (BOARD_Y1, BOARD_Z1 - c),
+               (BOARD_Y1 - c, BOARD_Z1), (BOARD_Y0 + c, BOARD_Z1), (BOARD_Y0, BOARD_Z1 - c), (BOARD_Y0, BOARD_Z0 + c)]
+    finish("board", plate(outline, front, -front), WOOD, root, mat, 0.0015)
+    # Hoja del plano.
+    y0, y1 = BOARD_Y0 + SHEET_INSET, BOARD_Y1 - SHEET_INSET
+    z0, z1 = BOARD_Z0 + SHEET_INSET, SHEET_TOP
+    finish("sheet", plate([(y0, z0), (y1, z0), (y1, z1), (y0, z1)], front - 0.0009, front - 0.0001), PAPER, root, cloth)
+    # Dibujo del plano: cuatro casillas de panal unidas por líneas, como una distribución de máquinas.
+    lx0, lx1 = front - 0.0014, front - 0.0008
+    cy, cz = (y0 + y1) / 2.0, (z0 + z1) / 2.0
+    dy, dz, r = 0.044, 0.050, 0.017
+    for k, (sy, sz) in enumerate(((-1, 1), (1, 1), (-1, -1), (1, -1))):
+        hex_ring(root, cloth, "plan_hex_%d" % k, (cy + sy * dy, cz + sz * dz), r, INK, lx0, lx1)
+    for k, sz in enumerate((1, -1)):
+        line(root, cloth, "plan_row_%d" % k, (cy - dy + r, cz + sz * dz), (cy + dy - r, cz + sz * dz), INK, lx0, lx1)
+    line(root, cloth, "plan_spine", (cy, cz + dz), (cy, cz - dz), INK, lx0, lx1)
+    line(root, cloth, "plan_mid", (cy - dy * 0.55, cz), (cy + dy * 0.55, cz), INK, lx0, lx1)
+    for k, sy in enumerate((-1, 1)):
+        line(root, cloth, "plan_tick_%d" % k, (cy + sy * dy * 0.55, cz - 0.008), (cy + sy * dy * 0.55, cz + 0.008), INK, lx0, lx1)
+    # Pinza de cobre arriba, con su eje y dos remaches hexagonales.
+    py = (BOARD_Y0 + BOARD_Y1) / 2.0
+    finish("clip_plate", plate([(py - 0.031, SHEET_TOP - 0.004), (py + 0.031, SHEET_TOP - 0.004), (py + 0.036, BOARD_Z1 - 0.007),
+                                (py - 0.036, BOARD_Z1 - 0.007)], front - 0.0035, front), COPPER, root, mat, 0.001)
+    finish("clip_hinge", rod((front - 0.004, py - 0.038, BOARD_Z1 - 0.007), (front - 0.004, py + 0.038, BOARD_Z1 - 0.007), 0.0035, 0.0035, 6),
+           COPPER_LIGHT, root, mat)
+    for k, sy in enumerate((-1, 1)):
+        rivet = prism(6, 0.0032, 0.0026, 0.0, 0.0015, math.radians(30))
+        place(rivet, (front - 0.0035, py + sy * 0.022, SHEET_TOP + 0.009), Matrix.Rotation(math.radians(-90), 4, "Y"))
+        finish("clip_rivet_%d" % k, rivet, METAL_DARK, root, mat)
+    # Lápiz bajo la pinza, en diagonal: cuerpo hexagonal amarillo, punta de madera y mina oscura.
+    p0 = Vector((front - 0.0075, BOARD_Y0 + 0.016, SHEET_TOP + 0.016))
+    p1 = Vector((front - 0.0075, BOARD_Y1 - 0.024, SHEET_TOP + 0.004))
+    tip = p1 + (p1 - p0).normalized() * 0.012
+    lead = tip + (p1 - p0).normalized() * 0.004
+    finish("pencil", rod(p0, p1, 0.0035, 0.0035, 6), PENCIL, root, mat, 0.0006)
+    finish("pencil_tip", rod(p1, tip, 0.0035, 0.0012, 6), WOOD_LIGHT, root, mat)
+    finish("pencil_lead", rod(tip, lead, 0.0012, 0.0002, 6), METAL_DARK, root, mat)
+    finish("pencil_end", rod(p0 - (p1 - p0).normalized() * 0.004, p0, 0.0036, 0.0036, 6), COPPER, root, mat)
+    # La X de pintura roja (modo desmontar), de esquina a esquina de la hoja.
+    px0, px1 = front - 0.0022, front - 0.0016
+    m = 0.008
+    paint_stroke(root, cloth, "cross_mark_a", (y0 + m, z1 - m), (y1 - m, z0 + m + 0.004), px0, px1)
+    paint_stroke(root, cloth, "cross_mark_b", (y0 + m, z0 + m), (y1 - m, z1 - m - 0.004), px0 - 0.0004, px1 - 0.0004)
+
+
 # --- Construir ---
 
 def clear_previous():
@@ -510,9 +668,10 @@ def enlarge(root) -> None:
             obj.data.transform(m)
 
 
-def export() -> None:
+def export(only=None) -> None:
     # Cada herramienta a su .glb (assets/models/tools/), con las piezas fijas unidas y las que se mueven
     # aparte bajo su pivote: «jaw_pivot_l/r_mesh» (mandíbulas) y «bit_pivot_mesh» (broca). Ver export_glb.py.
+    # `only`: solo esas (por defecto, todas las de TOOLS).
     import os
     import sys
     tools = os.path.dirname(bpy.path.abspath("//../tools/"))
@@ -522,7 +681,7 @@ def export() -> None:
     import importlib
     import export_glb
     importlib.reload(export_glb)
-    for tool_id in TOOLS:
+    for tool_id in (only or TOOLS):
         root = bpy.data.objects["tool_" + tool_id]
         shown_at = root.location.copy()
         root.location = (0.0, 0.0, 0.0)   # en el .glb, el origen es el centro del puño
@@ -531,6 +690,7 @@ def export() -> None:
         root.location = shown_at
 
 
-build()
-if EXPORT:
-    export()
+if __name__ == "__main__":   # con Alt+P; desde fuera se pueden llamar build() y export() a mano
+    build()
+    if EXPORT:
+        export()

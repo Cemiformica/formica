@@ -113,12 +113,18 @@ static var _marked_material: StandardMaterial3D = null
 
 ## Construcción que muestra.
 var placed: PlacedBuilding
+## Césped (sesión 28, César: alrededor de los postes y de las máquinas que no llenan su casilla quedaba un hueco):
+## rectángulo que ocupa el modelo en el suelo (X, Z), en coordenadas de esta vista, medido al colocarla con las piezas en
+## reposo (`measure_ground_rect`). Sin área = sin modelo: el césped se quita en la casilla entera.
+var ground_rect: Rect2 = Rect2()
 ## Isla a la que pertenece (para preguntar por su red eléctrica).
 var island: IslandState
 
-## Solo cintas: dirección de avance (hacia la salida) y cubitos de los ítems.
+## Solo cintas: dirección de avance (hacia la salida) y los ítems que lleva (su modelo, o un cubo de su color si
+## no tiene; sesión 28).
 var _belt_forward: Vector3 = Vector3.ZERO
 var _belt_cubes: Array[MeshInstance3D] = []
+static var _item_box: BoxMesh = null
 ## Solo cintas con modelo: en cada extremo, la vuelta de banda (si está libre) o el tramo de unión
 ## (si está conectado). Índices de sus puertos de entrada (atrás) y salida (delante).
 var _belt_end_back: Node3D = null
@@ -140,6 +146,8 @@ var _belt_body: Node3D = null
 var _belt_corners: Dictionary[String, Dictionary] = {}
 var _belt_hub: Node3D = null
 var _belt_hub_arms: Dictionary[int, Dictionary] = {}
+## Postes de cada esquina del cruce (0 = noreste, 1 = sureste…): «miter», «a» y «b» (ver conveyor_blockout.py).
+var _belt_hub_posts: Dictionary[int, Dictionary] = {}
 ## Banda del cruce, creada por código según el camino (dibujo de César): una malla por combinación de
 ## lados, compartida por todos los cruces iguales.
 var _belt_hub_band: MeshInstance3D = null
@@ -595,6 +603,25 @@ func _setup_belt() -> void:
 				piece.visible = false
 				arm[key] = piece
 			_belt_hub_arms[side] = arm
+		# Postes: modelados para la esquina noreste (entre el lado 0 y el 1); la esquina `corner` está entre el
+		# lado `corner` y el siguiente, así que se gira igual que el brazo de ese lado.
+		var post_originals: Dictionary = {}
+		for key: String in ["miter", "a", "b"]:
+			post_originals[key] = model.find_child("belt_hub_post_" + key, true, false)
+		for post_corner: int in 4:
+			var posts: Dictionary = {}
+			for key: String in post_originals:
+				var original: Node3D = post_originals[key] as Node3D
+				if original == null:
+					continue
+				var piece: Node3D = original
+				if post_corner > 0:
+					piece = original.duplicate() as Node3D
+					original.get_parent().add_child(piece)
+				piece.rotation.y = GridMath.rotation_to_yaw(post_corner)
+				piece.visible = false
+				posts[key] = piece
+			_belt_hub_posts[post_corner] = posts
 	else:
 		_add_box(Vector3(0.9, BELT_HEIGHT, 0.9), Vector3(0.0, BELT_HEIGHT * 0.5, 0.0), BELT_COLOR)
 		# Flecha: un palo y una punta, sobre la losa.
@@ -606,11 +633,11 @@ func _setup_belt() -> void:
 		var offset: Vector2i = PortData.side_offset(PortData.transform_side(side, placed.rotation, false))
 		_belt_side_dirs.append(Vector3(offset.x, 0.0, offset.y))
 
+	if _item_box == null:
+		_item_box = BoxMesh.new()
+		_item_box.size = Vector3(0.25, 0.25, 0.25)
 	for i: int in placed.data.belt_capacity:
 		var cube := MeshInstance3D.new()
-		var mesh := BoxMesh.new()
-		mesh.size = Vector3(0.25, 0.25, 0.25)
-		cube.mesh = mesh
 		cube.visible = false
 		add_child(cube)
 		_belt_cubes.append(cube)
@@ -623,8 +650,9 @@ func _arrow_size(across: float, along: float) -> Vector3:
 	return Vector3(across, 0.02, along)
 
 
-## Coloca los cubitos según el avance de cada ítem (0 = detrás, 1 = delante). La simulación avanza a
-## 10 pasos por segundo: entre paso y paso se predice el avance para que se deslicen sin saltitos.
+## Coloca los ítems según su avance (0 = detrás, 1 = delante). La simulación avanza a 10 pasos por segundo:
+## entre paso y paso se predice el avance para que se deslicen sin saltitos. Cada ítem va con su modelo,
+## apoyado en la banda y con su lado largo en la dirección en que avanza (también en las curvas).
 func _update_belt_items() -> void:
 	# Si la salida está conectada, el de delante puede asomar un poco por ella mientras llega el paso que
 	# lo pasa a la siguiente (allí empieza justo donde iba): así no se para en cada unión.
@@ -632,6 +660,7 @@ func _update_belt_items() -> void:
 	if _belt_out_linked and not placed.belt_progress.is_empty() and placed.belt_progress[0] < 1.0:
 		front_limit = 1.0 + placed.data.belt_speed * Simulation.TICK
 	var shown: Array[float] = placed.predict_belt_progress(Simulation.time_since_step(), front_limit)
+	var exit_order: Array[int] = [] # se calcula solo si algún ítem pasa de la mitad
 	for i: int in _belt_cubes.size():
 		var cube: MeshInstance3D = _belt_cubes[i]
 		if i >= placed.belt_items.size():
@@ -639,20 +668,44 @@ func _update_belt_items() -> void:
 			continue
 		var item: ItemData = placed.belt_items[i]
 		# Cintas en L, T y X (C2b): la primera mitad viene del lado por el que entró y la segunda va hacia
-		# la salida, girando en el centro. Solo el de delante pasa de la mitad (los ítems van separados
-		# media casilla), así que solo él necesita saber por dónde saldrá.
+		# la salida, girando en el centro. Con 3 por casilla (sesión 28) pueden pasar de la mitad dos: el de
+		# delante va a la salida a la que le toca y el siguiente, a la de después (como hará `Simulation`).
 		var t: float = shown[i]
-		var offset: Vector3
-		if _belt_shape == BeltShape.CORNER:
-			offset = _corner_offset(t)
-		elif t <= 0.5:
-			var entry: int = placed.belt_entries[i] if i < placed.belt_entries.size() else PortData.PortSide.SOUTH
-			offset = _belt_side_dirs[entry] * (0.5 - t)
+		# Sin salida conectada, el de delante se para cuando su punta llega al borde (sesión 28, César: con los
+		# modelos, la mitad del ítem asomaba por el final de la cinta).
+		if not _belt_out_linked:
+			t = minf(t, 1.0 - ItemModels.half_length_for(item))
+		var entry: int = placed.belt_entries[i] if i < placed.belt_entries.size() else PortData.PortSide.SOUTH
+		var exit: int = PortData.PortSide.NORTH
+		if t > 0.45 and _belt_shape != BeltShape.CORNER:
+			if exit_order.is_empty():
+				exit_order = _belt_exit_order(placed.belt_items[0])
+			exit = exit_order[i % exit_order.size()]
+		var offset: Vector3 = _belt_item_offset(t, entry, exit)
+		var mesh: Mesh = ItemModels.mesh_for(item)
+		if mesh != null:
+			if cube.mesh != mesh:
+				cube.mesh = mesh
+				cube.material_override = null
+			# Mira hacia donde avanza: un poco más adelante en el mismo camino.
+			var ahead: Vector3 = _belt_item_offset(t + 0.05, entry, exit) - offset
+			var yaw: float = atan2(-ahead.z, ahead.x) if ahead.length_squared() > 0.000001 else 0.0
+			cube.transform = Transform3D(Basis(Vector3.UP, yaw), offset + Vector3(0.0, BELT_HEIGHT + ItemModels.lift_for(item), 0.0))
 		else:
-			offset = _belt_side_dirs[_belt_exit_side(item)] * (t - 0.5)
-		cube.position = offset + Vector3(0.0, BELT_HEIGHT + 0.125, 0.0)
-		cube.material_override = _material_for(item)
+			if cube.mesh != _item_box:
+				cube.mesh = _item_box
+			cube.material_override = _material_for(item)
+			cube.transform = Transform3D(Basis.IDENTITY, offset + Vector3(0.0, BELT_HEIGHT + 0.125, 0.0))
 		cube.visible = true
+
+
+## Dónde va un ítem con avance `t`, según el lado SIN girar por el que entró y el de la salida.
+func _belt_item_offset(t: float, entry: int, exit: int) -> Vector3:
+	if _belt_shape == BeltShape.CORNER:
+		return _corner_offset(t)
+	if t <= 0.5:
+		return _belt_side_dirs[entry] * (0.5 - t)
+	return _belt_side_dirs[exit] * (t - 0.5)
 
 
 ## Curva en L: punto del arco (radio 0,5 alrededor de la esquina que comparten la entrada y la salida)
@@ -667,18 +720,24 @@ func _corner_offset(t: float) -> Vector3:
 	return center - exit * 0.5 * cos(angle) - entry * 0.5 * sin(angle)
 
 
-## Lado SIN girar por el que saldrá el ítem de delante: el de la salida a la que le toca, o, si esa no
-## puede aceptarlo, el de la primera que sí (como hace `Simulation`). Sin salidas, por delante.
-func _belt_exit_side(item: ItemData) -> int:
+## Lados SIN girar por los que irán saliendo los ítems, empezando por el de delante (`item`): las salidas que
+## pueden aceptarlo, por turnos desde la que le toca; si no puede ninguna, todas, por turnos (cuando se vacíe una,
+## el de delante irá a la suya y el siguiente, a la otra). Sin salidas, por delante.
+func _belt_exit_order(item: ItemData) -> Array[int]:
 	var outgoing: Array = island.get_links_from(placed.id)
+	var order: Array[int] = []
 	if outgoing.is_empty():
-		return PortData.PortSide.NORTH
+		order.append(PortData.PortSide.NORTH)
+		return order
 	var count: int = outgoing.size()
 	for k: int in count:
 		var link: Dictionary = outgoing[(placed.out_turn + k) % count]
 		if count == 1 or (link["to"] as PlacedBuilding).can_accept(item, link["in"]):
-			return (link["out"] as PortData).side
-	return (outgoing[placed.out_turn % count]["out"] as PortData).side
+			order.append((link["out"] as PortData).side)
+	if order.is_empty():
+		for k: int in count:
+			order.append((outgoing[(placed.out_turn + k) % count]["out"] as PortData).side)
+	return order
 
 
 static func _material_for(item: ItemData) -> StandardMaterial3D:
@@ -691,6 +750,33 @@ static func _material_for(item: ItemData) -> StandardMaterial3D:
 
 ## E: abre la ventana de la construcción (C1.3). El nombre y el estado los enseña el letrero de arriba
 ## (`FocusPanel`, C1.8), que sustituye a los textos flotantes; el detalle está en la ventana.
+## Mide `ground_rect`: la caja de todas las mallas visibles del modelo, vista desde arriba. Se llama justo después de
+## `setup()`, antes del efecto de crecer o caer (que cambia la escala y la posición de las piezas un momento).
+func measure_ground_rect() -> void:
+	var box := AABB()
+	var first: bool = true
+	for node: Node in find_children("*", "MeshInstance3D", true, false):
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.mesh == null or not mesh_node.visible:
+			continue
+		# Transformación de la malla respecto a esta vista (sin depender de que ya esté en el árbol).
+		var to_view := Transform3D.IDENTITY
+		var walker: Node = mesh_node
+		while walker != null and walker != self:
+			if walker is Node3D:
+				to_view = (walker as Node3D).transform * to_view
+			walker = walker.get_parent()
+		var mesh_box: AABB = to_view * mesh_node.mesh.get_aabb()
+		box = mesh_box if first else box.merge(mesh_box)
+		first = false
+	ground_rect = Rect2() if first else Rect2(box.position.x, box.position.z, box.size.x, box.size.z)
+
+
+## Pisadas (sesión 28, `Footsteps`): de qué está hecha la construcción.
+func get_footstep_surface(_at: Vector3, _collider: Object) -> StringName:
+	return placed.data.footstep_surface
+
+
 func interact(by: Node) -> void:
 	super(by)
 	# E abre la ventana de la construcción (C1.3); el fusible se rearma desde ella.
@@ -1020,7 +1106,13 @@ func _update_belt_shape(sides: Dictionary[int, int]) -> void:
 	var straight: bool = inputs.all(func(side: int) -> bool: return side == PortData.PortSide.SOUTH) \
 			and outputs.all(func(side: int) -> bool: return side == PortData.PortSide.NORTH)
 	_belt_shape = BeltShape.STRAIGHT if straight else BeltShape.HUB
-	if not straight and inputs.size() == 1 and outputs.size() <= 1:
+	# Recta girada (sesión 28, César: al quitar el ramal de un cruce quedaban sus postes): una entrada y una
+	# salida enfrentadas que no son la trasera y la delantera de la cinta. Se dibuja como recta, girada.
+	var straight_quarter: int = 0
+	if not straight and inputs.size() == 1 and outputs.size() == 1 and (inputs[0] + 2) % 4 == outputs[0]:
+		_belt_shape = BeltShape.STRAIGHT
+		straight_quarter = (inputs[0] + 2) % 4
+	elif not straight and inputs.size() == 1 and outputs.size() <= 1:
 		var exit: int = outputs[0] if outputs.size() == 1 else PortData.PortSide.NORTH
 		if (inputs[0] + exit) % 2 == 1:
 			_belt_shape = BeltShape.CORNER
@@ -1030,8 +1122,12 @@ func _update_belt_shape(sides: Dictionary[int, int]) -> void:
 		return # cinta sin modelo (pruebas): solo cambia el camino de los ítems
 
 	_set_piece_visible(_belt_body, _belt_shape == BeltShape.STRAIGHT)
+	for piece: Node3D in [_belt_body, _belt_end_back, _belt_end_front, _belt_join_back, _belt_join_front]:
+		if piece != null:
+			piece.rotation.y = GridMath.rotation_to_yaw(straight_quarter)
 	if _belt_shape == BeltShape.STRAIGHT:
-		_show_belt_ends(sides.has(PortData.PortSide.SOUTH), sides.has(PortData.PortSide.NORTH))
+		_show_belt_ends(sides.has((PortData.PortSide.SOUTH + straight_quarter) % 4),
+				sides.has((PortData.PortSide.NORTH + straight_quarter) % 4))
 	else:
 		for piece: Node3D in [_belt_end_back, _belt_end_front, _belt_join_back, _belt_join_front]:
 			_set_piece_visible(piece, false)
@@ -1064,6 +1160,15 @@ func _update_belt_shape(sides: Dictionary[int, int]) -> void:
 		var linked: bool = hub and sides.has(side)
 		_set_piece_visible(arm.get("open"), linked)
 		_set_piece_visible(arm.get("closed"), hub and not linked)
+	# Esquinas: con los dos lados abiertos, poste en inglete; con uno cerrado, su pared sigue recta hasta la boca
+	# de al lado (César: en la T se veían esquinas donde tenía que ir pared recta).
+	for post_corner: int in _belt_hub_posts:
+		var posts: Dictionary = _belt_hub_posts[post_corner]
+		var a_open: bool = sides.has(post_corner)
+		var b_open: bool = sides.has((post_corner + 1) % 4)
+		_set_piece_visible(posts.get("miter"), hub and a_open and b_open)
+		_set_piece_visible(posts.get("a"), hub and not a_open)
+		_set_piece_visible(posts.get("b"), hub and not b_open)
 	if _belt_hub_band != null:
 		_belt_hub_band.visible = hub
 		if hub:

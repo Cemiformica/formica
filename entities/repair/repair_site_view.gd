@@ -173,6 +173,11 @@ func on_piece_toggled(index: int) -> void:
 	sound.play()
 
 
+## Pisadas (sesión 28, `Footsteps`): de qué está hecha la estructura (el refugio, de piedra; la valla, de madera).
+func get_footstep_surface(_at: Vector3, _collider: Object) -> StringName:
+	return site.data.footstep_surface if site != null else &"wood"
+
+
 func _ready() -> void:
 	_update_ropes()
 

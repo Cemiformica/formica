@@ -23,6 +23,9 @@ const CATEGORY_WIDTH: float = 180.0
 const CATEGORY_ICON: Vector2 = Vector2(42, 42)
 const DETAIL_WIDTH: float = 350.0
 const DETAIL_ICON: Vector2 = Vector2(96, 96)
+## Alto fijo del panel de detalle (sesión 28, César: la ventana volvía a cambiar de tamaño con textos largos): el de la
+## rejilla de tarjetas más su título. Si el detalle no cabe, se desplaza dentro de su sitio.
+const DETAIL_HEIGHT: float = VISIBLE_ROWS * (CARD_SIZE.y + 8) + 44.0
 ## Hueco que se deja abajo para la barra (que tiene que verse para soltar en ella).
 const BOTTOM_SPACE: int = 130
 ## Energía que consume: naranja claro (la que genera va en ámbar).
@@ -76,7 +79,7 @@ func _ready() -> void:
 	row.add_child(VSeparator.new())
 	row.add_child(_make_cards_column())
 	row.add_child(VSeparator.new())
-	row.add_child(_make_detail_column())
+	row.add_child(_make_detail_box())
 	var help := _make_label(tr("CATALOG_HELP"), 13, UiStyle.SUBTLE)
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_panel.content.add_child(help)
@@ -160,6 +163,20 @@ func _make_cards_column() -> VBoxContainer:
 	return column
 
 
+## El detalle, en una caja de tamaño fijo: el texto se parte en líneas y, si no cabe, se desplaza, sin cambiar el
+## tamaño de la ventana.
+func _make_detail_box() -> ScrollContainer:
+	var box := ScrollContainer.new()
+	box.custom_minimum_size = Vector2(DETAIL_WIDTH + 12.0, DETAIL_HEIGHT)
+	box.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	box.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	box.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	var column: VBoxContainer = _make_detail_column()
+	column.custom_minimum_size.y = DETAIL_HEIGHT
+	box.add_child(column)
+	return box
+
+
 func _make_detail_column() -> VBoxContainer:
 	var column := VBoxContainer.new()
 	column.custom_minimum_size.x = DETAIL_WIDTH
@@ -183,8 +200,10 @@ func _make_detail_column() -> VBoxContainer:
 	_detail_name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info.add_child(_detail_name)
 	_detail_kind = _make_label("", 13, UiStyle.SUBTLE)
+	_detail_kind.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info.add_child(_detail_kind)
 	_detail_power = _make_label("", 14, UiStyle.SUBTLE)
+	_detail_power.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info.add_child(_detail_power)
 	_detail_desc = _make_label("", 13, UiStyle.TEXT)
 	_detail_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -198,6 +217,8 @@ func _make_detail_column() -> VBoxContainer:
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(spacer)
 	_detail_status = _make_label("", 14, UiStyle.GREEN)
+	_detail_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_detail_status.custom_minimum_size.x = DETAIL_WIDTH
 	column.add_child(_detail_status)
 	return column
 
