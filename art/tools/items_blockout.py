@@ -40,7 +40,7 @@ ROPE_STRAND = (0, 2)                                     # franjas del trenzado
 ESPARTO_GREEN = (2, 4)
 
 ITEMS = ["wood", "stone", "acorn", "copper_ore", "charcoal", "copper_ingot", "slag", "copper_coil",
-        "iron_ingot", "solar_cell", "gravel", "pine_cone", "timber", "stone_tile", "fiber", "rope", "esparto_seed"]
+        "iron_ingot", "solar_cell", "gravel", "pine_cone", "timber", "stone_tile", "fiber", "rope", "esparto_seed", "plank"]
 
 
 def swatch_uv(row: int, col: int) -> Vector:
@@ -332,6 +332,64 @@ def stone_tile(root, mat, rng):
     for k, a in enumerate((50, 215)):
         c = (0.088 * math.cos(math.radians(a)), 0.088 * math.sin(math.radians(a)), 0.012)
         finish("tile_chip_%d" % k, blob(c, 0.014, 0.6, rng, 0.2), STONE_DARK, root, mat)
+
+
+def plank(root, mat, rng):
+    # Tablón (sesión 29, César: para el tablero de la pasarela del vado; 2 madera → 1 en el banco). Tabla plana y ancha
+    # tumbada en X, de madera labrada como el madero pero clara de corte: así se distingue a primera vista del madero,
+    # que es grueso y escuadrado. La testa de atrás es un corte de sierra con sus anillos; la de delante está cortada a
+    # **bocados de mordedora** (dos mordiscos curvos con un pico en medio) y enseña madera fresca.
+    half_len, half_w, half_t = 0.13, 0.045, 0.011
+    bite_depth, bite_steps = 0.02, 6
+    # Dos mordiscos: medio óvalo hacia dentro en cada mitad del canto de delante; las esquinas y el pico de en medio
+    # quedan en la punta. El contorno va en sentido antihorario visto desde arriba.
+    outline = [Vector((-half_len, -half_w, 0)), Vector((half_len, -half_w, 0))]
+    for y0 in (-half_w, 0.0):
+        for k in range(1, bite_steps + 1):
+            t = k / bite_steps
+            outline.append(Vector((half_len - bite_depth * math.sin(math.pi * t), y0 + half_w * t, 0)))
+    outline.append(Vector((-half_len, half_w, 0)))
+    bm = bmesh.new()
+    bottom = [bm.verts.new((p.x, p.y, -half_t)) for p in outline]
+    top = [bm.verts.new((p.x, p.y, half_t)) for p in outline]
+    n = len(outline)
+    bm.faces.new(list(reversed(bottom)))
+    bm.faces.new(top)
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((bottom[i], bottom[j], top[j], top[i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bmesh.ops.bevel(bm, geom=list(bm.edges), offset=0.003, segments=1, affect="EDGES", profile=0.5, clamp_overlap=True)
+    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 4], quad_method="BEAUTY", ngon_method="EAR_CLIP")
+    colors = []
+    for f in bm.faces:
+        c, nrm = f.calc_center_median(), f.normal
+        if abs(nrm.z) < 0.6 and (nrm.x < -0.6 or (c.x > half_len - bite_depth - 0.002 and nrm.x > 0.2)):
+            colors.append(WOOD_END)   # testas: corte de sierra atrás, madera mordida delante
+        else:
+            colors.append(PLANK)
+    finish_colored("plank_body", bm, colors, root, mat)
+    # Anillos de crecimiento en la testa de sierra: dos arcos finos, como si la tabla saliera del borde del tronco.
+    for k, (radius, centre_z) in enumerate(((0.065, -0.06), (0.09, -0.092))):
+        pts = []
+        for s in range(7):
+            y = -half_w * 0.8 + 1.6 * half_w * s / 6
+            z = centre_z + math.sqrt(max(radius * radius - y * y, 0.0))
+            if abs(z) < half_t - 0.002:
+                pts.append(Vector((-half_len - 0.0006, y, z)))
+        if len(pts) >= 2:
+            ring, _ = tube(pts, 0.0012, 4)
+            finish("plank_ring_%d" % k, ring, WOOD_RING, root, mat)
+    # Vetas encima y debajo (listones finísimos de largos distintos) y un nudo en la cara de arriba.
+    for k, (x, y, length) in enumerate(((-0.02, -0.022, 0.19), (0.01, 0.006, 0.15), (-0.05, 0.028, 0.11), (0.04, -0.004, 0.08))):
+        finish("plank_grain_top_%d" % k, box((length, 0.003, 0.0016), (x, y, half_t + 0.0004)), PLANK_GRAIN, root, mat)
+    for k, (x, y, length) in enumerate(((-0.01, 0.015, 0.17), (0.02, -0.025, 0.12))):
+        finish("plank_grain_bottom_%d" % k, box((length, 0.003, 0.0016), (x, y, -half_t - 0.0004)), PLANK_GRAIN, root, mat)
+    knot = prism(6, 0.011, 0.011, half_t - 0.0004, half_t + 0.0012, math.radians(30))
+    bmesh.ops.scale(knot, vec=(1.5, 1.0, 1.0), verts=knot.verts)
+    place(knot, (-0.06, -0.012, 0))
+    finish("plank_knot", knot, WOOD_RING, root, mat)
+    finish("plank_knot_core", place(prism(6, 0.004, 0.004, half_t, half_t + 0.0018, math.radians(30)), (-0.06, -0.012, 0)), BARK_DARK, root, mat)
 
 
 # --- Construir ---

@@ -803,6 +803,17 @@ func _is_fence_ground(cell: Vector2i) -> bool:
 			and not _vein_cells.has(cell) and not water.has(cell) and not _repair_cells.has(cell)
 
 
+## Suelo para una pasarela (sesión 29): tierra o agua del río o del lago, libre; ni mar ni cascada.
+func _is_bridge_ground(cell: Vector2i) -> bool:
+	if layout != null:
+		var g: IslandLayout.Ground = layout.ground(cell)
+		if g == IslandLayout.Ground.SEA or g == IslandLayout.Ground.FALL \
+				or IslandLayout.SOLID_FEATURES.contains(layout.char_at(cell)):
+			return false
+	return not nature.has(cell) and grid.get_occupant(cell) == 0 and not _vein_cells.has(cell) \
+			and not _repair_cells.has(cell)
+
+
 ## ¿Puede aparecer aquí una roca o unos palos? Suelo libre y, con plano, donde el plano lo permite (no en el
 ## rellano mirador, C5.3).
 ## Intentos al azar para encontrar sitio a una roca o unos palos en una isla con plano.
@@ -960,10 +971,13 @@ func _add_repair_site(site: RepairSite) -> bool:
 		return false
 	var cells: Array[Vector2i] = site.cells()
 	# La barandilla va justo en el filo, en casillas que cuentan como empinadas (tocan el acantilado): basta con que
-	# sean tierra y estén libres (C5.6b). La escala y su contrafuerte, igual: van sobre la pared.
+	# sean tierra y estén libres (C5.6b). La escala y su contrafuerte, igual: van sobre la pared. La pasarela del vado va
+	# sobre el río (sesión 29): también vale el agua.
 	var fence: bool = site.data.purpose == FenceBuilder.PURPOSE or site.data.purpose == LadderBuilder.PURPOSE
+	var bridge: bool = site.data.purpose == BridgeBuilder.PURPOSE
 	for cell: Vector2i in cells:
-		if not (_is_fence_ground(cell) if fence else _is_free_ground(cell)):
+		var ok: bool = _is_bridge_ground(cell) if bridge else (_is_fence_ground(cell) if fence else _is_free_ground(cell))
+		if not ok:
 			return false
 	repair_sites[site.origin] = site
 	for cell: Vector2i in cells:
@@ -1034,6 +1048,8 @@ func switch_repair_light(cell: Vector2i, light_index: int, from: Inventory = nul
 var _layout_fences: Array[Dictionary] = []
 ## Escalas del plano por poner (lo mismo, `LadderBuilder.build`; C5.6b, sesión 27).
 var _layout_ladders: Array[Dictionary] = []
+## Pasarelas de los vados por poner (lo mismo, `BridgeBuilder.build`; C5.6b, sesión 29).
+var _layout_bridges: Array[Dictionary] = []
 
 ## Pone el plano de la isla: sus límites pasan a ser los del plano y su agua (ríos, lago, remanso, pozas) se
 ## añade a la cuadrícula. La naturaleza, las vetas y lo demás del plano se ponen aparte (C5.3c).
@@ -1041,6 +1057,7 @@ func apply_layout(p_layout: IslandLayout) -> void:
 	layout = p_layout
 	_layout_fences.clear()
 	_layout_ladders.clear()
+	_layout_bridges.clear()
 	if layout == null:
 		return
 	bounds = Rect2i(Vector2i.ZERO, layout.size)
@@ -1048,6 +1065,7 @@ func apply_layout(p_layout: IslandLayout) -> void:
 	# `populate_from_layout` (partida nueva) o llegan con la partida guardada.
 	_layout_fences = FenceBuilder.build(self)
 	_layout_ladders = LadderBuilder.build(self)
+	_layout_bridges = BridgeBuilder.build(self)
 	var added: bool = false
 	for y: int in layout.size.y:
 		for x: int in layout.size.x:
@@ -1105,6 +1123,9 @@ func populate_from_layout() -> int:
 	for ladder: Dictionary in _layout_ladders:
 		if add_repair_site(ladder["data"], ladder["origin"]) == null:
 			push_warning("IslandState: la escala %s del plano no cabe" % ladder["data"].id)
+	for bridge: Dictionary in _layout_bridges:
+		if add_repair_site(bridge["data"], bridge["origin"]) == null:
+			push_warning("IslandState: la pasarela %s del plano no cabe" % bridge["data"].id)
 	var trees: int = 0
 	for ch: String in ["T", "t"]:
 		for cell: Vector2i in layout.cells_of(ch):

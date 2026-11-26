@@ -144,6 +144,7 @@ BUILD_HINT_BELT_RELEASE,Suelta para poner %d,Deixa anar per posar-ne %d,Release 
 BUILD_HINT_BELT_TURN,Cambiar el giro,Canviar el gir,Switch the turn
 BUILD_CABLES_LOST,Algún cable quedaba demasiado largo y se ha quitado,Algun cable quedava massa llarg i s'ha tret,A cable was too long and was removed
 ITEM_TIMBER,Madero,Fusta escairada,Timber
+ITEM_PLANK,Tablón,Tauló,Plank
 ITEM_STONE_TILE,Baldosa,Rajola,Stone tile
 ITEM_FIBER,Fibra de esparto,Fibra d'espart,Esparto fiber
 ITEM_ROPE,Cuerda,Corda,Rope
@@ -164,6 +165,10 @@ REPAIR_LADDER,Escala de cuerda,Escala de corda,Rope ladder
 REPAIR_PIECE_LADDER_STAKES,Estacas,Estaques,Stakes
 REPAIR_PIECE_LADDER_ROPES,Cuerdas de la escala,Cordes de l'escala,Ladder ropes
 REPAIR_PIECE_LADDER_RUNGS,Peldaños,Graons,Rungs
+REPAIR_BRIDGE,Pasarela del vado,Passarel·la del gual,Ford footbridge
+REPAIR_PIECE_BRIDGE_TRESTLES,Caballetes,Cavallets,Trestles
+REPAIR_PIECE_BRIDGE_DECK,Tablero,Tauler,Deck
+REPAIR_PIECE_BRIDGE_RAILS,Pasamanos,Passamans,Handrails
 HINT_CLIMB,Agarrarse,Agafar-se,Climb
 HINT_REST,Descansar,Descansar,Rest
 REST_DONE,Punto de reaparición establecido. Partida guardada,Punt de reaparició establert. Partida desada,Respawn point set. Game saved

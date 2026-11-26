@@ -304,6 +304,22 @@ func _ready() -> void:
 				and absf(float(ladder_spot["rise"]) - IslandLayout.LEVEL_HEIGHT) < 1.0
 		_check("Isla Alba: la escala llega al borde de la pared (%s)" % ("sin pared" if ladder_spot.is_empty() else
 				"%d módulos, %.2f m" % [ladder_spot["modules"], ladder_spot["rise"]]), ladder_reaches)
+		# Pasarela del vado (C5.6b, sesión 29): una, en tres piezas, con el tablero por encima del agua y de las orillas.
+		var bridges: int = 0
+		var bridge_pieces: int = 0
+		for site_origin: Vector2i in isle.repair_sites:
+			var site: RepairSite = isle.repair_sites[site_origin]
+			if site.data.purpose == BridgeBuilder.PURPOSE:
+				bridges += 1
+				bridge_pieces = site.data.pieces.size()
+		_check("Isla Alba: una pasarela reparable en el vado, en tres piezas", bridges == 1 and bridge_pieces == 3)
+		var bridge_spot: Dictionary = BridgeBuilder.measure(alba, BridgeBuilder.ford_cells(alba))
+		var bridge_ok: bool = not bridge_spot.is_empty() and float(bridge_spot["length"]) > 4.0 \
+				and float(bridge_spot["deck"]) - float(bridge_spot["surface"]) >= BridgeBuilder.WATER_CLEAR - 0.001 \
+				and float(bridge_spot["deck"]) - float(bridge_spot["surface"]) < 0.6
+		_check("Isla Alba: la pasarela cruza el vado (%s)" % ("sin orillas" if bridge_spot.is_empty() else
+				"%.2f m, tablero a %.2f m sobre el agua" % [bridge_spot["length"],
+				float(bridge_spot["deck"]) - float(bridge_spot["surface"])]), bridge_ok)
 
 	WorldState.reset()
 	Simulation.running = true

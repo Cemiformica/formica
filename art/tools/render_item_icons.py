@@ -11,7 +11,7 @@ MARGIN = 1.12  # aire alrededor del objeto dentro del icono
 VIEW_DIR = Vector((0.55, -1.0, 0.75)).normalized()  # del objeto hacia la cámara
 OUT_DIR = bpy.path.abspath("//../../assets/textures/icons/")
 ITEMS = ["wood", "stone", "acorn", "copper_ore", "charcoal", "copper_ingot", "slag", "copper_coil",
-        "iron_ingot", "solar_cell", "gravel", "pine_cone", "timber", "stone_tile"]
+        "iron_ingot", "solar_cell", "gravel", "pine_cone", "timber", "stone_tile", "plank"]
 
 
 def _mesh_points(root: bpy.types.Object) -> list:
