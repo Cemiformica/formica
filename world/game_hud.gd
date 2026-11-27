@@ -1,7 +1,7 @@
 class_name GameHud
 extends Node
 ## Toda la interfaz del juego para una escena de isla (C5.3d): barra, mochila, ventanas de máquina y del banco,
-## catálogo, desmontar, letrero de lo que miras, opciones (F10), música, aviso de lo recogido, la mira, los
+## catálogo, desmontar, letrero de lo que miras, opciones (F10), música, aviso de lo recogido y de los planos aprendidos, la mira, los
 ## avisos de arriba («Partida guardada»…) y guardar y cargar con F5 y F9 (D-112; en C8 irán al menú de pausa).
 ## Uso: `var hud := GameHud.new(); hud.player = player; add_child(hud)`.
 ## Es lo mismo que monta el sandbox, en una pieza que puede usar cualquier isla.
@@ -41,6 +41,7 @@ func _ready() -> void:
 	focus_panel.set_player(player)
 	add_child(MusicPlayer.new())
 	add_child(PickupFeed.new())
+	add_child(BlueprintToast.new())   # «Plano aprendido» al reparar (sesión 30)
 	_add_crosshair_and_toast()
 	SaveSystem.notification_requested.connect(_show_toast)
 

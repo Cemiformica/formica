@@ -17,6 +17,8 @@ const POST_MODEL: PackedScene = preload("res://assets/models/props/fence.glb")
 const PALETTE_MATERIAL: Material = preload("res://assets/materials/palette.tres")
 const ID_PREFIX: String = "ladder_"
 const PURPOSE: StringName = &"ladder"
+## Plano que enseña al repararla (sesión 30): la escalera de mano modular del modo construcción.
+const BLUEPRINT: StringName = &"hand_ladder"
 ## Distancia del eje de la escala a su pie, en la medida (`measure`): el pie de la pared queda a esto delante del origen.
 const STANDOFF: float = 0.19
 ## Búsqueda del pie y del borde de la pared, a lo largo de la escala: desde SEARCH_OUT m por fuera de las casillas de
@@ -96,6 +98,7 @@ static func build(island: IslandState) -> Array[Dictionary]:
 			data.blocked_cells.append(cell - min_cell)
 		data.exact_collision = true   # las estacas chocan; la escala, con su forma
 		data.purpose = PURPOSE
+		data.unlocks = [BLUEPRINT]   # repararla enseña a construir escaleras de mano (sesión 30, D-186)
 		var center: Vector3 = GridMath.footprint_center(min_cell, data.size, 0, island.ground_height(min_cell))
 		data.scene = _model(layout, spot, center, post)
 		_set_climb(data, layout, spot)

@@ -220,6 +220,56 @@ func _ready() -> void:
 	WorldState.set_respawn(&"test_repair", Vector3(9.0, 0.05, 4.0), 1.0)
 	_check("reaparición: la última cama manda", WorldState.respawn_position.is_equal_approx(Vector3(9.0, 0.05, 4.0)))
 
+	# 10) Planos (sesión 30, D-186): reparar enseña a construir. Una copia de la ruina que enseña un plano de prueba.
+	WorldState.reset()
+	var learned: Array[StringName] = []
+	var on_learned: Callable = func(building_id: StringName) -> void: learned.append(building_id)
+	WorldState.blueprint_learned.connect(on_learned)
+	var plan := BuildingData.new()
+	plan.id = &"test_plan"
+	plan.needs_blueprint = true
+	_check("planos: sin aprender, bloqueada", WorldState.is_building_locked(plan) and not WorldState.knows_blueprint(&"test_plan"))
+	var teaching: RepairSiteData = ruin.duplicate() as RepairSiteData
+	teaching.unlocks = [&"test_plan"]
+	var plan_island: IslandState = WorldState.get_island(&"test_blueprints")
+	var plan_site: RepairSite = plan_island.add_repair_site(teaching, Vector2i(10, 10))
+	var plan_bag := Inventory.new(10)
+	plan_bag.add_item(timber, 20)
+	plan_bag.add_item(tile, 10)
+	for i: int in 3:
+		plan_island.deliver_repair(Vector2i(10, 10), i, plan_bag)
+	_check("planos: a medias, aún no se aprende", learned.is_empty() and WorldState.is_building_locked(plan))
+	plan_island.deliver_repair(Vector2i(10, 10), 3, plan_bag)
+	_check("planos: al completarla, se aprende con un aviso", plan_site != null and plan_site.is_complete()
+			and learned.size() == 1 and learned[0] == &"test_plan" and not WorldState.is_building_locked(plan))
+	_check("planos: aprenderlo otra vez no avisa", not WorldState.learn_blueprint(&"test_plan") and learned.size() == 1)
+	plan.locked = true
+	_check("planos: lo bloqueado por la progresión sigue bloqueado", WorldState.is_building_locked(plan))
+	plan.locked = false
+	var plan_saved: Dictionary = JSON.parse_string(JSON.stringify(WorldState.to_data()))
+	WorldState.reset()
+	_check("planos: partida nueva, sin planos", not WorldState.knows_blueprint(&"test_plan"))
+	WorldState.load_data(plan_saved)
+	_check("planos: vuelven al cargar, sin aviso", WorldState.knows_blueprint(&"test_plan") and learned.size() == 1)
+	# Partida de antes de los planos: lo ya reparado los enseña al cargar, sin aviso.
+	WorldState.reset()
+	ruin.unlocks = [&"test_plan_old"]
+	var old_island: IslandState = WorldState.get_island(&"test_blueprints")
+	old_island.add_repair_site(ruin, Vector2i(10, 10))
+	plan_bag.add_item(timber, 20)
+	plan_bag.add_item(tile, 10)
+	for i: int in 4:
+		old_island.deliver_repair(Vector2i(10, 10), i, plan_bag)
+	var old_saved: Dictionary = JSON.parse_string(JSON.stringify(WorldState.to_data()))
+	old_saved.erase("blueprints")
+	WorldState.reset()
+	learned.clear()
+	WorldState.load_data(old_saved)
+	_check("planos: partida antigua, lo reparado enseña su plano sin aviso",
+			WorldState.knows_blueprint(&"test_plan_old") and learned.is_empty())
+	ruin.unlocks = []
+	WorldState.blueprint_learned.disconnect(on_learned)
+
 	WorldState.reset()
 	Simulation.running = true
 	if _failures == 0:

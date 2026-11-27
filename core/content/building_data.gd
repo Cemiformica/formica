@@ -13,6 +13,12 @@ extends Resource
 @export var category: StringName = &""
 ## Bloqueada hasta la progresión (D-115): sale en el catálogo con candado y no se puede coger.
 @export var locked: bool = false
+## Hace falta aprender su plano reparando algo (sesión 30, patrón «reparar para aprender a construir», D-186): hasta
+## entonces sale en el catálogo con candado. Qué estructura lo enseña lo dice `RepairSiteData.unlocks`.
+@export var needs_blueprint: bool = false
+## Clave de traducción de la pista que sale en el catálogo mientras no se tenga el plano («Repara la escala de la
+## cascada»). Vacía = la pista genérica `CATALOG_NEEDS_BLUEPRINT`.
+@export var blueprint_hint_key: String = ""
 ## De qué suenan las pisadas encima (sesión 28): &"metal", &"wood", &"stone"… (ver `Footsteps.SURFACES`).
 @export var footstep_surface: StringName = &"metal"
 ## Escena que se instancia al construir. Su origen debe estar en el centro de la base.

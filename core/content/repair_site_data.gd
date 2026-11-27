@@ -29,6 +29,9 @@ extends Resource
 ## queda al salir por arriba. Lo rellena `LadderBuilder`; vacío en lo que no se sube.
 @export var climb_path: PackedVector3Array = PackedVector3Array()
 @export var climb_exit: Vector3 = Vector3.ZERO
+## Planos que se aprenden al completarla (sesión 30, D-186): ids de `BuildingData` con `needs_blueprint`. Los
+## apunta `WorldState` al oír `IslandState.repair_completed`.
+@export var unlocks: Array[StringName] = []
 ## Para qué sirve al completarse (&"shelter", &"threshold", &"stabilizer"…). Lo usa quien escucha
 ## `IslandState.repair_completed`; aquí es solo una etiqueta.
 @export var purpose: StringName = &""

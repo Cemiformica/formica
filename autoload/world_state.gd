@@ -6,6 +6,9 @@ extends Node
 
 ## Se emite después de cargar una partida o empezar una nueva: quien muestre el estado debe releerlo.
 signal state_replaced
+## Se emite al aprender un plano nuevo reparando algo (sesión 30): el aviso «Plano aprendido» escucha aquí. No se
+## emite al cargar una partida.
+signal blueprint_learned(building_id: StringName)
 
 ## Casillas de la barra (las 10 primeras del inventario del jugador) y de cada módulo de la mochila, que va
 ## después (C1, César): se empieza con 1 módulo; cada mejora añade otro. Módulos de 8 desde la sesión 25 (César:
@@ -33,13 +36,67 @@ var build_bars_ids: Array = []
 var build_bar_index: int = 0
 ## Estado de cada isla: id de isla → `IslandState`. Usa `get_island()` para no tener que comprobar si existe.
 var islands: Dictionary[StringName, IslandState] = {}
+## Planos aprendidos al reparar (sesión 30, D-186): ids de `BuildingData`. Son de la partida y no de un jugador,
+## para no atar el código a un jugador único (D-252): lo que aprende uno lo sabe todo el grupo.
+var blueprints: Array[StringName] = []
 
 
 ## Estado de la isla `id`. Si aún no existe, la crea vacía.
 func get_island(id: StringName) -> IslandState:
 	if not islands.has(id):
-		islands[id] = IslandState.new()
+		var island := IslandState.new()
+		_watch_island(island, id)
+		islands[id] = island
 	return islands[id]
+
+
+# --- Planos (sesión 30, D-186) ---
+
+## Aprende el plano `building_id`. Devuelve false si ya se sabía. Con `quiet`, sin aviso (al cargar).
+func learn_blueprint(building_id: StringName, quiet: bool = false) -> bool:
+	if building_id == &"" or blueprints.has(building_id):
+		return false
+	blueprints.append(building_id)
+	if not quiet:
+		blueprint_learned.emit(building_id)
+	return true
+
+
+## ¿Se sabe ya el plano `building_id`?
+func knows_blueprint(building_id: StringName) -> bool:
+	return blueprints.has(building_id)
+
+
+## ¿Está bloqueada en el catálogo? Por la progresión (`locked`, D-115) o porque aún no se ha aprendido su plano.
+func is_building_locked(data: BuildingData) -> bool:
+	return data != null and (data.locked or (data.needs_blueprint and not knows_blueprint(data.id)))
+
+
+## Escucha las reparaciones de una isla para aprender sus planos. Se ata el id y no la isla: atar la isla haría
+## que se sujetara a sí misma por su propia señal y no se liberaría nunca.
+func _watch_island(island: IslandState, island_id: StringName) -> void:
+	island.repair_completed.connect(_on_repair_completed.bind(island_id))
+
+
+func _on_repair_completed(origin: Vector2i, island_id: StringName) -> void:
+	if not islands.has(island_id):
+		return
+	var site: RepairSite = islands[island_id].repair_sites.get(origin)
+	if site == null:
+		return
+	for building_id: StringName in site.data.unlocks:
+		learn_blueprint(building_id)
+
+
+## Aprende sin aviso los planos de lo que ya está reparado. Sirve para las partidas guardadas antes de que existieran
+## los planos y por si una estructura gana planos nuevos con una actualización. Lo que no tiene piezas (el embarcadero
+## decorativo) no cuenta como reparado.
+func _learn_from_repaired_sites() -> void:
+	for island: IslandState in islands.values():
+		for site: RepairSite in island.repair_sites.values():
+			if not site.data.pieces.is_empty() and site.is_complete():
+				for building_id: StringName in site.data.unlocks:
+					learn_blueprint(building_id, true)
 
 
 ## Partida nueva: todo vacío.
@@ -54,6 +111,7 @@ func reset() -> void:
 	build_bars_ids.clear()
 	build_bar_index = 0
 	islands.clear()
+	blueprints.clear()
 	state_replaced.emit()
 
 
@@ -74,6 +132,7 @@ func to_data() -> Dictionary:
 					"rot_y": respawn_rotation_y},
 		},
 		"islands": islands_data,
+		"blueprints": blueprints.map(func(id: StringName) -> String: return String(id)),
 	}
 
 
@@ -125,7 +184,15 @@ func load_data(data: Dictionary) -> void:
 				island.bounds = old_bounds.get(StringName(str(id)), Rect2i())
 				island.layout = old_layouts.get(StringName(str(id)), null)   # antes de cargar: da las alturas
 				island.load_data(islands_data[id])
+				_watch_island(island, StringName(str(id)))
 				islands[StringName(str(id))] = island
+	# Planos (sesión 30); las partidas de antes no los tenían.
+	blueprints.clear()
+	var blueprints_data: Variant = data.get("blueprints", [])
+	if blueprints_data is Array:
+		for entry: Variant in blueprints_data:
+			learn_blueprint(StringName(str(entry)), true)
+	_learn_from_repaired_sites()
 	state_replaced.emit()
 
 

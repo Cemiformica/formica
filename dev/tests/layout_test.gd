@@ -203,6 +203,33 @@ func _ready() -> void:
 			if not alba.is_land(cell) or not alba.has_debris(cell):
 				debris_ok = false
 		_check("Isla Alba: rocas caídas al pie de las paredes, en tierra", debris_ok)
+		# Rocas modeladas (C5.6, sesión 30): peñascos de los grupos de X, un solo peñasco del emblema en su K, medianas que
+		# bloquean su casilla y guijarros que no chocan; ni unas ni otros en una explanada ni en la arena (César).
+		var carved: int = 0
+		var mediums: int = 0
+		var pebbles: int = 0
+		var big: int = 0
+		var rocks_ok: bool = true
+		for rock: Dictionary in alba.rocks:
+			var at: Vector3 = rock["position"]
+			var cell := Vector2i(floori(at.x), floori(at.z))
+			var piece: String = rock["mesh"]
+			if piece == IslandLayout.CARVED_BOULDER:
+				carved += 1
+			elif piece.begins_with("pebbles"):
+				pebbles += 1
+				rocks_ok = rocks_ok and not rock["solid"] and not alba.is_buildable(cell) \
+						and alba.ground(cell) != IslandLayout.Ground.BEACH
+			elif piece.begins_with("boulder"):
+				big += 1
+			elif alba.char_at(cell) != "X":
+				mediums += 1
+				rocks_ok = rocks_ok and rock["solid"] and alba.has_debris(cell) and not alba.can_spawn(cell) \
+						and not alba.is_buildable(cell) and alba.ground(cell) != IslandLayout.Ground.BEACH
+		_check("Isla Alba: un solo peñasco del emblema, en sus 4 casillas K", carved == 1
+				and alba.cells_of(IslandLayout.CARVED_CHAR).size() == 4)
+		_check("Isla Alba: rocas repartidas (%d peñascos, %d medianas sueltas, %d grupitos de guijarros)" % [big, mediums, pebbles],
+				rocks_ok and big >= 3 and mediums >= 10 and pebbles >= 30)
 		_check("Isla Alba: la rampa de la cumbre sube entre 6 y 9 m", summit_ramp_ok)
 		_check("Isla Alba: refugio de 8 × 7, portal y veta de malaquita", alba.cells_of("R").size() == 56
 				and alba.cells_of("P").size() == 6 and alba.cells_of("M").size() == 9)

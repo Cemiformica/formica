@@ -81,10 +81,10 @@ const _FLOW_BY_CHAR: Dictionary[String, Vector2i] = {
 	"v": Vector2i(0, 1), "<": Vector2i(-1, 0), ">": Vector2i(1, 0), "s": Vector2i(0, 1),
 }
 ## Objetos del plano: no son suelo; su suelo se deduce de alrededor.
-const FEATURE_CHARS: String = "RPMSTtXAGHQE"
+const FEATURE_CHARS: String = "RPMSTtXAGHQEK"
 ## Objetos que tapan la casilla para siempre (rocas modeladas, el árbol singular, los restos…): ahí no se
 ## construye, no se planta y no aparece nada.
-const SOLID_FEATURES: String = "XAGHQE"
+const SOLID_FEATURES: String = "XAGHQEK"
 ## Casillas alrededor del refugio en las que el terreno no se deforma (ver `_near_shelter()`).
 const SHELTER_CLEARANCE: int = 2
 ## Casillas alrededor de la escala reparable en las que no caen rocas al pie de la pared (C5.6b, sesión 27).
@@ -839,6 +839,181 @@ func _compute_wall_feet(drops: PackedFloat32Array) -> void:
 			_debris_cells[cell] = true
 
 
+# --- Rocas modeladas (C5.6, sesión 30) ---
+
+## Rocas de `rocks.glb` que dibuja el juego. Cada una: {"mesh": nombre de la pieza («rock_m_2», «boulder_1»…), "position"
+## (m, a ras del suelo más bajo debajo de ella), "yaw", "scale" y "solid" (con choque; los guijarros, no). Los peñascos salen
+## de los grupos de `X` del plano (pintados en `paint_alba.png`) y el del emblema, de su `K`; las rocas medianas y los
+## guijarros se reparten solos. Siempre igual (por la casilla).
+var rocks: Array[Dictionary] = []
+## Piezas de `rocks.glb` (`rocks_blockout.py`).
+const MEDIUM_ROCKS: Array[String] = ["rock_m_0", "rock_m_1", "rock_m_2", "rock_m_3"]
+const PEBBLES: Array[String] = ["pebbles_0", "pebbles_1", "pebbles_2"]
+const SMALL_BOULDER: String = "boulder_0"           # 2 × 2
+const BIG_BOULDERS: Array[String] = ["boulder_1", "boulder_split"]   # 3 × 3
+const CARVED_BOULDER: String = "boulder_carved"     # 2 × 2, el del emblema (uno solo: `K`)
+const CARVED_CHAR: String = "K"
+## Rocas medianas sueltas (César, sesión 30: en el césped y en la arena no quedaban bien, y en el sendero sobraban): solo
+## junto a las lomas y los acantilados (a una casilla de algo empinado) y en la orilla del río y del lago. Nunca a una casilla
+## o menos del sendero. Las hileras de las rampas (la de la cumbre y la de la terraza) son peñascos pintados (`X`). Parte de
+## las casillas que llevan una.
+const MEDIUM_CHANCE_RELIEF: float = 0.05
+const MEDIUM_CHANCE_SHORE: float = 0.12
+## Guijarros: solo al pie de las rocas y de lo empinado (a una casilla), nunca en la arena. Parte de esas casillas.
+const PEBBLES_CHANCE: float = 0.25
+## Sin rocas medianas a menos de estas casillas del portal, del embarcadero y del vado (por donde se pasa).
+const ROCK_CLEAR: int = 3
+
+
+## ¿Puede ir aquí una roca mediana? En tierra sin objetos que no sea explanada, empinada, sendero, tierra pisada, rampa ni
+## rellano, ni junto al refugio, la escala, la barandilla, el portal, el embarcadero o el vado.
+func _medium_rock_spot(cell: Vector2i) -> bool:
+	if not is_land(cell) or is_buildable(cell) or is_steep(cell) or FEATURE_CHARS.contains(char_at(cell)):
+		return false
+	var g: Ground = ground(cell)
+	if g == Ground.RAMP or g == Ground.LANDING or g == Ground.BEACH or is_path(cell) or _worn[cell.y * size.x + cell.x] == 1:
+		return false
+	if _debris_cells.has(cell) or _near_shelter(cell) or _near_ladder(cell) or fence_cells.has(cell):
+		return false
+	for dy: int in range(-ROCK_CLEAR, ROCK_CLEAR + 1):
+		for dx: int in range(-ROCK_CLEAR, ROCK_CLEAR + 1):
+			if "PEs".contains(char_at(cell + Vector2i(dx, dy))):
+				return false
+	return true
+
+
+## Grupos de casillas iguales (`ch`) que se tocan por un lado.
+func _feature_groups(ch: String) -> Array[Array]:
+	var left: Dictionary[Vector2i, bool] = {}
+	for cell: Vector2i in cells_of(ch):
+		left[cell] = true
+	var groups: Array[Array] = []
+	while not left.is_empty():
+		var start: Vector2i = left.keys()[0]
+		left.erase(start)
+		var group: Array[Vector2i] = [start]
+		var open: Array[Vector2i] = [start]
+		while not open.is_empty():
+			var cell: Vector2i = open.pop_back()
+			for step: Vector2i in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]:
+				if left.has(cell + step):
+					left.erase(cell + step)
+					group.append(cell + step)
+					open.append(cell + step)
+		groups.append(group)
+	return groups
+
+
+func _add_rock(mesh: String, center: Vector2, scale: float, yaw: float, solid: bool, radius: float) -> void:
+	rocks.append({"mesh": mesh, "position": Vector3(center.x, lowest_around(center.x, center.y, radius), center.y),
+			"yaw": yaw, "scale": scale, "solid": solid})
+
+
+func _compute_rocks() -> void:
+	rocks.clear()
+	# Peñascos del plano: cada grupo de `X`, según su forma.
+	for group: Array in _feature_groups("X"):
+		var low := Vector2i(1 << 20, 1 << 20)
+		var high := Vector2i(-(1 << 20), -(1 << 20))
+		for cell: Vector2i in group:
+			low = low.min(cell)
+			high = high.max(cell)
+		var box: Vector2i = high - low + Vector2i.ONE
+		var first: Vector2i = low
+		var center := Vector2(low) + Vector2(box) * 0.5
+		var yaw: float = _cell_random(first, 21) * TAU
+		if maxi(box.x, box.y) >= 3 and mini(box.x, box.y) == 1:
+			# Hilera (las del noreste): una roca mediana grande en cada casilla.
+			for cell: Vector2i in group:
+				_add_rock(MEDIUM_ROCKS[int(_cell_random(cell, 22) * 4.0) % 4], Vector2(cell) + Vector2(0.5, 0.5),
+						lerpf(1.15, 1.45, _cell_random(cell, 23)), _cell_random(cell, 24) * TAU, true, 0.5)
+		elif group.size() == 1:
+			_add_rock(MEDIUM_ROCKS[int(_cell_random(first, 22) * 4.0) % 4], center, lerpf(1.0, 1.3, _cell_random(first, 23)),
+					yaw, true, 0.45)
+		elif maxi(box.x, box.y) <= 2:
+			_add_rock(SMALL_BOULDER, center, 0.75 if group.size() == 2 else 1.0, yaw, true, 0.8)
+		else:
+			_add_rock(BIG_BOULDERS[int(_cell_random(first, 25) * 2.0) % 2], center,
+					clampf(maxi(box.x, box.y) / 3.0, 0.8, 1.3), yaw, true, 1.2)
+	# El peñasco del emblema (`K`, 2 × 2, uno solo): sin girar, con el emblema mirando al sur (a la explanada baja).
+	var carved: Array[Vector2i] = cells_of(CARVED_CHAR)
+	if not carved.is_empty():
+		_add_rock(CARVED_BOULDER, _average(carved) + Vector2(0.5, 0.5), 1.0, 0.0, true, 0.8)
+	# Rocas medianas sueltas: en la orilla del río y del lago y junto a lo empinado (lomas y acantilados).
+	var taken: Dictionary[Vector2i, bool] = {}
+	for y: int in range(1, size.y - 1):
+		for x: int in range(1, size.x - 1):
+			var cell := Vector2i(x, y)
+			if not _medium_rock_spot(cell):
+				continue
+			if _distance_to(cell, ":", 1) <= 1:
+				continue   # el sendero, despejado
+			var chance: float = 0.0
+			if _near_inland_water(cell):
+				chance = MEDIUM_CHANCE_SHORE
+			elif _near_steep(cell):
+				chance = MEDIUM_CHANCE_RELIEF
+			if _cell_random(cell, 31) >= chance:
+				continue
+			var crowded: bool = false   # ni dos medianas pegadas
+			for dy: int in range(-1, 2):
+				for dx: int in range(-1, 2):
+					crowded = crowded or taken.has(cell + Vector2i(dx, dy))
+			if crowded:
+				continue
+			taken[cell] = true
+			_debris_cells[cell] = true   # como una roca caída: ahí no se construye, no se planta y no aparece nada
+			var spot := Vector2(x + 0.5, y + 0.5) + Vector2(_cell_random(cell, 32) - 0.5, _cell_random(cell, 33) - 0.5) * 0.2
+			_add_rock(MEDIUM_ROCKS[int(_cell_random(cell, 34) * 4.0) % 4], spot,
+					lerpf(0.8, 1.2, _cell_random(cell, 35)),
+					_cell_random(cell, 36) * TAU, true, 0.4)
+	# Guijarros: al pie de las rocas (las del plano, el emblema, las medianas y las caídas) y de lo empinado.
+	for y: int in range(1, size.y - 1):
+		for x: int in range(1, size.x - 1):
+			var cell := Vector2i(x, y)
+			if not is_land(cell) or is_buildable(cell) or is_steep(cell) or FEATURE_CHARS.contains(char_at(cell)) \
+					or ground(cell) == Ground.BEACH or _debris_cells.has(cell) or _cell_random(cell, 41) >= PEBBLES_CHANCE:
+				continue
+			var by_rock: bool = _near_steep(cell)
+			for dy: int in range(-1, 2):
+				for dx: int in range(-1, 2):
+					var other := cell + Vector2i(dx, dy)
+					by_rock = by_rock or _debris_cells.has(other) or "XK".contains(char_at(other))
+			if not by_rock:
+				continue
+			var spot := Vector2(x + 0.5, y + 0.5) + Vector2(_cell_random(cell, 42) - 0.5, _cell_random(cell, 43) - 0.5) * 0.5
+			_add_rock(PEBBLES[int(_cell_random(cell, 44) * 3.0) % 3], spot, lerpf(0.8, 1.3, _cell_random(cell, 45)),
+					_cell_random(cell, 46) * TAU, false, 0.3)
+
+
+## ¿Toca (también en diagonal) el agua de la isla: el río, el lago o el remanso? El mar no cuenta (ahí hay arena).
+func _near_inland_water(cell: Vector2i) -> bool:
+	for dy: int in range(-1, 2):
+		for dx: int in range(-1, 2):
+			if (dx != 0 or dy != 0) and ground(cell + Vector2i(dx, dy)) == Ground.WATER:
+				return true
+	return false
+
+
+## ¿Hay algo empinado (pared, borde de loma) a una casilla?
+func _near_steep(cell: Vector2i) -> bool:
+	for dy: int in range(-1, 2):
+		for dx: int in range(-1, 2):
+			if (dx != 0 or dy != 0) and is_steep(cell + Vector2i(dx, dy)):
+				return true
+	return false
+
+
+## Distancia (casillas, en cuadrado) a la casilla `ch` más cercana, mirando hasta `reach`; reach + 1 si no hay ninguna.
+func _distance_to(cell: Vector2i, ch: String, reach: int) -> int:
+	for d: int in range(0, reach + 1):
+		for dy: int in range(-d, d + 1):
+			for dx: int in range(-d, d + 1):
+				if maxi(absi(dx), absi(dy)) == d and char_at(cell + Vector2i(dx, dy)) == ch:
+					return d
+	return reach + 1
+
+
 ## Lo metida que está una casilla en su explanada (casillas hasta el borde; 0 fuera de las explanadas). Para que lo que
 ## solo va en las explanadas (los claros de tierra) se apague antes del borde y no se corte en seco por las casillas.
 func flat_depth(cell: Vector2i) -> float:
@@ -1105,6 +1280,7 @@ func _compute_corners() -> void:
 			_steep[y * size.x + x] = 1 if drops[y * size.x + x] > MAX_SLOPE_FOR_NATURE else 0
 	_drops = drops
 	_compute_wall_feet(drops)
+	_compute_rocks()
 	for y: int in size.y:
 		for x: int in size.x:
 			if can_spawn(Vector2i(x, y)):

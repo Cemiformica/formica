@@ -371,16 +371,22 @@ PAINT_MIN = 12
 PAINT_MIN_THIN = {'fence': 3, 'ladder': 3, 'grass': 4}
 PAINT_TOLERANCE = 70
 PAINT_MARGIN = 330
+# Peñasco (sesión 30, C5.6): el naranja de Paint (el marrón se confundía con el fondo del sendero). Cada grupo de casillas pintadas es una roca: 1 casilla, una roca
+# mediana; 2 × 2, un peñasco pequeño; más grande, uno grande; en hilera, una fila de rocas (las coloca el juego).
 PAINT_COLORS = {'worn': (170, 0, 210), 'tree': (0, 80, 0), 'grove': (0, 210, 80), 'fence': (255, 0, 0),
-                'grass': (255, 242, 0), 'ladder': (0, 162, 232)}
+                'grass': (255, 242, 0), 'ladder': (0, 162, 232), 'boulder': (255, 127, 39)}
 PAINT_LABELS = {'worn': 'Tierra pisada', 'tree': 'Árbol salvaje (t)', 'grove': 'Arboleda (T, mejor 3 × 3)',
-                'fence': 'Barandilla', 'grass': 'Césped (sin tierra)', 'ladder': 'Escala'}
+                'fence': 'Barandilla', 'grass': 'Césped (sin tierra)', 'ladder': 'Escala', 'boulder': 'Peñasco (X)'}
+# El peñasco del emblema de la colonia antigua (sesión 30, César: uno solo en toda la isla): 2 × 2 casillas con la esquina
+# aquí, al pie de la cascada, con el emblema mirando al sur (a la explanada baja). No se pinta: va siempre aquí.
+CARVED_AT = (93, 55)
+CARVED_SIZE = (2, 2)
 GROUND_COLORS = {"~": (143, 208, 236), ",": (238, 217, 166), ".": (169, 214, 126), "=": (188, 224, 143), "^": (94, 158, 78),
                  "#": (123, 180, 99), "/": (150, 160, 88), ":": (190, 150, 100), "_": (196, 176, 118), "O": (63, 169, 216),
                  "o": (90, 185, 225), "v": (40, 140, 205), "<": (40, 140, 205), ">": (40, 140, 205), "C": (233, 246, 252),
                  "s": (150, 140, 125), "R": (200, 85, 61), "P": (242, 177, 58), "M": (46, 158, 126), "S": (142, 138, 128),
                  "X": (120, 112, 100), "A": (90, 84, 76), "G": (120, 60, 30), "H": (200, 120, 70), "Q": (40, 35, 30),
-                 "E": (140, 100, 60), "n": (130, 175, 95), "-": (170, 190, 120), "+": (215, 228, 160), "r": (160, 150, 90),
+                 "E": (140, 100, 60), "K": (110, 70, 60), "n": (130, 175, 95), "-": (170, 190, 120), "+": (215, 228, 160), "r": (160, 150, 90),
                  "m": (80, 140, 70), "*": (70, 128, 60), "%": (150, 200, 110)}
 fence = [['.'] * W for _ in range(H)]
 lawn = [['.'] * W for _ in range(H)]
@@ -411,10 +417,18 @@ def _write_paint_image():
                 draw.rectangle([x0, y0, x0 + CELL_PX - 1, y0 + CELL_PX - 1], fill=PAINT_COLORS['worn'])
             elif lawn[y][x] == 'g':
                 draw.rectangle([x0, y0, x0 + CELL_PX - 1, y0 + CELL_PX - 1], fill=PAINT_COLORS['grass'])
-            mark = ('tree' if grid[y][x] == 't' else 'grove' if grid[y][x] == 'T' else 'fence' if fence[y][x] == 'b'
-                    else 'ladder' if ladder[y][x] == 'e' else '')
+            mark = ('tree' if grid[y][x] == 't' else 'grove' if grid[y][x] == 'T' else 'boulder' if grid[y][x] == 'X'
+                    else 'fence' if fence[y][x] == 'b' else 'ladder' if ladder[y][x] == 'e' else '')
             if mark:   # un cuadrado en el centro, para que se vea la tierra pisada de debajo
                 draw.rectangle([x0 + 2, y0 + 2, x0 + CELL_PX - 3, y0 + CELL_PX - 3], fill=PAINT_COLORS[mark])
+    _draw_legend(img)
+    img.save(PAINT_FILE)
+
+def _draw_legend(img):
+    # Columna de la derecha: los colores para pintar y la ayuda. Se pinta de blanco antes, así se puede redibujar sobre
+    # la imagen de César cuando se añade un color (sin tocar el plano).
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([W * CELL_PX, 0, img.width - 1, img.height - 1], fill=(255, 255, 255))
     font = None
     for name in ('arial.ttf', 'DejaVuSans.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'):   # con tildes
         try:
@@ -437,7 +451,25 @@ def _write_paint_image():
                  '', 'El sendero y el resto del plano', 'no se pintan aquí: son el fondo.']:
         draw.text((left, top), line, fill=(60, 60, 60), font=font)
         top += 22
+
+def _add_missing_colors():
+    # Si la imagen de César es de antes de un color nuevo (sesión 30: el peñasco), se le añaden las casillas que ya tenía el
+    # plano con ese color y se redibuja la leyenda; el resto de lo pintado no cambia. Así el plano sale igual que antes.
+    img = Image.open(PAINT_FILE).convert('RGB')
+    px = img.load()
+    ref = PAINT_COLORS['boulder']
+    has_boulder = any(px[a, b] == ref for b in range(H * CELL_PX) for a in range(W * CELL_PX))
+    if has_boulder:
+        return
+    draw = ImageDraw.Draw(img)
+    for y in range(H):
+        for x in range(W):
+            if grid[y][x] == 'X':
+                x0, y0 = x * CELL_PX, y * CELL_PX
+                draw.rectangle([x0 + 2, y0 + 2, x0 + CELL_PX - 3, y0 + CELL_PX - 3], fill=ref)
+    _draw_legend(img)
     img.save(PAINT_FILE)
+    print('paint_alba.png: añadidos los peñascos que ya había y el color nuevo en la leyenda')
 
 def _read_paint_image():
     img = Image.open(PAINT_FILE).convert('RGB')
@@ -460,12 +492,14 @@ def _read_paint_image():
 if not os.path.exists(PAINT_FILE):
     _write_paint_image()
     print('paint_alba.png creada con lo que hay ahora en el plano')
+_add_missing_colors()
 painted = _read_paint_image()
 _NO_TREE = 'RPMSXAGHQE~OovC<>s'   # objetos, mar y agua: ahí no se pone un árbol ni la barandilla
 skipped = {'tree': 0, 'fence': 0, 'ladder': 0}
 # Primero se quitan los árboles que ya no están pintados (su suelo, el de alrededor, como en el paso 11)...
 _fill = {(x, y): _inferred(x, y) for y in range(H) for x in range(W)
-         if (grid[y][x] == 't' and not painted['tree'][y][x]) or (grid[y][x] == 'T' and not painted['grove'][y][x])}
+         if (grid[y][x] == 't' and not painted['tree'][y][x]) or (grid[y][x] == 'T' and not painted['grove'][y][x])
+         or (grid[y][x] == 'X' and not painted['boulder'][y][x])}
 for (x, y), c in _fill.items():
     grid[y][x] = c
 # ...y después se ponen los pintados.
@@ -474,8 +508,8 @@ for y in range(H):
         # El césped manda sobre la tierra pisada.
         lawn[y][x] = 'g' if painted['grass'][y][x] and grid[y][x] not in _NO_TREE else '.'
         worn[y][x] = 'x' if painted['worn'][y][x] and lawn[y][x] != 'g' else '.'
-        for key, ch in (('tree', 't'), ('grove', 'T')):
-            if painted[key][y][x] and grid[y][x] not in 'tT':
+        for key, ch in (('tree', 't'), ('grove', 'T'), ('boulder', 'X')):
+            if painted[key][y][x] and grid[y][x] not in 'tTX':
                 if grid[y][x] in _NO_TREE:
                     skipped['tree'] += 1
                 else:
@@ -490,8 +524,16 @@ if any(skipped.values()):
     print('pintura sobre agua u objetos, sin poner: %d árboles, %d de barandilla, %d de escala' % (
         skipped['tree'], skipped['fence'], skipped['ladder']))
 print('pintura: %d casillas de tierra pisada, %d árboles salvajes, %d de arboleda, %d de barandilla, %d de césped, '
-      '%d de escala' % (sum(r.count('x') for r in worn), sum(r.count('t') for r in grid), sum(r.count('T') for r in grid),
-                        sum(r.count('b') for r in fence), sum(r.count('g') for r in lawn), sum(r.count('e') for r in ladder)))
+      '%d de escala, %d de peñasco' % (sum(r.count('x') for r in worn), sum(r.count('t') for r in grid),
+                        sum(r.count('T') for r in grid), sum(r.count('b') for r in fence), sum(r.count('g') for r in lawn),
+                        sum(r.count('e') for r in ladder), sum(r.count('X') for r in grid)))
+
+# 14) El peñasco del emblema (sesión 30): uno solo, en CARVED_AT. Va sobre tierra que no sea explanada, agua ni otro objeto.
+for dy in range(CARVED_SIZE[1]):
+    for dx in range(CARVED_SIZE[0]):
+        x, y = CARVED_AT[0] + dx, CARVED_AT[1] + dy
+        assert grid[y][x] in '.^,/nm', 'el peñasco del emblema cae sobre %r en %s' % (grid[y][x], (x, y))
+        grid[y][x] = 'K'
 
 legend_add = [
     '//  -  parte media (terraza a 3 m; se anda, no se construye)      +  explanada media (plana; se construye)  nivel 2 (3 m)',
@@ -509,7 +551,8 @@ head.append('// Al final, la capa [tierra pisada]: el mismo tamaño que el plano
 head.append('// sin cambiar dónde se construye). Se puede dibujar a mano.')
 head.append('// Después, las capas de la sesión 26: [barandilla] (b = casilla con un tramo, C5.6b), [césped] (g = hierba aunque')
 head.append('// sea sendero, rellano o tierra pisada) y [escala] (e = casilla de la escala reparable, C5.6b).')
-head.append('// Las capas y los árboles salen de art/tools/isla_alba/paint_alba.png (paso 13 del generador).')
+head.append('// Las capas, los árboles y los peñascos salen de art/tools/isla_alba/paint_alba.png (paso 13 del generador).')
+head.append('//  K  peñasco del emblema de la colonia antigua (2 × 2; uno solo en la isla, paso 14 del generador)')
 open(out, 'w', encoding='utf-8', newline='\n').write('\n'.join(head) + '\n' + '\n'.join(''.join(r) for r in grid) + '\n'
         + '[tierra pisada]\n' + '\n'.join(''.join(r) for r in worn) + '\n'
         + '[barandilla]\n' + '\n'.join(''.join(r) for r in fence) + '\n'

@@ -122,6 +122,15 @@ CATALOG_PRODUCTION,Producción,Producció,Production
 CATALOG_LOGISTICS,Logística,Logística,Logistics
 CATALOG_STORAGE,Almacenes,Magatzems,Storage
 CATALOG_LOCKED,Bloqueada,Bloquejada,Locked
+CATALOG_NO_BLUEPRINT,Sin plano,Sense plànol,No blueprint
+CATALOG_NEEDS_BLUEPRINT,Repara una estructura para aprender su plano,Repara una estructura per aprendre'n el plànol,Repair a structure to learn its blueprint
+BLUEPRINT_HINT_LADDER,Repara la escala de la cascada para aprender su plano,Repara l'escala de la cascada per aprendre'n el plànol,Repair the ladder by the waterfall to learn its blueprint
+BLUEPRINT_LEARNED,PLANO APRENDIDO,PLÀNOL APRÈS,BLUEPRINT LEARNED
+BLUEPRINT_WHERE,Ya puedes construirlo desde el catálogo (Q),Ja ho pots construir des del catàleg (Q),You can now build it from the catalog (Q)
+BLUEPRINT_LATER,Podrás construirlo más adelante,Ho podràs construir més endavant,You'll be able to build it later on
+BUILDING_HAND_LADDER,Escalera de mano,Escala de mà,Hand ladder
+BUILDING_FENCE,Valla,Tanca,Fence
+BLUEPRINT_HINT_FENCE,Repara una barandilla para aprender su plano,Repara una barana per aprendre'n el plànol,Repair a railing to learn its blueprint
 CATALOG_HELP,"Clic: coger · Arrastrar a la barra (o ratón encima + 1–0): fijar · Clic derecho en la barra: vaciar · Ctrl + rueda: otra barra","Clic: agafar · Arrossegar a la barra (o ratolí a sobre + 1–0): fixar · Clic dret a la barra: buidar · Ctrl + roda: una altra barra","Click: pick · Drag to the bar (or hover + 1–0): pin · Right-click on the bar: clear · Ctrl + wheel: next bar"
 CATALOG_IN_BAR,Barra %s,Barra %s,Bar %s
 CATALOG_NO_COST,Sin coste,Sense cost,No cost

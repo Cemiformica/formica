@@ -335,7 +335,12 @@ func _refresh_cards() -> void:
 		var card: UiCard = _cards[entry]
 		var locked: bool = _is_locked(entry)
 		card.set_dimmed(locked or not _can_afford(entry))
-		card.set_badge(tr("CATALOG_LOCKED") if locked else "", UiStyle.RED)
+		var badge: String = ""
+		if _needs_blueprint(entry):
+			badge = tr("CATALOG_NO_BLUEPRINT")
+		elif locked:
+			badge = tr("CATALOG_LOCKED")
+		card.set_badge(badge, UiStyle.RED)
 		var index: int = _builder.build_bar.find(entry) if _builder != null else -1
 		card.set_slot_number((index + 1) % 10 if index >= 0 and not locked else -1)
 		card.set_selected(entry == _detail_entry)
@@ -376,7 +381,11 @@ func _show_detail(entry: Resource) -> void:
 	else:
 		_detail_kind.text = category
 		_detail_costs.show_costs({}, null)
-	if _is_locked(entry):
+	if _needs_blueprint(entry):
+		var hint_key: String = (entry as BuildingData).blueprint_hint_key
+		_detail_status.text = tr(hint_key if hint_key != "" else "CATALOG_NEEDS_BLUEPRINT")
+		_detail_status.add_theme_color_override("font_color", UiStyle.AMBER)
+	elif _is_locked(entry):
 		_detail_status.text = tr("CATALOG_LOCKED")
 		_detail_status.add_theme_color_override("font_color", UiStyle.RED)
 	elif not (entry is BuildingData) or (entry as BuildingData).cost.is_empty():
@@ -398,7 +407,17 @@ func _can_afford(entry: Resource) -> bool:
 
 
 func _is_locked(entry: Resource) -> bool:
+	if entry is BuildingData:
+		return WorldState.is_building_locked(entry as BuildingData)
 	return bool(entry.get("locked"))
+
+
+## ¿Le falta el plano? (sesión 30): bloqueada solo porque aún no se ha reparado lo que la enseña.
+func _needs_blueprint(entry: Resource) -> bool:
+	if not entry is BuildingData:
+		return false
+	var data: BuildingData = entry as BuildingData
+	return not data.locked and data.needs_blueprint and not WorldState.knows_blueprint(data.id)
 
 
 func _make_label(text: String, font_size: int, color: Color) -> Label:

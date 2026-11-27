@@ -14,6 +14,8 @@ extends RefCounted
 const MODEL: PackedScene = preload("res://assets/models/props/fence.glb")
 const ID_PREFIX: String = "fence_"
 const PURPOSE: StringName = &"fence"
+## Plano que enseña al repararla (sesión 30): la valla básica del modo construcción decorativo (D-215).
+const BLUEPRINT: StringName = &"fence"
 ## Casillas de separación que aún unen dos trozos pintados en el mismo tramo (huecos sobre el agua).
 const CHAIN_REACH: int = 2
 ## Búsqueda del borde, desde fuera hacia dentro por la línea que va del mar al camino: desde dónde (m, desde el centro
@@ -103,6 +105,7 @@ static func build(island: IslandState) -> Array[Dictionary]:
 			data.blocked_cells.append(cell - min_cell)
 		data.exact_collision = true   # cada tramo choca con su forma real al completarse
 		data.purpose = PURPOSE
+		data.unlocks = [BLUEPRINT]   # reparar cualquier tramo enseña a construir la valla (sesión 30, D-215)
 		var center: Vector3 = GridMath.footprint_center(min_cell, data.size, 0, island.ground_height(min_cell))
 		data.scene = _model(points, center, post_template, log_template)
 		for i: int in points.size() - 1:

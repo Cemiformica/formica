@@ -3,6 +3,8 @@
 # borra). Importa cada assets/models/buildings/<id>.glb, le pone la paleta con su mapa de superficie (brillo
 # como en Godot) y escribe assets/textures/icons/buildings/<id>.png (128 px, fondo transparente, 3/4).
 # El cable no tiene modelo: se dibuja aquí uno pequeño (dos bornes y un cable colgando).
+# Planos (sesión 30): las construcciones que se aprenden reparando y aún no existen como construcción (escalera de mano,
+# valla) se montan con piezas de assets/models/props/ (PROP_ICONS). Solo ellas: `render_props()`.
 import math
 import os
 import bpy
@@ -23,6 +25,16 @@ HIDDEN = ("belt_join_", "tunnel_left", "tunnel_right", "tunnel_v", "belt_side_ea
           "belt_side_east_band", "belt_side_west_band", "belt_corner", "belt_hub")  # cinta: recta y costados cerrados (C2b)
 BUILDINGS = ["workbench", "water_wheel", "solar_panel", "power_pole", "conveyor", "tree_cutter",
         "charcoal_kiln", "furnace", "extractor", "storage_chest", "logistic_box"]
+
+
+PROPS = os.path.join(PROJECT, "assets", "models", "props")
+## Icono → (modelo de props, [(pieza, posición, estirar en X)]). La escalera mira con la pared detrás (+Y), como la cámara.
+PROP_ICONS = {
+    "hand_ladder": ("ladder.glb", [("ladder_foot", (0, 0, 0), 1.0), ("ladder_mid", (0, 0, 0), 1.0),
+            ("ladder_mid", (0, 0, 1), 1.0), ("ladder_top", (0, 0, 2), 1.0)]),
+    "fence": ("fence.glb", [("fence_post", (0, 0, 0), 1.0), ("fence_post", (1.2, 0, 0), 1.0),
+            ("fence_log", (0, 0, 0), 1.2)]),
+}
 
 
 def palette_material():
@@ -107,7 +119,7 @@ def frame_and_render(scene, cam, objects, path):
     bpy.ops.render.render(write_still=True, scene=scene.name)
 
 
-def render_all():
+def _icon_scene():
     os.makedirs(OUT_DIR, exist_ok=True)
     previous = bpy.context.window.scene
     scene = bpy.data.scenes.new("building_icons")
@@ -131,18 +143,59 @@ def render_all():
     cam.rotation_euler = (-VIEW_DIR).to_track_quat("-Z", "Y").to_euler()
     scene.collection.objects.link(cam)
     scene.camera = cam
+    return previous, scene, cam
+
+
+def _apply_palette(objects, mat):
+    for ob in objects:
+        if ob.type == "MESH":
+            for slot in ob.material_slots:
+                # La banda de la cinta y lo emisivo llevan su propio material.
+                if slot.material is not None and not slot.material.name.startswith(("palette_emissive", "belt_band")):
+                    slot.material = mat
+
+
+def render_props():
+    previous, scene, cam = _icon_scene()
+    mat = palette_material()
+    try:
+        for name, (model, parts) in PROP_ICONS.items():
+            kept = []
+            for part, offset, stretch in parts:
+                before = set(bpy.data.objects)
+                bpy.ops.import_scene.gltf(filepath=os.path.join(PROPS, model))
+                new = [o for o in bpy.data.objects if o not in before]
+                piece = next(o for o in new if o.name.split(".")[0] == part)
+                world = piece.matrix_world.copy()
+                piece.parent = None
+                piece.matrix_world = world
+                piece.location += Vector(offset)
+                piece.scale.x *= stretch
+                keep = [piece] + list(piece.children_recursive)
+                for ob in new:
+                    if ob not in keep:
+                        bpy.data.objects.remove(ob, do_unlink=True)
+                kept += keep
+            bpy.context.view_layer.update()
+            _apply_palette(kept, mat)
+            frame_and_render(scene, cam, kept, os.path.join(OUT_DIR, name + ".png"))
+            for ob in kept:
+                bpy.data.objects.remove(ob, do_unlink=True)
+            print("icono", name)
+    finally:
+        bpy.context.window.scene = previous
+        bpy.data.scenes.remove(scene)
+
+
+def render_all():
+    previous, scene, cam = _icon_scene()
     mat = palette_material()
     try:
         for name in BUILDINGS:
             before = set(bpy.data.objects)
             bpy.ops.import_scene.gltf(filepath=os.path.join(MODELS, name + ".glb"))
             new = [o for o in bpy.data.objects if o not in before]
-            for ob in new:
-                if ob.type == "MESH":
-                    for slot in ob.material_slots:
-                        # La banda de la cinta y lo emisivo llevan su propio material.
-                        if slot.material is not None and not slot.material.name.startswith(("palette_emissive", "belt_band")):
-                            slot.material = mat
+            _apply_palette(new, mat)
             for ob in new:
                 if ob.name.startswith(HIDDEN):
                     ob.hide_render = True

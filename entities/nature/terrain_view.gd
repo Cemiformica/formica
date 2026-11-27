@@ -128,6 +128,7 @@ func rebuild(island: IslandState) -> void:
 		_build_layout_ground(island)
 		_build_sea(island.layout)
 		_build_debris(island.layout)
+		_build_rocks(island.layout)
 		_build_cascade(island)
 		_refresh_grass(island.layout)
 	else:
@@ -764,6 +765,76 @@ func _build_debris(layout: IslandLayout) -> void:
 
 ## Cascada (C5.4e): una cortina de agua pegada a la caída de las casillas `C` (sigue sus repisas), una franja de
 ## espuma sobre el río al pie y salpicaduras con algo de bruma. Va del agua más alta que toca a la más baja.
+## Rocas modeladas (C5.6, sesión 30): las piezas de `rocks.glb` que dice `IslandLayout.rocks`, en un MultiMesh por pieza.
+## La roca lleva el shader del terreno (`terrain_rock.tres`, desde el `.import`): mismos estratos y hierba arriba que los
+## acantilados. Las sólidas chocan con su forma (casco convexo de la pieza, a su tamaño); los guijarros, no.
+const ROCKS_SCENE: String = "res://assets/models/props/rocks.glb"
+static var _rock_meshes: Dictionary[String, Mesh] = {}
+static var _rock_hulls: Dictionary[String, PackedVector3Array] = {}
+
+
+static func rock_mesh(piece: String) -> Mesh:
+	if _rock_meshes.is_empty():
+		var scene: Node = (load(ROCKS_SCENE) as PackedScene).instantiate()
+		for node: Node in scene.find_children("*", "MeshInstance3D", true, false):
+			_rock_meshes[String(node.name).trim_suffix("_mesh")] = (node as MeshInstance3D).mesh
+		scene.free()
+	return _rock_meshes.get(piece, null)
+
+
+func _build_rocks(layout: IslandLayout) -> void:
+	for child: Node in get_children():
+		if child.name.begins_with("Rocks"):
+			child.queue_free()
+	if layout.rocks.is_empty():
+		return
+	var by_piece: Dictionary[String, Array] = {}
+	for rock: Dictionary in layout.rocks:
+		if not by_piece.has(rock["mesh"]):
+			by_piece[rock["mesh"]] = []
+		by_piece[rock["mesh"]].append(rock)
+	var body := StaticBody3D.new()
+	body.name = "RocksBody"
+	add_child(body)
+	for piece: String in by_piece:
+		var mesh: Mesh = rock_mesh(piece)
+		if mesh == null:
+			push_warning("TerrainView: falta la pieza %s en rocks.glb" % piece)
+			continue
+		var list: Array = by_piece[piece]
+		var multi := MultiMesh.new()
+		multi.transform_format = MultiMesh.TRANSFORM_3D
+		multi.mesh = mesh
+		multi.instance_count = list.size()
+		for k: int in list.size():
+			var rock: Dictionary = list[k]
+			var factor: float = float(rock["scale"])
+			var turn := Basis(Vector3.UP, float(rock["yaw"]))
+			multi.set_instance_transform(k, Transform3D(turn.scaled(Vector3.ONE * factor), rock["position"]))
+			if rock["solid"]:
+				body.add_child(_rock_collision(piece, mesh, turn, factor, rock["position"]))
+		var instance := MultiMeshInstance3D.new()
+		instance.name = "Rocks_" + piece
+		instance.multimesh = multi
+		add_child(instance)
+
+
+## Choque de una roca: el casco convexo de su pieza (calculado una vez), a su tamaño, girado y en su sitio.
+func _rock_collision(piece: String, mesh: Mesh, turn: Basis, factor: float, at: Vector3) -> CollisionShape3D:
+	if not _rock_hulls.has(piece):
+		var hull: ConvexPolygonShape3D = mesh.create_convex_shape(true, true)
+		_rock_hulls[piece] = hull.points
+	var points := PackedVector3Array()
+	for point: Vector3 in _rock_hulls[piece]:
+		points.append(point * factor)
+	var shape := ConvexPolygonShape3D.new()
+	shape.points = points
+	var collision := CollisionShape3D.new()
+	collision.shape = shape
+	collision.transform = Transform3D(turn, at)
+	return collision
+
+
 const WATERFALL_SHADER: Shader = preload("res://entities/nature/waterfall.gdshader")
 ## Cada cuánto lleva un punto la cortina (m) y largo de la espuma del pie (m).
 ## Cada medio metro, como el terreno: así la cortina va a la misma distancia de la roca en todo y no la atraviesa.
