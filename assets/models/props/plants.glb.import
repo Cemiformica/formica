@@ -3,10 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
+uid="uid://dwabjxr1y5ylt"
+path="res://.godot/imported/plants.glb-b8d720cee23f2e3e2f48d98ac3f00659.scn"
 
 [deps]
 
 source_file="res://assets/models/props/plants.glb"
+dest_files=["res://.godot/imported/plants.glb-b8d720cee23f2e3e2f48d98ac3f00659.scn"]
 
 [params]
 

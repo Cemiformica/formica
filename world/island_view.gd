@@ -44,6 +44,9 @@ var _terrain_pending: bool = false
 ## reparar. El shader del césped (`grass.gdshader`, `block_mask`) quita ahí las matas, sin regenerarlas. Variable y no
 ## constante: GDScript no deja modificar una constante.
 var _grass_material: ShaderMaterial = preload("res://assets/materials/grass.tres")
+## Las flores y los tréboles del césped (sesión 31) se quitan con la misma máscara.
+var _plants_ground_material: ShaderMaterial = preload("res://assets/materials/plants_ground.tres")
+var _clover_material: ShaderMaterial = preload("res://assets/materials/plants_ground_clover.tres")
 var _grass_mask: Image = null
 ## Píxeles de la máscara por casilla (sesión 28: antes, 1; un poste de 60 cm quitaba el césped de toda su casilla) y
 ## margen (m) alrededor de lo que ocupa cada construcción. El shader estira la máscara sobre `block_rect` a cualquier
@@ -253,9 +256,10 @@ func _refresh_grass_mask() -> void:
 		_grass_mask_texture = ImageTexture.create_from_image(_grass_mask)
 	else:
 		_grass_mask_texture.update(_grass_mask)
-	_grass_material.set_shader_parameter(&"block_mask", _grass_mask_texture)
-	_grass_material.set_shader_parameter(&"block_rect",
-			Vector4(bounds.position.x, bounds.position.y, bounds.size.x, bounds.size.y))
+	for mat: ShaderMaterial in [_grass_material, _plants_ground_material, _clover_material]:
+		mat.set_shader_parameter(&"block_mask", _grass_mask_texture)
+		mat.set_shader_parameter(&"block_rect",
+				Vector4(bounds.position.x, bounds.position.y, bounds.size.x, bounds.size.y))
 
 
 ## Pinta de blanco (sin césped) en la máscara el rectángulo `rect` del mundo (X, Z en metros).

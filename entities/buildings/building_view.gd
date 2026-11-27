@@ -1112,12 +1112,24 @@ func _update_belt_shape(sides: Dictionary[int, int]) -> void:
 	if not straight and inputs.size() == 1 and outputs.size() == 1 and (inputs[0] + 2) % 4 == outputs[0]:
 		_belt_shape = BeltShape.STRAIGHT
 		straight_quarter = (inputs[0] + 2) % 4
+	elif inputs.is_empty() and outputs.size() == 1 and outputs[0] % 2 == 1:
+		# Sin nada detrás y saliendo solo por un costado (sesión 31, César: tramo que empieza junto al final de una
+		# cinta): curva que entra por detrás, como se puso, y sale hacia el tramo nuevo. Con algo delante, la T.
+		_belt_shape = BeltShape.CORNER
+		_belt_corner_entry = PortData.PortSide.SOUTH
+		_belt_corner_exit = outputs[0]
 	elif not straight and inputs.size() == 1 and outputs.size() <= 1:
 		var exit: int = outputs[0] if outputs.size() == 1 else PortData.PortSide.NORTH
 		if (inputs[0] + exit) % 2 == 1:
 			_belt_shape = BeltShape.CORNER
 			_belt_corner_entry = inputs[0]
 			_belt_corner_exit = exit
+	# Cruce sin nada detrás (sesión 31, César: un tramo que sale del costado de una cinta con otra delante es una T
+	# que entra por detrás, como se puso): su trasera se abre como entrada aunque aún no le llegue nada.
+	if _belt_shape == BeltShape.HUB and inputs.is_empty() and not sides.has(PortData.PortSide.SOUTH):
+		sides = sides.duplicate()
+		sides[PortData.PortSide.SOUTH] = PortData.Kind.INPUT
+		inputs.append(PortData.PortSide.SOUTH)
 	if _belt_body == null:
 		return # cinta sin modelo (pruebas): solo cambia el camino de los ítems
 

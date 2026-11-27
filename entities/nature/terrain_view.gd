@@ -61,6 +61,14 @@ const WATER_SURFACE_SPREAD: int = 3
 ## Se guarda la rejilla del suelo (un punto cada medio metro, la misma de la malla) con su altura, cuánta hierba admite
 ## cada punto (0 a 1) y lo metido que está en su explanada (para los claros, que quita el shader del césped).
 const GRASS_MATERIAL: ShaderMaterial = preload("res://assets/materials/grass.tres")
+## Flores y tréboles del césped (sesión 31): piezas de `plants.glb` con el shader de las plantas y las máscaras del césped.
+const PLANTS_SCENE: PackedScene = preload("res://assets/models/props/plants.glb")
+const PLANTS_GROUND_MATERIAL: ShaderMaterial = preload("res://assets/materials/plants_ground.tres")
+const CLOVER_MATERIAL: ShaderMaterial = preload("res://assets/materials/plants_ground_clover.tres")
+## Más corros de flores alrededor del refugio y del portal (como si la colonia antigua las hubiera cuidado): del todo
+## hasta FLOWER_BOOST_NEAR metros de su centro y nada desde FLOWER_BOOST_FAR.
+const FLOWER_BOOST_NEAR: float = 7.0
+const FLOWER_BOOST_FAR: float = 16.0
 ## Sin césped por debajo de esta altura sobre el agua cercana (la orilla). Donde el terreno pinta roca, el césped lo quita
 ## su shader con la misma cuenta y el mismo ruido que `terrain.gdshader` (le llegan la pendiente y la pared de cada mata,
 ## `get_up_at` y `get_wall_at`). Aquí solo se descarta lo que seguro es roca (pendiente por debajo de *_ROCK_UP, más allá
@@ -93,6 +101,8 @@ var _sea: MeshInstance3D
 var _collision: CollisionShape3D
 ## Plano de la isla (si la isla tiene), para saber dónde hay agua al pisar (`get_footstep_surface`).
 var _layout: IslandLayout = null
+## Centros del refugio y del portal para `get_flower_boost_at` (se calculan la primera vez).
+var _flower_spots: Array[Vector2] = []
 ## Pisadas: por debajo de esta pendiente (componente vertical de la normal) el suelo es roca, como lo pinta
 ## `terrain.gdshader` (`slope_rock_up`); en las paredes del plano, desde `FOOTSTEP_WALL_UP` (`wall_rock_up`).
 const FOOTSTEP_ROCK_UP: float = 0.74
@@ -118,6 +128,7 @@ func _init() -> void:
 ## Rehace el suelo, su colisión y el agua desde los datos de la isla. Sin `bounds`, no hay suelo.
 func rebuild(island: IslandState) -> void:
 	_layout = island.layout
+	_flower_spots.clear()
 	var bounds: Rect2i = island.bounds
 	if not bounds.has_area():
 		_ground.mesh = null
@@ -129,6 +140,7 @@ func rebuild(island: IslandState) -> void:
 		_build_sea(island.layout)
 		_build_debris(island.layout)
 		_build_rocks(island.layout)
+		_build_plants(island.layout)
 		_build_cascade(island)
 		_refresh_grass(island.layout)
 	else:
@@ -584,6 +596,9 @@ func _refresh_grass(layout: IslandLayout) -> void:
 		_grass.height_source = GrassField.HeightSource.PROVIDER
 		_grass.height_provider = self
 		_grass.material = GRASS_MATERIAL
+		_grass.decor_scene = PLANTS_SCENE
+		_grass.decor_material = PLANTS_GROUND_MATERIAL
+		_grass.clover_material = CLOVER_MATERIAL
 		_grass.area_size = Vector2(layout.size)
 		_grass.position = Vector3(layout.size.x * 0.5, 0.0, layout.size.y * 0.5)
 		add_child(_grass)
@@ -685,6 +700,27 @@ func is_grass_at(x: float, z: float) -> bool:
 	return amount > lerpf(0.1, 0.9, roll)
 
 
+## Para `GrassField`: cuántos más corros de flores hay en el punto (0 a 1): cerca del refugio y del portal (sesión 31).
+func get_flower_boost_at(x: float, z: float) -> float:
+	if _layout == null:
+		return 0.0
+	if _flower_spots.is_empty():
+		for ch: String in ["R", "P"]:
+			var cells: Array[Vector2i] = _layout.cells_of(ch)
+			if cells.is_empty():
+				continue
+			var sum := Vector2.ZERO
+			for cell: Vector2i in cells:
+				sum += Vector2(cell) + Vector2(0.5, 0.5)
+			_flower_spots.append(sum / cells.size())
+	var local: Vector3 = to_local(Vector3(x, 0.0, z))
+	var best: float = 0.0
+	for spot: Vector2 in _flower_spots:
+		var d: float = spot.distance_to(Vector2(local.x, local.z))
+		best = maxf(best, 1.0 - smoothstep(FLOWER_BOOST_NEAR, FLOWER_BOOST_FAR, d))
+	return best
+
+
 ## Para `GrassField`: lo metido que está el punto en su explanada (0 a 1), para los claros de tierra.
 func get_flat_at(x: float, z: float) -> float:
 	return _grid_sample(_grid_flat, x, z)
@@ -765,6 +801,61 @@ func _build_debris(layout: IslandLayout) -> void:
 
 ## Cascada (C5.4e): una cortina de agua pegada a la caída de las casillas `C` (sigue sus repisas), una franja de
 ## espuma sobre el río al pie y salpicaduras con algo de bruma. Va del agua más alta que toca a la más baja.
+## Helechos, arbustos y juncos (C5.6, sesión 31): las piezas de `plants.glb` que dice `IslandLayout.plants`, en un
+## MultiMesh por pieza, con el shader de las plantas (`plants.tres`: viento, empuje al pasar, distancia). Apoyados en la
+## malla dibujada y algo hundidos. Decorativos: sin choque.
+const PLANTS_MATERIAL: ShaderMaterial = preload("res://assets/materials/plants.tres")
+## Lo que se hunde cada planta en el suelo (m, a tamaño 1).
+const PLANT_SINK: float = 0.03
+
+
+func _build_plants(layout: IslandLayout) -> void:
+	for child: Node in get_children():
+		if child.name.begins_with("Plants"):
+			child.queue_free()
+	if layout.plants.is_empty():
+		return
+	var meshes: Dictionary[String, Mesh] = {}
+	var scene: Node = PLANTS_SCENE.instantiate()
+	for node: Node in scene.find_children("*", "MeshInstance3D", true, false):
+		meshes[String(node.name).trim_suffix("_mesh")] = (node as MeshInstance3D).mesh
+	scene.free()
+	var by_piece: Dictionary[String, Array] = {}
+	for plant: Dictionary in layout.plants:
+		if not by_piece.has(plant["mesh"]):
+			by_piece[plant["mesh"]] = []
+		by_piece[plant["mesh"]].append(plant)
+	for piece: String in by_piece:
+		if not meshes.has(piece):
+			push_warning("TerrainView: falta la planta %s en plants.glb" % piece)
+			continue
+		var list: Array = by_piece[piece]
+		var multi := MultiMesh.new()
+		multi.transform_format = MultiMesh.TRANSFORM_3D
+		multi.use_custom_data = true
+		multi.mesh = meshes[piece]
+		multi.instance_count = list.size()
+		for k: int in list.size():
+			var plant: Dictionary = list[k]
+			var spot: Vector2 = plant["position"]
+			var factor: float = float(plant["scale"])
+			var at := Vector3(spot.x, _drawn_height_local(spot.x, spot.y) - PLANT_SINK * factor, spot.y)
+			var turn := Basis(Vector3.UP, float(plant["yaw"])).scaled(Vector3.ONE * factor)
+			multi.set_instance_transform(k, Transform3D(turn, at))
+			# r = tono y fase, g = rigidez, b = alcance (lo que espera `plants.gdshader` sin máscaras del suelo).
+			multi.set_instance_custom_data(k, Color(fposmod(spot.x * 0.37 + spot.y * 0.61, 1.0),
+					float(plant["stiffness"]), float(plant["reach"]), 0.0))
+		var instance := MultiMeshInstance3D.new()
+		instance.name = "Plants_" + piece
+		instance.multimesh = multi
+		instance.material_override = PLANTS_MATERIAL
+		# Solo los arbustos dan sombra: los helechos y juncos son finos y muchos.
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if piece.begins_with("bush") \
+				else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		instance.extra_cull_margin = 1.0
+		add_child(instance)
+
+
 ## Rocas modeladas (C5.6, sesión 30): las piezas de `rocks.glb` que dice `IslandLayout.rocks`, en un MultiMesh por pieza.
 ## La roca lleva el shader del terreno (`terrain_rock.tres`, desde el `.import`): mismos estratos y hierba arriba que los
 ## acantilados. Las sólidas chocan con su forma (casco convexo de la pieza, a su tamaño); los guijarros, no.
@@ -810,6 +901,19 @@ func _build_rocks(layout: IslandLayout) -> void:
 			var rock: Dictionary = list[k]
 			var factor: float = float(rock["scale"])
 			var turn := Basis(Vector3.UP, float(rock["yaw"]))
+			if not rock["solid"]:
+				# Guijarros (sesión 31, César: en las cuestas flotaban): apoyados en la malla dibujada (un punto cada
+				# medio metro, no el relieve exacto) e inclinados con la cuesta.
+				var at: Vector3 = rock["position"]
+				# Lo más bajo de la malla bajo el grupo de piedras: en una cuesta ninguna queda en el aire (las de
+				# arriba se hunden un poco).
+				var low: float = _drawn_height_local(at.x, at.z)
+				for angle: float in [0.0, TAU * 0.25, TAU * 0.5, TAU * 0.75]:
+					low = minf(low, _drawn_height_local(at.x + cos(angle) * PEBBLE_REACH * factor,
+							at.z + sin(angle) * PEBBLE_REACH * factor))
+				at.y = lerpf(_drawn_height_local(at.x, at.z), low, 0.6) - PEBBLE_SINK * factor
+				multi.set_instance_transform(k, Transform3D((_slope_basis(at.x, at.z) * turn).scaled(Vector3.ONE * factor), at))
+				continue
 			multi.set_instance_transform(k, Transform3D(turn.scaled(Vector3.ONE * factor), rock["position"]))
 			if rock["solid"]:
 				body.add_child(_rock_collision(piece, mesh, turn, factor, rock["position"]))
@@ -817,6 +921,41 @@ func _build_rocks(layout: IslandLayout) -> void:
 		instance.name = "Rocks_" + piece
 		instance.multimesh = multi
 		add_child(instance)
+
+
+## Lo que se hunden los guijarros en el suelo (m, a tamaño 1), para que no se vea luz por debajo.
+const PEBBLE_SINK: float = 0.02
+## Distancia (m) a la que se mide la cuesta bajo un guijarro.
+const PEBBLE_SLOPE_PROBE: float = 0.25
+## Hasta dónde (m, a tamaño 1) se mira lo más bajo bajo un grupo de guijarros.
+const PEBBLE_REACH: float = 0.25
+
+
+## Altura de la malla del suelo en un punto (coordenadas de este nodo): la misma cuenta que `get_height_at()`.
+func _drawn_height_local(x: float, z: float) -> float:
+	var gx: float = clampf(x / _grid_step, 0.0, _grid_count.x - 1.001)
+	var gz: float = clampf(z / _grid_step, 0.0, _grid_count.y - 1.001)
+	var a: int = floori(gx)
+	var b: int = floori(gz)
+	var fx: float = gx - a
+	var fz: float = gz - b
+	var h0: float = _grid_height(a, b)
+	var h1: float = _grid_height(a + 1, b)
+	var h2: float = _grid_height(a, b + 1)
+	var h3: float = _grid_height(a + 1, b + 1)
+	return h0 + fx * (h1 - h0) + fz * (h3 - h1) if fx >= fz else h0 + fz * (h2 - h0) + fx * (h3 - h2)
+
+
+## Giro que pone el «arriba» de una pieza perpendicular a la malla del suelo en ese punto.
+func _slope_basis(x: float, z: float) -> Basis:
+	var d: float = PEBBLE_SLOPE_PROBE
+	var dx: float = _drawn_height_local(x + d, z) - _drawn_height_local(x - d, z)
+	var dz: float = _drawn_height_local(x, z + d) - _drawn_height_local(x, z - d)
+	var normal := Vector3(-dx, 2.0 * d, -dz).normalized()
+	var axis: Vector3 = Vector3.UP.cross(normal)
+	if axis.length() < 0.0001:
+		return Basis.IDENTITY
+	return Basis(axis.normalized(), Vector3.UP.angle_to(normal))
 
 
 ## Choque de una roca: el casco convexo de su pieza (calculado una vez), a su tamaño, girado y en su sitio.

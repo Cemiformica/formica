@@ -943,7 +943,7 @@ func _update_drag(building: BuildingData, _ground_y: float) -> void:   # cada ci
 		# En coordenadas del mundo y sin heredar giro: este nodo es `top_level`, pero conserva el sitio y el giro
 		# que tenía el jugador al empezar, y la vista se coloca relativa a su padre.
 		# Cada cinta del tramo, a la altura de su casilla (el tramo es del mismo nivel: si cambia, se corta).
-		var cell_y: float = WorldState.get_island(island_id).ground_height(_drag_cells[i])
+		var cell_y: float = WorldState.get_island(island_id).build_height(_drag_cells[i])
 		view.global_transform = Transform3D(Basis.IDENTITY, GridMath.cell_center(_drag_cells[i], cell_y))
 		var ok: bool = _drag_states[i] == DragCell.OK or _drag_states[i] == DragCell.EXISTING_BELT
 		var material: Material = _drag_ok_material if ok else _drag_bad_material

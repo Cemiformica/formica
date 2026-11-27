@@ -151,8 +151,9 @@ for y in range(H):
         elif inner and r < 0.24:
             grid[y][x] = 'X'
 
-# 4) Explanada alta más pequeña y con el borde roto: el norte vuelve a ser montaña con árboles, bahías en los
-# costados y un bosquecillo con peñascos dentro.
+# 4) Explanada alta más pequeña y con el borde roto: el norte vuelve a ser montaña con árboles y bahías en los
+# costados. El bosquecillo con peñascos que había dentro se quitó en la sesión 31 (César: todo lo plano de la isla se
+# construye, a cualquier altura, pensando en las plantas y en construir en vertical).
 for y in range(H):
     for x in range(W):
         if grid[y][x] != '#':
@@ -160,14 +161,10 @@ for y in range(H):
         north = y <= 14 + (noise(x, 0, 21, 4.0) - 0.5) * 4
         west_bay = x <= 46 + (noise(0, y, 22, 3.0) - 0.5) * 6 and 16 <= y <= 34
         east_bay = x >= 81 + (noise(0, y, 23, 3.0) - 0.5) * 6 and 15 <= y <= 30
-        grove = (x - 62) ** 2 + (y - 24) ** 2 <= 3.2 ** 2 + (noise(x, y, 24, 2.0) - 0.5) * 6
-        if north or west_bay or east_bay or grove:
+        if north or west_bay or east_bay:
             grid[y][x] = '^'
-            r = h(x, y, 25)
-            if r < (0.35 if grove else 0.12):
+            if h(x, y, 25) < 0.12:
                 grid[y][x] = 't'
-            elif grove and r < 0.45:
-                grid[y][x] = 'X'
 
 # 5) Cumbre a 9 m al noreste (César: lo alto seguía muy abierto), con su explanada y el árbol singular en lo más alto,
 # que así se ve desde toda la isla. Rampa desde la explanada alta, con peñascos a los lados.
@@ -495,7 +492,10 @@ if not os.path.exists(PAINT_FILE):
 _add_missing_colors()
 painted = _read_paint_image()
 _NO_TREE = 'RPMSXAGHQE~OovC<>s'   # objetos, mar y agua: ahí no se pone un árbol ni la barandilla
-skipped = {'tree': 0, 'fence': 0, 'ladder': 0}
+# Explanadas (baja, alta, media, cumbre y rellano): ahí no se pone un árbol salvaje ni un peñasco pintado (sesión 31,
+# César: todo lo plano se construye). Las arboledas sí, que tienen su sitio para el talador.
+_FLAT = '=#+%_'
+skipped = {'tree': 0, 'fence': 0, 'ladder': 0, 'flat': 0}
 # Primero se quitan los árboles que ya no están pintados (su suelo, el de alrededor, como en el paso 11)...
 _fill = {(x, y): _inferred(x, y) for y in range(H) for x in range(W)
          if (grid[y][x] == 't' and not painted['tree'][y][x]) or (grid[y][x] == 'T' and not painted['grove'][y][x])
@@ -512,6 +512,8 @@ for y in range(H):
             if painted[key][y][x] and grid[y][x] not in 'tTX':
                 if grid[y][x] in _NO_TREE:
                     skipped['tree'] += 1
+                elif key != 'grove' and grid[y][x] in _FLAT:
+                    skipped['flat'] += 1
                 else:
                     grid[y][x] = ch
         for key, layer, ch in (('fence', fence, 'b'), ('ladder', ladder, 'e')):
@@ -523,6 +525,8 @@ for y in range(H):
 if any(skipped.values()):
     print('pintura sobre agua u objetos, sin poner: %d árboles, %d de barandilla, %d de escala' % (
         skipped['tree'], skipped['fence'], skipped['ladder']))
+    if skipped['flat']:
+        print('pintura sobre explanadas, sin poner (ahí se construye): %d árboles o peñascos' % skipped['flat'])
 print('pintura: %d casillas de tierra pisada, %d árboles salvajes, %d de arboleda, %d de barandilla, %d de césped, '
       '%d de escala, %d de peñasco' % (sum(r.count('x') for r in worn), sum(r.count('t') for r in grid),
                         sum(r.count('T') for r in grid), sum(r.count('b') for r in fence), sum(r.count('g') for r in lawn),

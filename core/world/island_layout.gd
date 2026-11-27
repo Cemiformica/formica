@@ -723,6 +723,125 @@ func is_buildable(cell: Vector2i) -> bool:
 			and not SOLID_FEATURES.contains(char_at(cell))
 
 
+## ¿Se puede construir aquí? En las explanadas (`is_buildable`) y, desde la sesión 31 (César), también en el suelo
+## natural casi plano (`_natural_build`): la orilla este del río, el sur del mirador, la playa del oeste, rellanos de la
+## montaña… El terreno no cambia: solo dónde se deja construir. Lo inclinado, con suelos que nivelan (más adelante).
+func can_build(cell: Vector2i) -> bool:
+	return is_buildable(cell) or is_natural_build(cell)
+
+
+## ¿Es suelo natural (no explanada) en el que se puede construir?
+func is_natural_build(cell: Vector2i) -> bool:
+	return has_cell(cell) and not _natural_build.is_empty() and _natural_build[cell.y * size.x + cell.x] == 1
+
+
+## Altura (m) a la que va una construcción en esta casilla: en una explanada, la suya; en suelo natural, la de su nivel
+## (0, 3, 6 o 9 m), la misma que la explanada de ese nivel, así todo lo de una altura se une (César, sesión 31). El
+## suelo natural queda como mucho NATURAL_BUILD_ABOVE metros por encima (la construcción, algo hundida) y nunca más de
+## NATURAL_BUILD_BELOW por debajo (no flota).
+func build_height(cell: Vector2i) -> float:
+	if is_natural_build(cell):
+		return level_height(level(cell))
+	return height(cell)
+
+
+## Suelo natural casi plano en el que se construye (1 = sí), calculado una vez al leer el plano.
+var _natural_build: PackedByteArray = PackedByteArray()
+## Desnivel máximo (m) dentro de una casilla de suelo natural para construir en ella.
+const NATURAL_BUILD_DROP: float = 0.15
+## Con este desnivel o menos, una casilla también vale si al menos 3 de sus 4 vecinas valen (rellena huecos sueltos).
+const NATURAL_BUILD_FILL_DROP: float = 0.25
+## Cuánto puede estar el suelo natural por encima y por debajo de la altura de su nivel (m).
+const NATURAL_BUILD_ABOVE: float = 0.12
+const NATURAL_BUILD_BELOW: float = 0.08
+## Las manchas más pequeñas que esto (casillas) no cuentan: no sirven para construir y quedan como motas.
+const NATURAL_BUILD_MIN_AREA: int = 12
+
+
+## ¿Podría ser suelo natural construible esta casilla, sin mirar lo inclinada que está?
+func _natural_build_base(cell: Vector2i) -> bool:
+	if not is_land(cell) or is_buildable(cell) or is_steep(cell) or _debris_cells.has(cell):
+		return false
+	var ch: String = char_at(cell)
+	if FEATURE_CHARS.contains(ch) and ch != "t":   # un árbol salvaje no: al talarlo, se construye
+		return false
+	var g: Ground = ground(cell)
+	if g == Ground.RAMP or g == Ground.LANDING or g == Ground.FALL or is_path(cell):
+		return false
+	if _near_shelter(cell) or fence_cells.has(cell) or ladder_cells.has(cell) or _near_ladder(cell):
+		return false
+	var lv: int = level(cell)
+	if lv == NO_LEVEL:
+		return false
+	# Lo más alto de la casilla manda (sesión 31, César: en los bordes algo inclinados las cintas se hundían, porque
+	# el centro estaba bien pero un lado subía) y lo más bajo, para que nada flote.
+	var low: float = INF
+	var high: float = -INF
+	for f: Vector2 in [Vector2(0, 0), Vector2(0.5, 0), Vector2(1, 0), Vector2(0, 0.5), Vector2(0.5, 0.5), Vector2(1, 0.5),
+			Vector2(0, 1), Vector2(0.5, 1), Vector2(1, 1)]:
+		var y: float = terrain_height(cell.x + f.x, cell.y + f.y)
+		low = minf(low, y)
+		high = maxf(high, y)
+	var base: float = level_height(lv)
+	return high - base <= NATURAL_BUILD_ABOVE and low - base >= -NATURAL_BUILD_BELOW
+
+
+func _compute_natural_build() -> void:
+	_natural_build = PackedByteArray()
+	_natural_build.resize(size.x * size.y)
+	var maybe := PackedByteArray()   # vale para rellenar huecos
+	maybe.resize(size.x * size.y)
+	for y: int in size.y:
+		for x: int in size.x:
+			var cell := Vector2i(x, y)
+			if not _natural_build_base(cell):
+				continue
+			var drop: float = _drops[y * size.x + x]
+			if drop < NATURAL_BUILD_DROP:
+				_natural_build[y * size.x + x] = 1
+			elif drop < NATURAL_BUILD_FILL_DROP:
+				maybe[y * size.x + x] = 1
+	# Huecos sueltos: casillas algo más inclinadas rodeadas de construible (3 de sus 4 vecinas).
+	var sides: Array[Vector2i] = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
+	for _pass: int in 3:
+		var fill: Array[int] = []
+		for y: int in range(1, size.y - 1):
+			for x: int in range(1, size.x - 1):
+				if maybe[y * size.x + x] == 0:
+					continue
+				var around: int = 0
+				for step: Vector2i in sides:
+					if can_build(Vector2i(x, y) + step):
+						around += 1
+				if around >= 3:
+					fill.append(y * size.x + x)
+		for index: int in fill:
+			_natural_build[index] = 1
+			maybe[index] = 0
+	# Manchas pequeñas fuera.
+	var seen := PackedByteArray()
+	seen.resize(size.x * size.y)
+	for y: int in size.y:
+		for x: int in size.x:
+			if _natural_build[y * size.x + x] == 0 or seen[y * size.x + x] == 1:
+				continue
+			var patch: Array[Vector2i] = [Vector2i(x, y)]
+			seen[y * size.x + x] = 1
+			var k: int = 0
+			while k < patch.size():
+				var cell: Vector2i = patch[k]
+				k += 1
+				for step: Vector2i in sides:
+					var other: Vector2i = cell + step
+					if has_cell(other) and _natural_build[other.y * size.x + other.x] == 1 \
+							and seen[other.y * size.x + other.x] == 0:
+						seen[other.y * size.x + other.x] = 1
+						patch.append(other)
+			if patch.size() < NATURAL_BUILD_MIN_AREA:
+				for cell: Vector2i in patch:
+					_natural_build[cell.y * size.x + cell.x] = 0
+
+
 ## ¿Es tierra (se anda y se puede plantar)? Ni mar, ni agua, ni cascada, ni un objeto que la tape.
 func is_land(cell: Vector2i) -> bool:
 	var g: Ground = ground(cell)
@@ -744,10 +863,9 @@ var _wall_foot: Dictionary[Vector2i, bool] = {}
 const WALL_FOOT_DROP: float = 1.6
 ## Cuánto más alta tiene que estar la casilla de la pared que la del pie (m).
 const WALL_FOOT_RISE: float = 0.8
-## Parte de los pies de pared que lleva una roca caída (en la explanada, menos: ahí ocupa sitio de construir), su
-## tamaño y la parte que lleva otra pequeña al lado.
+## Parte de los pies de pared que lleva una roca caída (nunca en una explanada: ahí se construye), su tamaño y la
+## parte que lleva otra pequeña al lado.
 const DEBRIS_CHANCE: float = 0.5
-const DEBRIS_CHANCE_ON_FLAT: float = 0.3
 const DEBRIS_PAIR_CHANCE: float = 0.45
 const DEBRIS_SCALE_MIN: float = 1.4
 const DEBRIS_SCALE_MAX: float = 2.8
@@ -809,9 +927,10 @@ func _compute_wall_feet(drops: PackedFloat32Array) -> void:
 				continue
 			if _near_ladder(cell):
 				continue   # la escala de cuerda baja hasta el suelo (César: una cuerda se metía en una roca caída)
-			# También en la explanada pegada a la pared (César: se veían pocas); esa casilla deja de servir para construir.
-			var r: float = _cell_random(cell, 1)
-			if r > (DEBRIS_CHANCE_ON_FLAT if is_buildable(cell) else DEBRIS_CHANCE):
+			# Nunca en una explanada (César, sesión 31: en la de arriba y en la de abajo estorbaban para construir).
+			if is_buildable(cell):
+				continue
+			if _cell_random(cell, 1) > DEBRIS_CHANCE:
 				continue
 			var scale: float = lerpf(DEBRIS_SCALE_MIN, DEBRIS_SCALE_MAX, _cell_random(cell, 2))
 			# Un poco hacia la pared y algo al azar, sin salir de su casilla.
@@ -857,8 +976,28 @@ const CARVED_CHAR: String = "K"
 ## junto a las lomas y los acantilados (a una casilla de algo empinado) y en la orilla del río y del lago. Nunca a una casilla
 ## o menos del sendero. Las hileras de las rampas (la de la cumbre y la de la terraza) son peñascos pintados (`X`). Parte de
 ## las casillas que llevan una.
-const MEDIUM_CHANCE_RELIEF: float = 0.05
-const MEDIUM_CHANCE_SHORE: float = 0.12
+## Desde la sesión 31 son corros (César: agrupadas quedan mejor), así que cada casilla empieza un corro con menos
+## probabilidad que antes una roca suelta.
+const MEDIUM_CHANCE_RELIEF: float = 0.025
+const MEDIUM_CHANCE_SHORE: float = 0.06
+## Rocas pequeñas que acompañan a la grande de cada corro (de 1 a esto) y casillas libres entre dos corros.
+const CLUSTER_EXTRA_MAX: int = 3
+const CLUSTER_GAP: int = 2
+## Hileras de las rampas (sesión 31): lo que cada roca se aparta de la rampa (m), lo que se mueve al azar (m), sus
+## tamaños y la parte que lleva una pequeña al lado.
+const ROW_AWAY: float = 0.4
+const ROW_WOBBLE: float = 0.45
+const ROW_SCALE_MIN: float = 0.75
+const ROW_SCALE_MAX: float = 1.7
+const ROW_PAIR_CHANCE: float = 0.3
+## Tamaño mínimo de las rocas de la hilera donde la rampa va alta, y desde qué desnivel de la casilla (m) se aplica del todo.
+const ROW_UPHILL_MIN: float = 1.35
+const ROW_UPHILL_DROP: float = 0.9
+## Parte de las casillas de la hilera que derraman una roca pequeña a la casilla de fuera.
+const ROW_SPILL_CHANCE: float = 0.5
+## Las ocho casillas de alrededor.
+const NEIGHBOURS_8: Array[Vector2i] = [Vector2i(1, 0), Vector2i(1, 1), Vector2i(0, 1), Vector2i(-1, 1),
+		Vector2i(-1, 0), Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1)]
 ## Guijarros: solo al pie de las rocas y de lo empinado (a una casilla), nunca en la arena. Parte de esas casillas.
 const PEBBLES_CHANCE: float = 0.25
 ## Sin rocas medianas a menos de estas casillas del portal, del embarcadero y del vado (por donde se pasa).
@@ -880,6 +1019,16 @@ func _medium_rock_spot(cell: Vector2i) -> bool:
 			if "PEs".contains(char_at(cell + Vector2i(dx, dy))):
 				return false
 	return true
+
+
+## ¿Puede caer aquí una roca pequeña derramada de una hilera? Como `_medium_rock_spot()`, pero vale el talud de la rampa
+## (empinado): la roca se asienta en lo más bajo.
+func _spill_spot(cell: Vector2i) -> bool:
+	if not is_land(cell) or is_buildable(cell) or FEATURE_CHARS.contains(char_at(cell)) or _debris_cells.has(cell):
+		return false
+	var g: Ground = ground(cell)
+	return g != Ground.RAMP and g != Ground.LANDING and g != Ground.BEACH and not is_path(cell) \
+			and _worn[cell.y * size.x + cell.x] != 1 and slope_drop(cell) < MAX_SLOPE_FOR_NATURE * 1.5
 
 
 ## Grupos de casillas iguales (`ch`) que se tocan por un lado.
@@ -923,10 +1072,52 @@ func _compute_rocks() -> void:
 		var center := Vector2(low) + Vector2(box) * 0.5
 		var yaw: float = _cell_random(first, 21) * TAU
 		if maxi(box.x, box.y) >= 3 and mini(box.x, box.y) == 1:
-			# Hilera (las del noreste): una roca mediana grande en cada casilla.
+			# Hilera (las rampas de la cumbre y de la terraza): una roca mediana en cada casilla, desordenadas (César,
+			# sesión 31: centradas y del mismo tamaño quedaban rectas y artificiales). Cada una se aparta un poco de la
+			# rampa, del sendero y de la explanada, se mueve algo al azar sin salir de su casilla, cambia mucho de tamaño
+			# y algunas llevan una pequeña al lado.
 			for cell: Vector2i in group:
-				_add_rock(MEDIUM_ROCKS[int(_cell_random(cell, 22) * 4.0) % 4], Vector2(cell) + Vector2(0.5, 0.5),
-						lerpf(1.15, 1.45, _cell_random(cell, 23)), _cell_random(cell, 24) * TAU, true, 0.5)
+				var away := Vector2.ZERO
+				for step: Vector2i in NEIGHBOURS_8:
+					var other: Vector2i = cell + step
+					if ground(other) == Ground.RAMP or is_path(other) or is_buildable(other):
+						away -= Vector2(step)
+				if away != Vector2.ZERO:
+					away = away.normalized()
+				var base := Vector2(cell) + Vector2(0.5, 0.5)
+				var wobble := Vector2(_cell_random(cell, 26) - 0.5, _cell_random(cell, 27) - 0.5) * ROW_WOBBLE
+				var spot: Vector2 = (base + away * _cell_random(cell, 28) * ROW_AWAY + wobble) \
+						.clamp(Vector2(cell) + Vector2(0.12, 0.12), Vector2(cell) + Vector2(0.88, 0.88))
+				# Algunas pequeñas se derraman a la casilla de fuera (nunca hacia la rampa ni a una explanada): así la
+				# hilera no tiene un borde recto.
+				var outside := Vector2i(-1, -1)
+				if away != Vector2.ZERO and _cell_random(cell, 59) < ROW_SPILL_CHANCE:
+					for candidate: Vector2i in [cell + Vector2i(roundi(away.x), roundi(away.y)),
+							cell + Vector2i(signi(roundi(away.x * 1.4)), 0), cell + Vector2i(0, signi(roundi(away.y * 1.4)))]:
+						if candidate != cell and not group.has(candidate) and _spill_spot(candidate):
+							outside = candidate
+							break
+				if outside != Vector2i(-1, -1):
+					_debris_cells[outside] = true
+					var spill: Vector2 = (Vector2(outside) + Vector2(0.5, 0.5) - away * 0.2 \
+							+ Vector2(_cell_random(outside, 60) - 0.5, _cell_random(outside, 61) - 0.5) * 0.3) \
+							.clamp(Vector2(outside) + Vector2(0.15, 0.15), Vector2(outside) + Vector2(0.85, 0.85))
+					_add_rock(MEDIUM_ROCKS[int(_cell_random(outside, 62) * 4.0) % 4], spill,
+							lerpf(0.6, 1.05, _cell_random(outside, 63)), _cell_random(outside, 64) * TAU, true, 0.3)
+				# Donde la rampa va alta, el talud es mayor: rocas más grandes como mínimo y asentadas menos abajo
+				# (César, sesión 31: el lado oeste de la rampa de la terraza quedaba vacío arriba).
+				var uphill: float = clampf(slope_drop(cell) / ROW_UPHILL_DROP, 0.0, 1.0)
+				var low_scale: float = lerpf(ROW_SCALE_MIN, ROW_UPHILL_MIN, uphill)
+				_add_rock(MEDIUM_ROCKS[int(_cell_random(cell, 22) * 4.0) % 4], spot,
+						lerpf(low_scale, ROW_SCALE_MAX, _cell_random(cell, 23)), _cell_random(cell, 24) * TAU, true,
+						lerpf(0.5, 0.25, uphill))
+				if _cell_random(cell, 29) < ROW_PAIR_CHANCE:
+					var side: Vector2 = (base - spot)
+					side = side.normalized() if side.length() > 0.01 else Vector2.RIGHT.rotated(_cell_random(cell, 30) * TAU)
+					var small_spot: Vector2 = (spot + side * 0.35).clamp(Vector2(cell) + Vector2(0.15, 0.15),
+							Vector2(cell) + Vector2(0.85, 0.85))
+					_add_rock(MEDIUM_ROCKS[(int(_cell_random(cell, 22) * 4.0) + 1) % 4], small_spot,
+							lerpf(0.45, 0.7, _cell_random(cell, 47)), _cell_random(cell, 48) * TAU, true, 0.3)
 		elif group.size() == 1:
 			_add_rock(MEDIUM_ROCKS[int(_cell_random(first, 22) * 4.0) % 4], center, lerpf(1.0, 1.3, _cell_random(first, 23)),
 					yaw, true, 0.45)
@@ -939,7 +1130,8 @@ func _compute_rocks() -> void:
 	var carved: Array[Vector2i] = cells_of(CARVED_CHAR)
 	if not carved.is_empty():
 		_add_rock(CARVED_BOULDER, _average(carved) + Vector2(0.5, 0.5), 1.0, 0.0, true, 0.8)
-	# Rocas medianas sueltas: en la orilla del río y del lago y junto a lo empinado (lomas y acantilados).
+	# Rocas medianas en corros (César, sesión 31: agrupadas quedan mejor que sueltas): en la orilla del río y del lago y
+	# junto a lo empinado (lomas y acantilados). Cada corro, una roca grande y de 1 a CLUSTER_EXTRA_MAX pequeñas pegadas.
 	var taken: Dictionary[Vector2i, bool] = {}
 	for y: int in range(1, size.y - 1):
 		for x: int in range(1, size.x - 1):
@@ -955,24 +1147,53 @@ func _compute_rocks() -> void:
 				chance = MEDIUM_CHANCE_RELIEF
 			if _cell_random(cell, 31) >= chance:
 				continue
-			var crowded: bool = false   # ni dos medianas pegadas
-			for dy: int in range(-1, 2):
-				for dx: int in range(-1, 2):
+			var crowded: bool = false   # entre dos corros, al menos CLUSTER_GAP casillas libres
+			for dy: int in range(-CLUSTER_GAP - 1, CLUSTER_GAP + 2):
+				for dx: int in range(-CLUSTER_GAP - 1, CLUSTER_GAP + 2):
 					crowded = crowded or taken.has(cell + Vector2i(dx, dy))
 			if crowded:
 				continue
 			taken[cell] = true
 			_debris_cells[cell] = true   # como una roca caída: ahí no se construye, no se planta y no aparece nada
-			var spot := Vector2(x + 0.5, y + 0.5) + Vector2(_cell_random(cell, 32) - 0.5, _cell_random(cell, 33) - 0.5) * 0.2
-			_add_rock(MEDIUM_ROCKS[int(_cell_random(cell, 34) * 4.0) % 4], spot,
-					lerpf(0.8, 1.2, _cell_random(cell, 35)),
-					_cell_random(cell, 36) * TAU, true, 0.4)
+			var center := Vector2(x + 0.5, y + 0.5) + Vector2(_cell_random(cell, 32) - 0.5, _cell_random(cell, 33) - 0.5) * 0.2
+			_add_rock(MEDIUM_ROCKS[int(_cell_random(cell, 34) * 4.0) % 4], center,
+					lerpf(1.0, 1.4, _cell_random(cell, 35)),
+					_cell_random(cell, 36) * TAU, true, 0.45)
+			# Las pequeñas, en casillas de al lado que también valgan (pegadas a la grande); si no cabe ninguna, una en
+			# la misma casilla.
+			var wanted: int = 1 + int(_cell_random(cell, 37) * CLUSTER_EXTRA_MAX) % CLUSTER_EXTRA_MAX
+			var first_step: int = int(_cell_random(cell, 38) * 8.0) % 8
+			var placed: int = 0
+			for k: int in 8:
+				if placed >= wanted:
+					break
+				var step: Vector2i = NEIGHBOURS_8[(first_step + k * 3) % 8]   # saltando de 3 en 3: salen repartidas
+				var other: Vector2i = cell + step
+				if taken.has(other) or not _medium_rock_spot(other) or _distance_to(other, ":", 1) <= 1:
+					continue
+				taken[other] = true
+				_debris_cells[other] = true
+				var spot: Vector2 = (Vector2(other) + Vector2(0.5, 0.5) - Vector2(step).normalized() * 0.25 \
+						+ Vector2(_cell_random(other, 51) - 0.5, _cell_random(other, 52) - 0.5) * 0.2) \
+						.clamp(Vector2(other) + Vector2(0.15, 0.15), Vector2(other) + Vector2(0.85, 0.85))
+				_add_rock(MEDIUM_ROCKS[int(_cell_random(other, 53) * 4.0) % 4], spot,
+						lerpf(0.5, 0.85, _cell_random(other, 54)), _cell_random(other, 55) * TAU, true, 0.3)
+				placed += 1
+			if placed == 0:
+				var side := Vector2.RIGHT.rotated(_cell_random(cell, 56) * TAU) * 0.3
+				var small_spot: Vector2 = (center + side).clamp(Vector2(cell) + Vector2(0.15, 0.15),
+						Vector2(cell) + Vector2(0.85, 0.85))
+				_add_rock(MEDIUM_ROCKS[(int(_cell_random(cell, 34) * 4.0) + 2) % 4], small_spot,
+						lerpf(0.45, 0.65, _cell_random(cell, 57)), _cell_random(cell, 58) * TAU, true, 0.3)
 	# Guijarros: al pie de las rocas (las del plano, el emblema, las medianas y las caídas) y de lo empinado.
 	for y: int in range(1, size.y - 1):
 		for x: int in range(1, size.x - 1):
 			var cell := Vector2i(x, y)
 			if not is_land(cell) or is_buildable(cell) or is_steep(cell) or FEATURE_CHARS.contains(char_at(cell)) \
 					or ground(cell) == Ground.BEACH or _debris_cells.has(cell) or _cell_random(cell, 41) >= PEBBLES_CHANCE:
+				continue
+			# Ni en las rampas ni en el sendero (sesión 31, César: en las dos rampas flotaban por la inclinación).
+			if ground(cell) == Ground.RAMP or is_path(cell):
 				continue
 			var by_rock: bool = _near_steep(cell)
 			for dy: int in range(-1, 2):
@@ -993,6 +1214,85 @@ func _near_inland_water(cell: Vector2i) -> bool:
 			if (dx != 0 or dy != 0) and ground(cell + Vector2i(dx, dy)) == Ground.WATER:
 				return true
 	return false
+
+
+## Helechos, arbustos y juncos (C5.6, sesión 31), decorativos: no dan nada ni chocan. Cada uno: pieza de `plants.glb`
+## (`mesh`), `position` (x, z del mundo de la isla; la altura la pone `TerrainView` con la malla dibujada), `yaw`,
+## `scale`, `stiffness` (0 = se dobla mucho con el viento, 1 = firme) y `reach` (lo lejos que se sigue viendo).
+## Reglas: juncos tocando el río y el lago; helechos a la sombra, junto a árboles y rocas; arbustos en las lomas, al
+## pie de lo empinado, junto a rocas y al borde de las arboledas. Nunca donde se construye (las explanadas y el suelo
+## natural casi plano quedan libres; ahí ya hay césped, flores y tréboles), ni en el sendero, rampas, arena, junto al
+## refugio, el portal, la valla o la escala.
+var plants: Array[Dictionary] = []
+const REED_CHANCE: float = 0.85
+const REED_PAIR_CHANCE: float = 0.55
+const FERN_CHANCE: float = 0.3
+const BUSH_CHANCE: float = 0.1
+const FERNS: Array[String] = ["fern_0", "fern_1"]
+const REEDS: Array[String] = ["reeds_0", "reeds_1"]
+## Arbustos de pequeño a grande; los grandes, menos.
+const BUSHES: Array[String] = ["bush_0", "bush_0", "bush_1", "bush_1", "bush_2"]
+
+
+## ¿Puede ir aquí un helecho, un arbusto o un junco?
+func _plant_spot(cell: Vector2i) -> bool:
+	if not is_land(cell) or can_build(cell) or is_steep(cell) or _debris_cells.has(cell) or is_path(cell):
+		return false
+	if FEATURE_CHARS.contains(char_at(cell)) or _worn[cell.y * size.x + cell.x] == 1:
+		return false
+	var g: Ground = ground(cell)
+	if g == Ground.RAMP or g == Ground.LANDING or g == Ground.BEACH or g == Ground.FALL:
+		return false
+	if _near_shelter(cell) or fence_cells.has(cell) or ladder_cells.has(cell) or _near_ladder(cell):
+		return false
+	# Ni junto a la pasarela del vado (sesión 31, César: dos juncos la atravesaban): sus extremos se apoyan en tierra.
+	return _distance_to(cell, "P", 2) > 2 and _distance_to(cell, FORD_CELL_CHAR, PLANT_FORD_CLEAR) > PLANT_FORD_CLEAR
+
+
+## Casillas libres de plantas alrededor del vado (la pasarela y sus apoyos en las orillas).
+const PLANT_FORD_CLEAR: int = 3
+## Letra del vado en el plano (la misma que `BridgeBuilder.FORD_CHAR`).
+const FORD_CELL_CHAR: String = "s"
+
+
+## ¿Hay a `reach` casillas o menos alguna de `chars` (o una roca, si `rocks`)?
+func _near_any(cell: Vector2i, chars: String, reach: int, rocks_too: bool) -> bool:
+	for dy: int in range(-reach, reach + 1):
+		for dx: int in range(-reach, reach + 1):
+			var other: Vector2i = cell + Vector2i(dx, dy)
+			if chars.contains(char_at(other)) or (rocks_too and _debris_cells.has(other)):
+				return true
+	return false
+
+
+func _add_plant(mesh: String, cell: Vector2i, salt: int, scale: float, stiffness: float, reach: float) -> void:
+	var at := Vector2(cell) + Vector2(0.5, 0.5) \
+			+ Vector2(_cell_random(cell, salt) - 0.5, _cell_random(cell, salt + 1) - 0.5) * 0.6
+	plants.append({"mesh": mesh, "position": at, "yaw": _cell_random(cell, salt + 2) * TAU, "scale": scale,
+			"stiffness": stiffness, "reach": reach})
+
+
+func _compute_plants() -> void:
+	plants.clear()
+	for y: int in range(1, size.y - 1):
+		for x: int in range(1, size.x - 1):
+			var cell := Vector2i(x, y)
+			if not _plant_spot(cell):
+				continue
+			if _near_inland_water(cell):
+				if _cell_random(cell, 71) < REED_CHANCE:
+					var scale: float = lerpf(0.8, 1.2, _cell_random(cell, 72))
+					_add_plant(REEDS[int(_cell_random(cell, 73) * 2.0) % 2], cell, 74, scale, 0.05, 0.6)
+					if _cell_random(cell, 77) < REED_PAIR_CHANCE:
+						_add_plant(REEDS[int(_cell_random(cell, 78) * 2.0) % 2], cell, 79, scale * 0.85, 0.05, 0.6)
+				continue
+			if _near_any(cell, "tTX", 1, true) and _cell_random(cell, 81) < FERN_CHANCE:
+				_add_plant(FERNS[int(_cell_random(cell, 82) * 2.0) % 2], cell, 83,
+						lerpf(0.8, 1.2, _cell_random(cell, 86)), 0.45, 0.3)
+				continue
+			if (_near_steep(cell) or _near_any(cell, "TX", 2, true)) and _cell_random(cell, 91) < BUSH_CHANCE:
+				_add_plant(BUSHES[int(_cell_random(cell, 92) * BUSHES.size()) % BUSHES.size()], cell, 93,
+						lerpf(0.85, 1.15, _cell_random(cell, 96)), 0.8, 1.0)
 
 
 ## ¿Hay algo empinado (pared, borde de loma) a una casilla?
@@ -1281,6 +1581,8 @@ func _compute_corners() -> void:
 	_drops = drops
 	_compute_wall_feet(drops)
 	_compute_rocks()
+	_compute_natural_build()
+	_compute_plants()
 	for y: int in size.y:
 		for x: int in size.x:
 			if can_spawn(Vector2i(x, y)):

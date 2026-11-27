@@ -202,7 +202,10 @@ func _ready() -> void:
 			var cell := Vector2i(floori(p.x), floori(p.z))
 			if not alba.is_land(cell) or not alba.has_debris(cell):
 				debris_ok = false
-		_check("Isla Alba: rocas caídas al pie de las paredes, en tierra", debris_ok)
+			if alba.ground(cell) in [IslandLayout.Ground.LOW_FLAT, IslandLayout.Ground.MID_FLAT,
+					IslandLayout.Ground.HIGH_FLAT, IslandLayout.Ground.TOP_FLAT, IslandLayout.Ground.LANDING]:
+				debris_ok = false   # sesión 31 (César): en las explanadas estorban para construir
+		_check("Isla Alba: rocas caídas al pie de las paredes, en tierra y fuera de las explanadas", debris_ok)
 		# Rocas modeladas (C5.6, sesión 30): peñascos de los grupos de X, un solo peñasco del emblema en su K, medianas que
 		# bloquean su casilla y guijarros que no chocan; ni unas ni otros en una explanada ni en la arena (César).
 		var carved: int = 0
@@ -226,6 +229,37 @@ func _ready() -> void:
 				mediums += 1
 				rocks_ok = rocks_ok and rock["solid"] and alba.has_debris(cell) and not alba.can_spawn(cell) \
 						and not alba.is_buildable(cell) and alba.ground(cell) != IslandLayout.Ground.BEACH
+		# Suelo natural casi plano construible (sesión 31, César): bastante, a la altura de su nivel, sin flotar y con la
+		# construcción como mucho NATURAL_BUILD_ABOVE metros hundida; nunca en el sendero, una rampa, el agua ni una roca.
+		var natural: int = 0
+		var natural_ok: bool = true
+		for y: int in alba.size.y:
+			for x: int in alba.size.x:
+				var cell := Vector2i(x, y)
+				if not alba.is_natural_build(cell):
+					continue
+				natural += 1
+				var lv: int = alba.level(cell)
+				var gap: float = alba.surface_height(cell) - IslandLayout.level_height(lv)
+				natural_ok = natural_ok and alba.can_build(cell) and not alba.is_buildable(cell) and lv != IslandLayout.NO_LEVEL \
+						and is_equal_approx(alba.build_height(cell), IslandLayout.level_height(lv)) \
+						and gap <= IslandLayout.NATURAL_BUILD_ABOVE + 0.001 and gap >= -IslandLayout.NATURAL_BUILD_BELOW - 0.001 \
+						and not alba.is_path(cell) and alba.ground(cell) != IslandLayout.Ground.RAMP and not alba.has_debris(cell)
+		_check("Isla Alba: suelo natural casi plano construible (%d casillas), a la altura de su nivel" % natural,
+				natural_ok and natural > 1000)
+		# Helechos, arbustos y juncos (sesión 31): de los tres tipos y nunca donde se construye, en el sendero, la
+		# arena, el agua ni una roca.
+		var plant_kinds: Dictionary[String, int] = {}
+		var plants_ok: bool = alba.plants.size() > 200
+		for plant: Dictionary in alba.plants:
+			var spot: Vector2 = plant["position"]
+			var cell := Vector2i(floori(spot.x), floori(spot.y))
+			var kind: String = String(plant["mesh"]).get_slice("_", 0)
+			plant_kinds[kind] = plant_kinds.get(kind, 0) + 1
+			plants_ok = plants_ok and alba.is_land(cell) and not alba.can_build(cell) and not alba.is_path(cell) \
+					and alba.ground(cell) != IslandLayout.Ground.BEACH and not alba.has_debris(cell)
+		_check("Isla Alba: helechos, arbustos y juncos fuera de lo construible (%d)" % alba.plants.size(),
+				plants_ok and plant_kinds.has("fern") and plant_kinds.has("bush") and plant_kinds.has("reeds"))
 		_check("Isla Alba: un solo peñasco del emblema, en sus 4 casillas K", carved == 1
 				and alba.cells_of(IslandLayout.CARVED_CHAR).size() == 4)
 		_check("Isla Alba: rocas repartidas (%d peñascos, %d medianas sueltas, %d grupitos de guijarros)" % [big, mediums, pebbles],

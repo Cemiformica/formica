@@ -27,7 +27,7 @@ instance uniform vec3 leaf_tint = vec3(1.0);
 //   2 rama cortada: disco claro con un aro oscuro.
 const float KNOT_CELLS_AROUND = 5.0;
 const float KNOT_CELLS_PER_M = 2.6;
-const float KNOT_CHANCE = 0.38;       // parte de las casillas con nudo
+const float KNOT_CHANCE = 0.52;       // parte de las casillas con nudo (sesión 31: +37 %, antes 0,38; César, D-208)
 const float KNOT_RADIUS = 0.15;       // en casillas (el nudo nunca sale de la suya)
 const float KNOT_DARK = 0.55;         // centro del nudo
 const float KNOT_RING = 1.18;         // aro de alrededor
@@ -36,6 +36,17 @@ const float KNOT_WOBBLE = 0.25;       // cuánto se abolla el borde (0 = formas 
 const float KNOT_TILT = 0.45;         // giro máximo de cada marca (radianes)
 const float CUT_LIGHT = 1.22;         // centro claro de la rama cortada
 const float BARK_SPECKS = 0.04;       // motas casi imperceptibles
+// Corteza (sesión 31, César, D-208: los troncos se veían planos): surcos verticales de juguete, con el borde marcado
+// (nada de vetas difuminadas, D-181), que ondulan al subir y se cortan a trozos; solo en los costados (el corte de
+// un tocón queda liso) y apartándose de los nudos. La base del tronco, más oscura.
+const float BARK_GROOVES = 7.0;       // surcos alrededor del tronco
+const float GROOVE_WIDTH = 0.07;      // medio ancho de cada surco (en surcos: 0,5 = todo surco)
+const float GROOVE_DARK = 0.72;       // lo oscuro del surco
+const float GROOVE_WANDER = 0.55;     // cuánto ondula (en surcos)
+const float GROOVE_KEEP = 0.7;        // parte de cada tramo de surco que se dibuja (el resto, cortado)
+const float GROOVE_SEGMENTS_PER_M = 2.4;
+const float BASE_DARK = 0.8;          // color al pie del tronco
+const float BASE_HEIGHT = 0.55;       // hasta dónde llega lo oscuro (m del modelo)
 // Hojas: manchas grandes, motas finas y sombra de juguete (abajo más oscuro, arriba más claro).
 const float LEAF_PATCHES = 0.22;
 const float LEAF_SPECKS = 0.10;
@@ -104,6 +115,21 @@ void fragment() {
 	float wood_fine = value_noise(local_pos.xy * 22.0 + local_pos.zy * 17.0);
 	float bark = 1.0 + (wood_fine - 0.5) * 2.0 * BARK_SPECKS;
 	bark *= mix(1.0, mark, has_knot);
+
+	// Surcos: en (vueltas al tronco, altura). El ondulado sale de un ruido sobre el círculo (sin costura) y la altura.
+	float bark_a = atan(local_pos.z, local_pos.x);
+	float wander = (value_noise(vec2(cos(bark_a) * 1.3 + local_pos.y * 1.7, sin(bark_a) * 1.3 + 4.0)) - 0.5)
+			* 2.0 * GROOVE_WANDER;
+	float groove_p = (bark_a / 6.2832 + 0.5) * BARK_GROOVES + wander;
+	float groove_index = mod(floor(groove_p + 0.5), BARK_GROOVES);
+	float groove_dist = abs(groove_p - floor(groove_p + 0.5));
+	float groove_line = 1.0 - smoothstep(GROOVE_WIDTH, GROOVE_WIDTH + 0.025, groove_dist);
+	float segment = floor(local_pos.y * GROOVE_SEGMENTS_PER_M + hash(vec2(groove_index, 7.0)) * 3.0);
+	float groove_on = step(hash(vec2(groove_index * 13.0, segment)), GROOVE_KEEP);
+	float sides = 1.0 - smoothstep(0.45, 0.75, abs(normalize(local_normal).y));
+	float near_knot = has_knot * (1.0 - smoothstep(1.15, 1.7, length(q)));
+	bark *= mix(1.0, GROOVE_DARK, groove_line * groove_on * sides * (1.0 - near_knot));
+	bark *= mix(BASE_DARK, 1.0, smoothstep(0.0, BASE_HEIGHT, local_pos.y));
 
 	// Hojas: dos planos de ruido cruzados para que se vea bien desde todos los lados.
 	float patches = fbm(local_pos.xy * 1.8 + 5.0) * 0.5 + fbm(local_pos.zy * 1.8 + 31.0) * 0.5;

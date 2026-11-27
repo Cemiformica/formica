@@ -62,6 +62,30 @@ const CHUNK_META: StringName = &"grass_chunk"
 @export var width_scale_range: Vector2 = Vector2(0.85, 1.15)
 @export var material: ShaderMaterial
 
+@export_group("Flores y tréboles")
+## Piezas de `plants.glb` (C5.6, sesión 31): flores de 3 colores y tréboles de 3 y 4 hojas, en corros dentro del césped
+## (donde no hay césped, tampoco hay flores). Sin escena, no se ponen. Tienen su propio azar: no cambian el césped.
+@export var decor_scene: PackedScene
+## `plants_ground.tres`: el shader de las plantas con las máscaras del césped (claros, roca y lo construido).
+@export var decor_material: ShaderMaterial
+## Los tréboles, con su propio material (`plants_ground_clover.tres`: tallos más parecidos al césped). Sin él, el de
+## las flores.
+@export var clover_material: ShaderMaterial
+## Flores por m² en el centro de un corro, y sueltas fuera de los corros.
+@export var flower_density: float = 2.2
+@export var stray_flower_density: float = 0.012
+## Ruido de los corros de flores: frecuencia y desde qué valor empieza un corro (hasta + 0,15, entero).
+@export var flower_patch_frequency: float = 0.09
+@export var flower_patch_threshold: float = 0.28
+## Ruido del color de cada zona (más lento que el de los corros: corros vecinos suelen ser del mismo color).
+@export var flower_color_frequency: float = 0.035
+## Tréboles por m² en el centro de un corro, frecuencia y umbral de sus corros.
+@export var clover_density: float = 3.5
+@export var clover_patch_frequency: float = 0.13
+@export var clover_patch_threshold: float = 0.22
+## Parte de los tréboles que tiene 4 hojas (César: uno de cada ~40).
+@export_range(0.0, 0.2, 0.001) var four_leaf_chance: float = 0.025
+
 @export_group("Distancia")
 ## Corte duro de cada trozo. Debe ser mayor que fade_end del shader + 0,75 × chunk_size,
 ## para que las briznas ya se hayan encogido cuando el trozo desaparece.
@@ -72,6 +96,12 @@ const CHUNK_META: StringName = &"grass_chunk"
 var _rebuild_pending: bool = false
 var _ray_query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.new()
 var _clump_noise: FastNoiseLite = FastNoiseLite.new()
+var _flower_noise: FastNoiseLite = FastNoiseLite.new()
+var _flower_color_noise: FastNoiseLite = FastNoiseLite.new()
+var _clover_noise: FastNoiseLite = FastNoiseLite.new()
+## Piezas de flores y tréboles por nombre (`flowers_0`…, `clover_3`, `clover_4`), sacadas de `decor_scene`.
+var _decor_meshes: Dictionary[String, Mesh] = {}
+const FLOWER_PIECES: Array[String] = ["flowers_0", "flowers_1", "flowers_2"]
 
 
 func _ready() -> void:
@@ -103,15 +133,20 @@ func _rebuild() -> void:
 	_clump_noise.frequency = clump_frequency
 	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 	_ray_query.collision_mask = ray_mask
+	_load_decor()
 	var cols: int = ceili(area_size.x / chunk_size)
 	var rows: int = ceili(area_size.y / chunk_size)
 	var total: int = 0
+	var decor: Vector2i = Vector2i.ZERO
 	var started_ms: int = Time.get_ticks_msec()
 	for cz: int in rows:
 		for cx: int in cols:
 			total += _build_chunk(cx, cz, blade_mesh, space)
+			decor += _build_decor(cx, cz, space)
 	print("GrassField: %d matas (%d briznas) en %d trozos (%d ms)" % [total, total * blades_per_tuft, cols * rows,
 			Time.get_ticks_msec() - started_ms])
+	if not _decor_meshes.is_empty():
+		print("GrassField: %d flores y %d tréboles" % [decor.x, decor.y])
 
 
 func _build_chunk(cx: int, cz: int, blade_mesh: ArrayMesh, space: PhysicsDirectSpaceState3D) -> int:
@@ -186,6 +221,123 @@ func _build_chunk(cx: int, cz: int, blade_mesh: ArrayMesh, space: PhysicsDirectS
 	chunk.set_meta(CHUNK_META, true)
 	add_child(chunk) # sin owner a propósito: no se guarda en la escena
 	return transforms.size()
+
+
+## Lee las piezas de flores y tréboles de `decor_scene` y prepara los ruidos de sus corros.
+func _load_decor() -> void:
+	_decor_meshes.clear()
+	if decor_scene == null or decor_material == null:
+		return
+	var scene: Node = decor_scene.instantiate()
+	for node: Node in scene.find_children("*", "MeshInstance3D", true, false):
+		var piece: String = String(node.name).trim_suffix("_mesh")
+		if piece.begins_with("flowers_") or piece.begins_with("clover_"):
+			_decor_meshes[piece] = (node as MeshInstance3D).mesh
+	scene.free()
+	_flower_noise.seed = random_seed + 101
+	_flower_noise.frequency = flower_patch_frequency
+	_flower_color_noise.seed = random_seed + 202
+	_flower_color_noise.frequency = flower_color_frequency
+	_clover_noise.seed = random_seed + 303
+	_clover_noise.frequency = clover_patch_frequency
+
+
+## Flores y tréboles de un trozo (sesión 31): en corros que salen de un ruido; las flores, de un color por zona y alguna
+## suelta; cerca del refugio y del portal hay más corros (`get_flower_boost_at` del proveedor). Cada pieza, su
+## MultiMesh. Devuelve (flores, tréboles).
+func _build_decor(cx: int, cz: int, space: PhysicsDirectSpaceState3D) -> Vector2i:
+	if _decor_meshes.is_empty():
+		return Vector2i.ZERO
+	var half_area: Vector2 = area_size * 0.5
+	var start: Vector2 = Vector2(-half_area.x + cx * chunk_size, -half_area.y + cz * chunk_size)
+	var size: Vector2 = Vector2(minf(chunk_size, half_area.x - start.x), minf(chunk_size, half_area.y - start.y))
+	var center_local: Vector3 = Vector3(start.x + size.x * 0.5, 0.0, start.y + size.y * 0.5)
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	rng.seed = hash(Vector3i(random_seed + 7919, cx, cz))
+	var max_slope_cos: float = cos(deg_to_rad(max_slope_deg))
+	var placed: Dictionary[String, Array] = {}   # pieza → [transforms, customs]
+	var counts: Vector2i = Vector2i.ZERO
+	# Flores.
+	var attempts: int = int(size.x * size.y * flower_density)
+	for i: int in attempts:
+		var local := Vector3(start.x + rng.randf() * size.x, 0.0, start.y + rng.randf() * size.y)
+		var keep_roll: float = rng.randf()
+		var stray_roll: float = rng.randf()
+		var yaw: float = rng.randf() * TAU
+		var grow: float = rng.randf_range(0.8, 1.2)
+		var variation: float = rng.randf()
+		var world: Vector3 = to_global(local)
+		var boost: float = _provider_value(&"get_flower_boost_at", world, 0.0)
+		var patch: float = smoothstep(flower_patch_threshold, flower_patch_threshold + 0.15,
+				_flower_noise.get_noise_2d(world.x, world.z) + boost * 0.25)
+		var stray: bool = stray_roll < stray_flower_density / flower_density
+		if keep_roll >= patch and not stray:
+			continue
+		var color: int = clampi(int((_flower_color_noise.get_noise_2d(world.x, world.z) + 0.45) / 0.9 * 3.0), 0, 2)
+		if stray:
+			color = int(variation * 3.0) % 3
+		if _add_decor(placed, FLOWER_PIECES[color], local, center_local, yaw, grow, variation, space, max_slope_cos):
+			counts.x += 1
+	# Tréboles.
+	attempts = int(size.x * size.y * clover_density)
+	for i: int in attempts:
+		var local := Vector3(start.x + rng.randf() * size.x, 0.0, start.y + rng.randf() * size.y)
+		var keep_roll: float = rng.randf()
+		var four_roll: float = rng.randf()
+		var yaw: float = rng.randf() * TAU
+		var grow: float = rng.randf_range(0.85, 1.3)
+		var variation: float = rng.randf()
+		var world: Vector3 = to_global(local)
+		var patch: float = smoothstep(clover_patch_threshold, clover_patch_threshold + 0.15,
+				_clover_noise.get_noise_2d(world.x, world.z))
+		if keep_roll >= patch:
+			continue
+		var piece: String = "clover_4" if four_roll < four_leaf_chance else "clover_3"
+		if _add_decor(placed, piece, local, center_local, yaw, grow, variation, space, max_slope_cos):
+			counts.y += 1
+	for piece: String in placed:
+		if not _decor_meshes.has(piece):
+			continue
+		var transforms: Array = placed[piece][0]
+		var customs: Array = placed[piece][1]
+		var multimesh: MultiMesh = MultiMesh.new()
+		multimesh.transform_format = MultiMesh.TRANSFORM_3D
+		multimesh.use_custom_data = true
+		multimesh.mesh = _decor_meshes[piece]
+		multimesh.instance_count = transforms.size()
+		for k: int in transforms.size():
+			multimesh.set_instance_transform(k, transforms[k])
+			multimesh.set_instance_custom_data(k, customs[k])
+		var chunk: MultiMeshInstance3D = MultiMeshInstance3D.new()
+		chunk.name = "Decor_%s_%d_%d" % [piece, cx, cz]
+		chunk.multimesh = multimesh
+		chunk.position = center_local
+		chunk.material_override = clover_material if piece.begins_with("clover_") and clover_material != null \
+				else decor_material
+		chunk.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		chunk.extra_cull_margin = 0.5
+		chunk.visibility_range_end = visibility_end
+		chunk.set_meta(CHUNK_META, true)
+		add_child(chunk)
+	return counts
+
+
+## Pone una flor o un trébol si ahí crece césped. Lleva lo mismo que una mata (para las máscaras del shader).
+func _add_decor(placed: Dictionary[String, Array], piece: String, local: Vector3, center_local: Vector3, yaw: float,
+		grow: float, variation: float, space: PhysicsDirectSpaceState3D, max_slope_cos: float) -> bool:
+	if not _decor_meshes.has(piece):
+		return false
+	var ground: Variant = _sample_ground(local, space, max_slope_cos)
+	if ground == null:
+		return false
+	var world: Vector3 = to_global(local)
+	if not placed.has(piece):
+		placed[piece] = [[], []]
+	(placed[piece][0] as Array).append(Transform3D(Basis(Vector3.UP, yaw).scaled(Vector3.ONE * grow),
+			(ground as Vector3) - center_local))
+	(placed[piece][1] as Array).append(Color(variation, _flat_at(world), _provider_value(&"get_up_at", world, 1.0),
+			_provider_value(&"get_wall_at", world, 0.0)))
+	return true
 
 
 ## Devuelve el punto del suelo en coordenadas locales del nodo, o null si ahí no va césped.

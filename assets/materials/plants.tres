@@ -1,0 +1,21 @@
+[gd_resource type="ShaderMaterial" load_steps=5 format=3]
+
+[ext_resource type="Shader" path="res://entities/nature/plants.gdshader" id="1_plants"]
+[ext_resource type="Texture2D" path="res://assets/textures/palette.png" id="2_palette"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_wind"]
+noise_type = 1
+frequency = 0.012
+fractal_octaves = 2
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_wind"]
+width = 256
+height = 256
+seamless = true
+noise = SubResource("FastNoiseLite_wind")
+
+[resource]
+render_priority = 0
+shader = ExtResource("1_plants")
+shader_parameter/palette_texture = ExtResource("2_palette")
+shader_parameter/wind_noise = SubResource("NoiseTexture2D_wind")

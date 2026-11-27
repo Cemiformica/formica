@@ -126,14 +126,15 @@ func placement_problem(data: BuildingData, origin: Vector2i, rotation: int = 0) 
 			if flow == Vector2i.ZERO or (flow != axis and flow != -axis):
 				return "BUILD_NEEDS_WATER"
 			wet[cell] = true
-	# Con plano (C5.3, D-154): solo en las explanadas y entera en una sola altura (las casillas de agua de la
-	# rueda no cuentan: van sobre el río).
+	# Con plano (C5.3, D-154): solo en las explanadas y, desde la sesión 31, también en el suelo natural casi plano
+	# (`IslandLayout.can_build`), y entera en una sola altura (las casillas de agua de la rueda no cuentan: van sobre
+	# el río).
 	if layout != null:
 		var first_level: int = IslandLayout.NO_LEVEL
 		for cell: Vector2i in OccupancyGrid.footprint_cells(origin, data.size, rotation):
 			if wet.has(cell):
 				continue
-			if not layout.is_buildable(cell):
+			if not layout.can_build(cell):
 				return "BUILD_NOT_BUILDABLE"
 			if first_level == IslandLayout.NO_LEVEL:
 				first_level = layout.level(cell)
@@ -1098,8 +1099,16 @@ func apply_layout(p_layout: IslandLayout) -> void:
 func ground_y_for(data: BuildingData, origin: Vector2i, rotation: int) -> float:
 	for cell: Vector2i in OccupancyGrid.footprint_cells(origin, data.size, rotation):
 		if not water.has(cell):
-			return ground_height(cell)
+			return build_height(cell)
 	return ground_height(origin)
+
+
+## Altura a la que va una construcción en esta casilla: la de su suelo y, en el suelo natural casi plano (sesión 31),
+## la de su nivel (0, 3, 6 o 9 m, como las explanadas), así todo lo de una misma altura se une.
+func build_height(cell: Vector2i) -> float:
+	if layout != null and layout.is_natural_build(cell):
+		return layout.build_height(cell)
+	return ground_height(cell)
 
 
 ## Altura del suelo de una casilla (m): 0 abajo, `IslandLayout.LEVEL_HEIGHT` arriba, y en la ladera la que
